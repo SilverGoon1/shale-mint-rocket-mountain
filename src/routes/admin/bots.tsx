@@ -12,6 +12,8 @@ import {
   type BotAuditView,
 } from "@/lib/bot/bot-admin";
 import { formatShopWhen } from "@/lib/hours";
+import { listDeskAccounts, setDeskAllowed } from "@/lib/shop-server";
+import type { DeskAccountRow } from "@/lib/shop-types";
 
 export const Route = createFileRoute("/admin/bots")({ component: AdminBots });
 
@@ -27,6 +29,12 @@ function AdminBots() {
   const [busy, setBusy] = useState("");
   const [msg, setMsg] = useState("");
   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
+  const [desk, setDesk] = useState<{
+    accounts: DeskAccountRow[];
+    canGrant: boolean;
+    granted: number;
+    max: number;
+  }>({ accounts: [], canGrant: false, granted: 0, max: 12 });
 
   function reload() {
     void listBotAgents()
@@ -35,6 +43,9 @@ function AdminBots() {
     void listBotAudit()
       .then(setAudit)
       .catch(() => setAudit([]));
+    void listDeskAccounts()
+      .then(setDesk)
+      .catch(() => undefined);
   }
 
   useEffect(() => {
@@ -162,6 +173,67 @@ function AdminBots() {
           </div>
         ) : null}
         {msg ? <p className="ed-sub">{msg}</p> : null}
+      </section>
+
+      <section className="page-card">
+        <h2>Team / desk accounts</h2>
+        <p className="ed-sub">
+          Each bot uses its own email and password. Silver grants Admin mode here (soft max {desk.max}). Then that
+          person turns <strong>Admin mode</strong> on from the header name menu. Desk path is{" "}
+          <code>/admin/pos</code>. Temp Admin cannot grant others.
+        </p>
+        {desk.accounts.length === 0 ? (
+          <p className="ed-empty">No signed-up accounts yet.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="plain-table">
+              <thead>
+                <tr>
+                  <th>Account</th>
+                  <th>Allowed</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {desk.accounts.map((row) => (
+                  <tr key={row.userId}>
+                    <td>
+                      <strong>{row.emailLocal}</strong>
+                      <span className="bot-agent-state">{row.emailMasked}</span>
+                      {row.displayName && row.displayName !== row.emailLocal ? (
+                        <span className="bot-agent-state">{row.displayName}</span>
+                      ) : null}
+                    </td>
+                    <td>{row.adminModeAllowed ? (row.adminMode ? "On" : "Granted") : "—"}</td>
+                    <td>
+                      {desk.canGrant ? (
+                        <button
+                          type="button"
+                          className={row.adminModeAllowed ? "ed-btn ed-btn-danger" : "ed-btn"}
+                          disabled={Boolean(busy)}
+                          onClick={() => {
+                            setBusy(row.userId);
+                            setMsg("");
+                            void setDeskAllowed({ data: { userId: row.userId, allowed: !row.adminModeAllowed } })
+                              .then(() => reload())
+                              .catch((e) => setMsg(e instanceof Error ? e.message : "Could not update desk grant"))
+                              .finally(() => setBusy(""));
+                          }}
+                        >
+                          {row.adminModeAllowed ? "Revoke" : "Grant"}
+                        </button>
+                      ) : null}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+        <p className="ed-sub">
+          {desk.granted}/{desk.max} granted
+          {desk.canGrant ? "" : " · Ask Silver to grant your account, then use Admin mode in the header."}
+        </p>
       </section>
 
       <section className="page-card">

@@ -86,10 +86,15 @@ export const useCartStore = create<CartState>()(
           };
         }),
       setQty: (key, qty) =>
-        set((s) => ({
-          lines: qty <= 0 ? s.lines.filter((l) => l.key !== key) : s.lines.map((l) => (l.key === key ? { ...l, qty } : l)),
-        })),
-      remove: (key) => set((s) => ({ lines: s.lines.filter((l) => l.key !== key) })),
+        set((s) => {
+          const lines = qty <= 0 ? s.lines.filter((l) => l.key !== key) : s.lines.map((l) => (l.key === key ? { ...l, qty } : l));
+          return { lines, notes: lines.length ? s.notes : "" };
+        }),
+      remove: (key) =>
+        set((s) => {
+          const lines = s.lines.filter((l) => l.key !== key);
+          return { lines, notes: lines.length ? s.notes : "" };
+        }),
       setNotes: (notes) => set({ notes }),
       clear: () => set({ lines: [], notes: "" }),
     }),
@@ -102,7 +107,10 @@ export const useCartStore = create<CartState>()(
         return localStorage;
       }),
       skipHydration: true,
-      partialize: (s) => ({ lines: s.lines, notes: s.notes }),
+      partialize: (s) => ({
+        lines: s.lines.map((l) => ({ ...l, comment: undefined })),
+        notes: s.lines.length ? s.notes : "",
+      }),
     },
   ),
 );

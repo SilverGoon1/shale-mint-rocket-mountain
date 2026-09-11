@@ -1,0 +1,930 @@
+diff --git a/migrations/0026_email_signup_codes.sql b/migrations/0026_email_signup_codes.sql
+new file mode 100644
+index 0000000..314ce66
+--- /dev/null
++++ b/migrations/0026_email_signup_codes.sql
+@@ -0,0 +1,13 @@
++create table if not exists email_signup_codes (
++  id text primary key,
++  user_id text not null,
++  email text not null,
++  code_hash text not null,
++  salt text not null,
++  expires_at timestamptz not null,
++  attempts integer not null default 0,
++  consumed_at timestamptz,
++  created_at timestamptz not null default now()
++);
++create index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc);
++create index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc);
+diff --git a/package-lock.json b/package-lock.json
+index 4837353..54be18c 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -51,6 +51,7 @@
+         "react-hook-form": "^7.54.0",
+         "react-resizable-panels": "^4.6.5",
+         "recharts": "^2.13.0",
++        "resend": "^6.27.0",
+         "sonner": "^2.0.7",
+         "tailwind-merge": "^3.5.0",
+         "tailwindcss": "^4.3.0",
+@@ -2443,6 +2444,11 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/@stablelib/base64": {
++      "version": "1.0.1",
++      "resolved": "https://registry.npmjs.org/@stablelib/base64/-/base64-1.0.1.tgz",
++      "integrity": "sha512-1bnPQqSxSuc3Ii6MhBysoWCg58j97aUjuCSZrGSmDxNqtytIi0k8utUenAwTZN4V5mXXYGsVUI9zeBqy+jBOSQ=="
++    },
+     "node_modules/@standard-schema/spec": {
+       "version": "1.1.0",
+       "resolved": "https://registry.npmjs.org/@standard-schema/spec/-/spec-1.1.0.tgz",
+@@ -5067,6 +5073,11 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/fast-sha256": {
++      "version": "1.3.0",
++      "resolved": "https://registry.npmjs.org/fast-sha256/-/fast-sha256-1.3.0.tgz",
++      "integrity": "sha512-n11RGP/lrWEFI/bWdygLxhI+pVeo1ZYIVwvvPkW7azl/rOy+F3HYRZ2K5zeE9mmkhQppyv9sQFx0JM9UabnpPQ=="
++    },
+     "node_modules/fast-uri": {
+       "version": "3.1.7",
+       "resolved": "https://registry.npmjs.org/fast-uri/-/fast-uri-3.1.7.tgz",
+@@ -6360,6 +6371,11 @@
+         "node": ">=20"
+       }
+     },
++    "node_modules/postal-mime": {
++      "version": "2.7.5",
++      "resolved": "https://registry.npmjs.org/postal-mime/-/postal-mime-2.7.5.tgz",
++      "integrity": "sha512-GNEXKvWFQnbgO5NlrGzVa0FmWzBZ24PersAWErttSg1Hjpf0ATxTwS5DOMGaOpTG6bUh5cTr7xi0jAD942wCJA=="
++    },
+     "node_modules/postcss": {
+       "version": "8.5.28",
+       "resolved": "https://registry.npmjs.org/postcss/-/postcss-8.5.28.tgz",
+@@ -6734,6 +6750,26 @@
+         "node": ">=0.10.0"
+       }
+     },
++    "node_modules/resend": {
++      "version": "6.27.0",
++      "resolved": "https://registry.npmjs.org/resend/-/resend-6.27.0.tgz",
++      "integrity": "sha512-5Auh9GWkmKteeEM7rG45j7JRQVsKaQG0Okk4Ev0Pekh+1qfclRsmd4alZ3Kx0AqEosnZjEe/kCXf9jxfGaPZtg==",
++      "dependencies": {
++        "postal-mime": "2.7.5",
++        "standardwebhooks": "1.0.0"
++      },
++      "engines": {
++        "node": ">=20"
++      },
++      "peerDependencies": {
++        "@react-email/render": "*"
++      },
++      "peerDependenciesMeta": {
++        "@react-email/render": {
++          "optional": true
++        }
++      }
++    },
+     "node_modules/resolve-from": {
+       "version": "4.0.0",
+       "resolved": "https://registry.npmjs.org/resolve-from/-/resolve-from-4.0.0.tgz",
+@@ -6909,6 +6945,15 @@
+         "node": ">=20.16.0"
+       }
+     },
++    "node_modules/standardwebhooks": {
++      "version": "1.0.0",
++      "resolved": "https://registry.npmjs.org/standardwebhooks/-/standardwebhooks-1.0.0.tgz",
++      "integrity": "sha512-BbHGOQK9olHPMvQNHWul6MYlrRTAOKn03rOe4A8O3CLWhNf4YHBqq2HJKKC+sfqpxiBY52pNeesD6jIiLDz8jg==",
++      "dependencies": {
++        "@stablelib/base64": "^1.0.0",
++        "fast-sha256": "^1.3.0"
++      }
++    },
+     "node_modules/strip-json-comments": {
+       "version": "3.1.1",
+       "resolved": "https://registry.npmjs.org/strip-json-comments/-/strip-json-comments-3.1.1.tgz",
+diff --git a/package.json b/package.json
+index 79a0e73..1d44c03 100644
+--- a/package.json
++++ b/package.json
+@@ -66,6 +66,7 @@
+     "react-hook-form": "^7.54.0",
+     "react-resizable-panels": "^4.6.5",
+     "recharts": "^2.13.0",
++    "resend": "^6.27.0",
+     "sonner": "^2.0.7",
+     "tailwind-merge": "^3.5.0",
+     "tailwindcss": "^4.3.0",
+diff --git a/src/lib/email/resend.server.ts b/src/lib/email/resend.server.ts
+new file mode 100644
+index 0000000..37c13b7
+--- /dev/null
++++ b/src/lib/email/resend.server.ts
+@@ -0,0 +1,70 @@
++/**
++ * Shared Resend mailer for South End Pizza (server-only).
++ *
++ * Env (Vercel Marketplace Resend on southend/southendpizza):
++ *   RESEND_API_KEY
++ *   RESEND_EMAIL_DOMAIN — e.g. southendpizza.app
++ *   EMAIL_FROM — optional full From override; else
++ *     `South End Pizza <orders@${RESEND_EMAIL_DOMAIN}>`
++ */
++import { Resend } from "resend";
++import { isVercelProduction } from "@/lib/prod-guard.server";
++
++export type SendEmailInput = {
++  to: string;
++  subject: string;
++  html: string;
++  text: string;
++};
++
++function isProdMailRuntime() {
++  return isVercelProduction() || (process.env.NODE_ENV ?? "").trim() === "production";
++}
++
++export function emailFromAddress() {
++  const override = (process.env.EMAIL_FROM ?? "").trim();
++  if (override) return override;
++  const domain = (process.env.RESEND_EMAIL_DOMAIN ?? "").trim().replace(/^@/, "");
++  if (domain) return `South End Pizza <orders@${domain}>`;
++  return "South End Pizza <orders@southendpizza.app>";
++}
++
++/**
++ * Send transactional email via Resend.
++ * - Missing key in non-prod: no-op + clear console log; returns { skipped: true }.
++ * - Missing key in production when send is required: throws a friendly Error.
++ */
++export async function sendEmail(input: SendEmailInput): Promise<{ id?: string; skipped?: boolean }> {
++  const to = String(input.to ?? "").trim().toLowerCase();
++  const subject = String(input.subject ?? "").trim();
++  const html = String(input.html ?? "");
++  const text = String(input.text ?? "");
++  if (!to || !to.includes("@")) throw new Error("That email address does not look right.");
++  if (!subject) throw new Error("Email subject is required.");
++
++  const apiKey = (process.env.RESEND_API_KEY ?? "").trim();
++  if (!apiKey) {
++    if (isProdMailRuntime()) {
++      throw new Error("Email is not configured yet. Please try again in a few minutes, or call the shop.");
++    }
++    console.info(`[email] RESEND_API_KEY missing — skipped send to ${to} · ${subject}`);
++    return { skipped: true };
++  }
++
++  const resend = new Resend(apiKey);
++  const result = await resend.emails.send({
++    from: emailFromAddress(),
++    to,
++    subject,
++    html,
++    text,
++  });
++
++  if (result.error) {
++    const msg = result.error.message || "Could not send email.";
++    console.error("[email] Resend error:", msg);
++    throw new Error("We could not send that email right now. Try again in a minute.");
++  }
++
++  return { id: result.data?.id };
++}
+diff --git a/src/lib/phone.ts b/src/lib/phone.ts
+index 2e8f566..8140f19 100644
+--- a/src/lib/phone.ts
++++ b/src/lib/phone.ts
+@@ -36,3 +36,10 @@ export function phoneFromAuthEmail(email: string | null | undefined) {
+   const m = email.match(/^(\d{10})@phone\.southend\.pizza$/i);
+   return m ? m[1] : "";
+ }
++
++/** Synthetic Better Auth emails for phone-number accounts — no real inbox. */
++export function isPhoneAuthEmail(email: string | null | undefined) {
++  if (!email) return false;
++  return /@phone\.southend\.pizza$/i.test(email.trim());
++}
++
+diff --git a/src/lib/shop-server.ts b/src/lib/shop-server.ts
+index d857e9b..17df63f 100644
+--- a/src/lib/shop-server.ts
++++ b/src/lib/shop-server.ts
+@@ -5,7 +5,8 @@ import { authMiddleware } from "@/lib/auth/middleware";
+ import { getSql, dbSource, type Sql } from "@/lib/db";
+ import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
+ import { cellSetHas, CELL, MAP_CENTER, cellKey } from "@/lib/geo";
+-import { formatPhone, identifierToEmail, toTenDigitPhone } from "@/lib/phone";
++import { formatPhone, identifierToEmail, isPhoneAuthEmail, toTenDigitPhone } from "@/lib/phone";
++import { sendEmail } from "@/lib/email/resend.server";
+ import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
+ import { condimentDetail, condimentTotal, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments } from "@/lib/condiments";
+ import { seedMenu } from "@/lib/menu-store";
+@@ -573,6 +574,19 @@ async function applySettingsSchema(sql: Sql) {
+     created_at timestamptz not null default now()
+   )`);
+ 	await sql.query(`create index if not exists password_reset_codes_user_idx on password_reset_codes (user_id, created_at desc)`);
++	await sql.query(`create table if not exists email_signup_codes (
++    id text primary key,
++    user_id text not null,
++    email text not null,
++    code_hash text not null,
++    salt text not null,
++    expires_at timestamptz not null,
++    attempts integer not null default 0,
++    consumed_at timestamptz,
++    created_at timestamptz not null default now()
++  )`);
++	await sql.query(`create index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc)`);
++	await sql.query(`create index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc)`);
+ 	await sql.query(`alter table chat_threads add column if not exists staff_note text not null default ''`);
+ 	await sql.query(`alter table chat_threads add column if not exists muted boolean not null default false`);
+ 	await sql.query(`alter table chat_threads add column if not exists flagged boolean not null default false`);
+@@ -872,20 +886,28 @@ async function ensureStaffAdmin(sql: Sql) {
+ }
+ 
+ async function ensureProfile(sql: Sql, userId: string, displayName?: string) {
+-	const inflight = profileLocks.get(userId);
+-	if (inflight) {
+-		await inflight;
++	// Serialize per-user inserts so POS boot (getMe + getTwoFactorStatus) cannot race
++	// into profiles_pkey. Waiters re-check after the inflight settles — if the first
++	// attempt failed before insert, we still create the row instead of returning empty.
++	for (let spin = 0; spin < 4; spin += 1) {
++		const inflight = profileLocks.get(userId);
++		if (inflight) {
++			await inflight.catch(() => undefined);
++			if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
++			continue;
++		}
++		const run = ensureProfileRow(sql, userId, displayName).finally(() => {
++			profileLocks.delete(userId);
++		});
++		profileLocks.set(userId, run);
++		await run;
+ 		return;
+ 	}
+-	const run = ensureProfileRow(sql, userId, displayName).finally(() => {
+-		profileLocks.delete(userId);
+-	});
+-	profileLocks.set(userId, run);
+-	await run;
++	await ensureProfileRow(sql, userId, displayName);
+ }
+ 
+ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string) {
+-	if ((await sql`select user_id from profiles where user_id = ${userId}`).length) return;
++	if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
+ 	const settings = await loadSettingsRow(sql);
+ 	const bonus = Math.round(num(settings.welcome_bonus));
+ 	for (let i = 0; i < 6; i++) {
+@@ -901,7 +923,11 @@ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string)
+ 			return;
+ 		} catch (err) {
+ 			const msg = err instanceof Error ? err.message : String(err ?? "");
+-			if (/profiles_pkey/i.test(msg)) return;
++			// Concurrent boot or referral_code unique collision — treat existing row as success.
++			if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
++				if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
++				continue;
++			}
+ 			if (i === 5) throw err;
+ 		}
+ 	}
+@@ -1059,11 +1085,28 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
+ 	await ensureProfile(sql, context.userId);
+ 	await grantSilverAdmin(sql, context.userId);
+ 	let profile: Record<string, unknown>[] = [];
++	const loadProfile = async () => {
++		try {
++			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
++		} catch {
++			await ensureSettingsSchema(sql);
++			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
++		}
++	};
+ 	try {
+-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
+-	} catch {
+-		await ensureSettingsSchema(sql);
+-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
++		profile = await loadProfile();
++		if (!profile[0]) {
++			await ensureProfile(sql, context.userId);
++			profile = await loadProfile();
++		}
++	} catch (err) {
++		const msg = err instanceof Error ? err.message : String(err ?? "");
++		if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
++			await ensureProfile(sql, context.userId);
++			profile = await loadProfile();
++		} else {
++			throw err;
++		}
+ 	}
+ 	const admins = await sql`select count(*)::int as n from profiles where role = 'admin'`;
+ 	const unread = await sql`
+@@ -1074,7 +1117,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
+ 	if (isAdmin) {
+ 		adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
+ 	}
+-	const userRow = (await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0];
++	const userRow = (await sql.query(`select email, "emailVerified" as verified from "user" where id = $1 limit 1`, [context.userId]))[0];
+ 	const referralCode = await ensureReferralCode(sql, context.userId);
+ 	const inviteCount = Math.round(num((await sql`select count(*)::int as n from profiles where referred_by = ${context.userId}`)[0]?.n));
+ 	const orderCount = Math.round(num((await sql`select count(*)::int as n from orders where user_id = ${context.userId}`)[0]?.n));
+@@ -1093,6 +1136,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
+ 		adminInbox,
+ 		banned: bool(p?.banned),
+ 		email: String(userRow?.email ?? ""),
++		emailVerified: bool(userRow?.verified),
+ 		referralCode,
+ 		inviteCount,
+ 		orderCount,
+@@ -2152,6 +2196,14 @@ export const sendPasswordResetCode = createServerFn({ method: "POST" }).middlewa
+ 		`insert into password_reset_codes (id, user_id, email, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
+ 		[id, context.userId, email, digest, salt, expires],
+ 	);
++	await sendEmail({
++		to: email,
++		subject: "Your South End Pizza reset code",
++		text: `Your South End Pizza password reset code is ${code}. It expires in 60 seconds. If you did not ask for this, you can ignore this message.`,
++		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your South End Pizza password reset code is:</p>
++<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
++<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not ask for this, you can ignore this message — your password stays the same.</p>`,
++	});
+ 	return {
+ 		sent: true as const,
+ 		email: maskEmail(email),
+@@ -2200,6 +2252,107 @@ export const changeMyPassword = createServerFn({ method: "POST" }).middleware([a
+ 	await sql.query(`update password_reset_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [context.userId]);
+ 	return { ok: true as const };
+ });
++
++export const sendSignupEmailCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
++	const sql = await getSql();
++	await ensureSettingsSchema(sql);
++	const email = String(data.email ?? "").trim().toLowerCase();
++	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
++	if (isPhoneAuthEmail(email)) {
++		return { alreadyVerified: true as const, skipped: true as const, email: maskEmail(email), expiresIn: 0 };
++	}
++	const users = await sql.query(`select id, email, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
++	const user = users[0];
++	if (!user) throw new Error("We could not send a code for that email. Check the address and try again.");
++	const userId = String(user.id);
++	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
++	if (verified) {
++		return { alreadyVerified: true as const, email: maskEmail(email), expiresIn: 0 };
++	}
++	const credential = await loadCredentialAccount(sql, userId);
++	if (!credential) {
++		// Google / X accounts are treated as verified at the provider.
++		await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
++		return { alreadyVerified: true as const, email: maskEmail(email), expiresIn: 0 };
++	}
++	const recent = await sql.query(
++		`select created_at from email_signup_codes where user_id = $1 and created_at > now() - interval '1 hour' order by created_at desc`,
++		[userId],
++	);
++	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification emails. Try again in an hour.");
++	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
++	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
++	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
++	const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
++	const salt = randomBytes(16).toString("hex");
++	const digest = hashOtp(salt, code).toString("hex");
++	const id = `esc-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
++	const expires = new Date(Date.now() + OTP_TTL_MS);
++	await sql.query(
++		`insert into email_signup_codes (id, user_id, email, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
++		[id, userId, email, digest, salt, expires],
++	);
++	await sendEmail({
++		to: email,
++		subject: "Your South End Pizza signup code",
++		text: `Welcome to South End Pizza! Your verification code is ${code}. It expires in 60 seconds.`,
++		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Welcome to South End Pizza — almost ready to order.</p>
++<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your verification code is:</p>
++<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
++<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not create an account, you can ignore this message.</p>`,
++	});
++	return {
++		sent: true as const,
++		alreadyVerified: false as const,
++		email: maskEmail(email),
++		expiresIn: 60,
++		previewCode: dbSource === "pglite" ? code : undefined,
++	};
++});
++
++export const verifySignupEmailCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
++	const sql = await getSql();
++	await ensureSettingsSchema(sql);
++	const email = String(data.email ?? "").trim().toLowerCase();
++	const code = String(data.code ?? "").replace(/\D/g, "");
++	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
++	if (isPhoneAuthEmail(email)) {
++		return { ok: true as const, skipped: true as const };
++	}
++	if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code from your email.");
++	const users = await sql.query(`select id, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
++	const user = users[0];
++	if (!user) throw new Error("We could not verify that email. Try signing up again.");
++	const userId = String(user.id);
++	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
++	if (verified) return { ok: true as const, alreadyVerified: true as const };
++	const rows = await sql.query(
++		`select id, code_hash, salt, expires_at, attempts, consumed_at from email_signup_codes
++     where user_id = $1 and consumed_at is null order by created_at desc limit 1`,
++		[userId],
++	);
++	const row = rows[0];
++	if (!row) throw new Error("Send a new one-time code first.");
++	if (new Date(String(row.expires_at)).getTime() < Date.now()) {
++		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
++		throw new Error("That code expired. Send a new one.");
++	}
++	const attempts = Math.round(num(row.attempts));
++	if (attempts >= OTP_MAX_ATTEMPTS) {
++		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
++		throw new Error("Too many tries. Send a new code.");
++	}
++	const expected = Buffer.from(String(row.code_hash), "hex");
++	const got = hashOtp(String(row.salt), code);
++	if (expected.length !== got.length || !timingSafeEqual(expected, got)) {
++		await sql.query(`update email_signup_codes set attempts = attempts + 1 where id = $1`, [String(row.id)]);
++		throw new Error("That code does not match. Try again.");
++	}
++	await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
++	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
++	return { ok: true as const };
++});
++
+ export const patchPosOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
+ 	const sql = await getSql();
+ 	await ensureSettingsSchema(sql);
+diff --git a/src/lib/shop-types.ts b/src/lib/shop-types.ts
+index 6f45342..4a1b0df 100644
+--- a/src/lib/shop-types.ts
++++ b/src/lib/shop-types.ts
+@@ -16,6 +16,7 @@ export type ProfileView = {
+   adminInbox: number;
+   banned: boolean;
+   email: string;
++  emailVerified: boolean;
+   referralCode: string;
+   inviteCount: number;
+   orderCount: number;
+diff --git a/src/routes/login.tsx b/src/routes/login.tsx
+index d7d8a4e..3bb6fc2 100644
+--- a/src/routes/login.tsx
++++ b/src/routes/login.tsx
+@@ -4,9 +4,16 @@ import { X } from "lucide-react";
+ import { GROK_PROVIDERS, authClient, authEnabled } from "@/lib/auth/client";
+ import { useCurrentUserState } from "@/lib/auth/use-current-user";
+ import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
+-import { identifierToEmail } from "@/lib/phone";
++import { identifierToEmail, isPhoneAuthEmail } from "@/lib/phone";
+ import { captureReferral, peekReferral } from "@/lib/referral";
+-import { claimReferral, getStorefront, updateProfile } from "@/lib/shop-server";
++import {
++  claimReferral,
++  getMe,
++  getStorefront,
++  sendSignupEmailCode,
++  updateProfile,
++  verifySignupEmailCode,
++} from "@/lib/shop-server";
+ import { BrandMark } from "@/components/brand-mark";
+ 
+ function safeNext(raw: unknown) {
+@@ -57,6 +64,12 @@ function providerMark(label: string) {
+   return <GoogleMark />;
+ }
+ 
++type VerifyStep = {
++  email: string;
++  masked: string;
++  previewCode?: string;
++};
++
+ function Login() {
+   const { user, isPending } = useCurrentUserState();
+   const navigate = useNavigate();
+@@ -70,6 +83,10 @@ function Login() {
+   const [error, setError] = useState(searchError ? friendlyAuthError(new Error(searchError)) : "");
+   const [busy, setBusy] = useState(false);
+   const [showMark, setShowMark] = useState(true);
++  const [verifyStep, setVerifyStep] = useState<VerifyStep | null>(null);
++  const [signupOtp, setSignupOtp] = useState("");
++  const [otpLeft, setOtpLeft] = useState(0);
++  const [gatePending, setGatePending] = useState(false);
+ 
+   const closeTo = (next || "/") as "/";
+ 
+@@ -83,10 +100,66 @@ function Login() {
+       .catch(() => setShowMark(true));
+   }, []);
+ 
++  // If a credential email session exists but is unverified, force the OTP step
++  // (blocks refresh / deep-link skip). Phone + OAuth skip.
++  useEffect(() => {
++    if (!user || verifyStep) {
++      setGatePending(false);
++      return;
++    }
++    let cancelled = false;
++    setGatePending(true);
++    void (async () => {
++      try {
++        const me = await getMe();
++        if (cancelled) return;
++        const email = String(me.email ?? "").trim().toLowerCase();
++        if (!email || isPhoneAuthEmail(email) || me.emailVerified) return;
++        const sent = await sendSignupEmailCode({ data: { email } });
++        if (cancelled) return;
++        if (sent.alreadyVerified) return;
++        setVerifyStep({
++          email,
++          masked: sent.email,
++          previewCode: sent.previewCode,
++        });
++        setSignupOtp("");
++        setOtpLeft(sent.expiresIn || 60);
++      } catch {
++        /* keep normal navigate; rate-limit / missing user surface on retry */
++      } finally {
++        if (!cancelled) setGatePending(false);
++      }
++    })();
++    return () => {
++      cancelled = true;
++    };
++  }, [user, verifyStep]);
++
++  useEffect(() => {
++    if (otpLeft <= 0) return;
++    const t = window.setInterval(() => setOtpLeft((n) => Math.max(0, n - 1)), 1000);
++    return () => window.clearInterval(t);
++  }, [otpLeft]);
++
+   // Keep the form up while a submit is in flight so a session refetch cannot
+   // trap the visitor on "Checking sign-in…" after email login.
+-  if (isPending && !busy) return <div className="page-skel">Checking sign-in…</div>;
+-  if (user && !busy) return <Navigate to={closeTo} replace />;
++  // Stay on the OTP step even when a session already exists (unverified email).
++  if ((isPending || gatePending) && !busy && !verifyStep) return <div className="page-skel">Checking sign-in…</div>;
++  if (user && !busy && !verifyStep && !gatePending) return <Navigate to={closeTo} replace />;
++
++  async function beginEmailVerify(email: string) {
++    const sent = await sendSignupEmailCode({ data: { email } });
++    if (sent.alreadyVerified) return true;
++    setVerifyStep({
++      email,
++      masked: sent.email,
++      previewCode: sent.previewCode,
++    });
++    setSignupOtp("");
++    setOtpLeft(sent.expiresIn || 60);
++    return false;
++  }
+ 
+   async function submit(e: FormEvent) {
+     e.preventDefault();
+@@ -129,12 +202,26 @@ function Login() {
+         if (invite) {
+           void claimReferral({ data: { code: invite } }).catch(() => undefined);
+         }
++        if (!isPhoneAuthEmail(parsed.email)) {
++          const ok = await beginEmailVerify(parsed.email);
++          if (!ok) {
++            setBusy(false);
++            return;
++          }
++        }
+       } else {
+         const { error: err } = await authClient.signIn.email({
+           email: parsed.email,
+           password,
+         });
+         if (err) throw new Error(err.message || "Could not sign in.");
++        if (!isPhoneAuthEmail(parsed.email)) {
++          const ok = await beginEmailVerify(parsed.email);
++          if (!ok) {
++            setBusy(false);
++            return;
++          }
++        }
+       }
+       void navigate({ to: closeTo, replace: true });
+     } catch (err) {
+@@ -143,6 +230,46 @@ function Login() {
+     }
+   }
+ 
++  async function submitVerify(e: FormEvent) {
++    e.preventDefault();
++    if (!verifyStep) return;
++    setError("");
++    setBusy(true);
++    try {
++      await verifySignupEmailCode({ data: { email: verifyStep.email, code: signupOtp } });
++      setVerifyStep(null);
++      void navigate({ to: closeTo, replace: true });
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Could not verify that code.");
++      setBusy(false);
++    }
++  }
++
++  async function resendVerify() {
++    if (!verifyStep || otpLeft > 0) return;
++    setError("");
++    setBusy(true);
++    try {
++      const sent = await sendSignupEmailCode({ data: { email: verifyStep.email } });
++      if (sent.alreadyVerified) {
++        setVerifyStep(null);
++        void navigate({ to: closeTo, replace: true });
++        return;
++      }
++      setVerifyStep({
++        email: verifyStep.email,
++        masked: sent.email,
++        previewCode: sent.previewCode,
++      });
++      setSignupOtp("");
++      setOtpLeft(sent.expiresIn || 60);
++    } catch (err) {
++      setError(err instanceof Error ? err.message : "Could not send another code.");
++    } finally {
++      setBusy(false);
++    }
++  }
++
+   async function social(providerId: string) {
+     setError("");
+     setBusy(true);
+@@ -173,104 +300,158 @@ function Login() {
+         </Link>
+         {showMark ? <BrandMark variant="login" /> : null}
+         <p className="shop-brand-kicker">South End Pizza III</p>
+-        <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
+-        <p className="ed-sub">
+-          {next === "/checkout"
+-            ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
+-            : "Email, the shop username, or a US phone number. Google and X work too."}
+-        </p>
+-        <div className="seg" role="group" aria-label="Identifier type">
+-          <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
+-            Email
+-          </button>
+-          <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
+-            Phone
+-          </button>
+-        </div>
+-        <div className="seg" role="group" aria-label="Create or sign in">
+-          <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>
+-            Sign in
+-          </button>
+-          <button type="button" data-on={tab === "up"} onClick={() => setTab("up")}>
+-            Create account
+-          </button>
+-        </div>
+-        <form className="login-form" onSubmit={(e) => void submit(e)}>
+-          {tab === "up" ? (
+-            <label className="ed-field">
+-              <span>Name</span>
+-              <input className="ed-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+-            </label>
+-          ) : null}
+-          <label className="ed-field">
+-            <span>{mode === "phone" ? "Phone" : "Email or username"}</span>
+-            <input
+-              className="ed-input"
+-              value={identifier}
+-              onChange={(e) => setIdentifier(e.target.value)}
+-              autoComplete={mode === "phone" ? "tel" : "username"}
+-              inputMode={mode === "phone" ? "tel" : "email"}
+-              placeholder={mode === "phone" ? "(609) 555-0100" : "you@email.com or username"}
+-              required
+-            />
+-          </label>
+-          <label className="ed-field">
+-            <span>Password</span>
+-            <input
+-              className="ed-input"
+-              type="password"
+-              value={password}
+-              onChange={(e) => setPassword(e.target.value)}
+-              autoComplete={tab === "up" ? "new-password" : "current-password"}
+-              placeholder="Password"
+-              minLength={8}
+-              required
+-            />
+-          </label>
+-          {tab === "up" ? (
+-            <label className="ed-field">
+-              <span>Confirm password</span>
+-              <input
+-                className="ed-input"
+-                type="password"
+-                value={password2}
+-                onChange={(e) => setPassword2(e.target.value)}
+-                autoComplete="new-password"
+-                minLength={8}
+-                required
+-              />
+-            </label>
+-          ) : null}
+-          {error ? <p className="form-error">{error}</p> : null}
+-          <button type="submit" className="btn-print" disabled={busy}>
+-            {busy ? "Please wait…" : tab === "up" ? "Create account" : "Sign in"}
+-          </button>
+-          {tab === "in" ? (
+-            <Link to="/recover" className="login-back">
+-              Forgot password?
+-            </Link>
+-          ) : null}
+-        </form>
+-        <div className="login-split">or continue with</div>
+-        <div className="login-socials">
+-          {GROK_PROVIDERS.map((p) => (
+-            <button
+-              key={p.providerId}
+-              type="button"
+-              className="login-social"
+-              disabled={busy}
+-              onClick={() => void social(p.providerId)}
+-            >
+-              {providerMark(p.label)}
+-              {p.label}
+-            </button>
+-          ))}
+-        </div>
+-        {next === "/checkout" ? (
+-          <Link to="/checkout" className="login-back">
+-            Checkout as a guest
+-          </Link>
+-        ) : null}
++        {verifyStep ? (
++          <>
++            <h1 id="login-title">Check your inbox</h1>
++            <p className="ed-sub">
++              We sent a 6-digit code to {verifyStep.masked}. Enter it below to finish setting up your South End Pizza
++              account.
++            </p>
++            <form className="login-form" onSubmit={(e) => void submitVerify(e)}>
++              <div className="mail-slip" role="status">
++                <p className="slip-kind">Inbox · {verifyStep.masked}</p>
++                <strong>Your South End Pizza signup code</strong>
++                {verifyStep.previewCode && otpLeft > 0 ? (
++                  <p className="otp-code">{verifyStep.previewCode}</p>
++                ) : (
++                  <p className="ed-sub">
++                    {otpLeft > 0 ? `Enter the 6-digit code. ${otpLeft}s left.` : "That code expired. Send a new one."}
++                  </p>
++                )}
++                {verifyStep.previewCode && otpLeft > 0 ? (
++                  <p className="ed-sub">This shop preview shows the message here. It expires in {otpLeft}s.</p>
++                ) : null}
++              </div>
++              <label className="ed-field">
++                <span>One-time code</span>
++                <input
++                  className="ed-input"
++                  inputMode="numeric"
++                  autoComplete="one-time-code"
++                  value={signupOtp}
++                  onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
++                  placeholder="6-digit code"
++                  minLength={6}
++                  maxLength={6}
++                  required
++                />
++              </label>
++              {error ? <p className="form-error">{error}</p> : null}
++              <button type="submit" className="btn-print" disabled={busy || signupOtp.length !== 6}>
++                {busy ? "Please wait…" : "Verify & continue"}
++              </button>
++              <button
++                type="button"
++                className="ed-btn ed-btn-quiet"
++                disabled={busy || otpLeft > 0}
++                onClick={() => void resendVerify()}
++              >
++                {otpLeft > 0 ? `Send again in ${otpLeft}s` : "Send a new code"}
++              </button>
++            </form>
++          </>
++        ) : (
++          <>
++            <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
++            <p className="ed-sub">
++              {next === "/checkout"
++                ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
++                : "Email, the shop username, or a US phone number. Google and X work too."}
++            </p>
++            <div className="seg" role="group" aria-label="Identifier type">
++              <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
++                Email
++              </button>
++              <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
++                Phone
++              </button>
++            </div>
++            <div className="seg" role="group" aria-label="Create or sign in">
++              <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>
++                Sign in
++              </button>
++              <button type="button" data-on={tab === "up"} onClick={() => setTab("up")}>
++                Create account
++              </button>
++            </div>
++            <form className="login-form" onSubmit={(e) => void submit(e)}>
++              {tab === "up" ? (
++                <label className="ed-field">
++                  <span>Name</span>
++                  <input className="ed-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
++                </label>
++              ) : null}
++              <label className="ed-field">
++                <span>{mode === "phone" ? "Phone" : "Email or username"}</span>
++                <input
++                  className="ed-input"
++                  value={identifier}
++                  onChange={(e) => setIdentifier(e.target.value)}
++                  autoComplete={mode === "phone" ? "tel" : "username"}
++                  inputMode={mode === "phone" ? "tel" : "email"}
++                  placeholder={mode === "phone" ? "(609) 555-0100" : "you@email.com or username"}
++                  required
++                />
++              </label>
++              <label className="ed-field">
++                <span>Password</span>
++                <input
++                  className="ed-input"
++                  type="password"
++                  value={password}
++                  onChange={(e) => setPassword(e.target.value)}
++                  autoComplete={tab === "up" ? "new-password" : "current-password"}
++                  placeholder="Password"
++                  minLength={8}
++                  required
++                />
++              </label>
++              {tab === "up" ? (
++                <label className="ed-field">
++                  <span>Confirm password</span>
++                  <input
++                    className="ed-input"
++                    type="password"
++                    value={password2}
++                    onChange={(e) => setPassword2(e.target.value)}
++                    autoComplete="new-password"
++                    minLength={8}
++                    required
++                  />
++                </label>
++              ) : null}
++              {error ? <p className="form-error">{error}</p> : null}
++              <button type="submit" className="btn-print" disabled={busy}>
++                {busy ? "Please wait…" : tab === "up" ? "Create account" : "Sign in"}
++              </button>
++              {tab === "in" ? (
++                <Link to="/recover" className="login-back">
++                  Forgot password?
++                </Link>
++              ) : null}
++            </form>
++            <div className="login-split">or continue with</div>
++            <div className="login-socials">
++              {GROK_PROVIDERS.map((p) => (
++                <button
++                  key={p.providerId}
++                  type="button"
++                  className="login-social"
++                  disabled={busy}
++                  onClick={() => void social(p.providerId)}
++                >
++                  {providerMark(p.label)}
++                  {p.label}
++                </button>
++              ))}
++            </div>
++            {next === "/checkout" ? (
++              <Link to="/checkout" className="login-back">
++                Checkout as a guest
++              </Link>
++            ) : null}
++          </>
++        )}
+       </section>
+     </main>
+   );

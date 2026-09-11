@@ -43,8 +43,12 @@ export function CustomersPanel({
     setBusyId(c.userId);
     void setAccountRole({ data: { userId: c.userId, role: on ? "admin" : "customer" } })
       .then(() => {
-        setCustomers(customers.map((row) => (row.userId === c.userId ? { ...row, role: on ? "admin" : "customer" } : row)));
-        onMsg(on ? `${c.displayName} can open the shop admin.` : `${c.displayName} is a customer account.`);
+        setCustomers(
+          customers.map((row) =>
+            row.userId === c.userId ? { ...row, role: on ? "admin" : "customer", adminModeAllowed: on } : row,
+          ),
+        );
+        onMsg(on ? `${c.displayName} can turn on Admin mode.` : `${c.displayName} is a customer account.`);
       })
       .catch((e) => onMsg(e instanceof Error ? e.message : "Could not update admin authority"))
       .finally(() => setBusyId(""));
@@ -175,11 +179,11 @@ export function CustomersPanel({
                     <label className="pay-opt">
                       <input
                         type="checkbox"
-                        checked={c.role === "admin"}
+                        checked={Boolean(c.adminModeAllowed)}
                         disabled={busyId === c.userId}
                         onChange={(e) => toggleAdmin(c, e.target.checked)}
                       />
-                      Admin authority on this account
+                      Allow Admin mode on this account
                     </label>
                     <label className="pay-opt">
                       <input

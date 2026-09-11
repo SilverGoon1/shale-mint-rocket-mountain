@@ -3,12 +3,15 @@ import { Link } from "@tanstack/react-router";
 import { ChevronLeft, ChevronRight, Clock, MapPin, Minus, Phone, Plus, Search, X } from "lucide-react";
 import { ItemConfirm } from "@/components/item-confirm";
 import { PizzaCustomize } from "@/components/pizza-customize";
+import { WingsCustomize } from "@/components/wings-customize";
+import { StaleCartPrompt } from "@/components/stale-cart";
 import { iconFor } from "@/data/icons";
 import { itemPhoto } from "@/data/item-photos";
 import type { MenuCategory, MenuItem, RestaurantInfo } from "@/data/menu";
 import { useCartStore, cartTotals } from "@/lib/cart-store";
 import { useDialogLock } from "@/lib/dialog-lock";
 import { cardTypeStyle, formatUsd, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
+import { isWingsBuild } from "@/lib/wings";
 
 function priceNum(p: string) {
   const n = Number(String(p).replace(/^\$/, ""));
@@ -160,7 +163,7 @@ function CartPop({
             className="ed-input ed-area"
             rows={3}
             maxLength={500}
-            placeholder="Extra napkins, no onions, gate code…"
+            placeholder="e.g. extra napkins, gate code"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             suppressHydrationWarning
@@ -201,41 +204,103 @@ export function Storefront({
   const [active, setActive] = useState(categories[0]?.id ?? "");
   const [custom, setCustom] = useState<{ cat: MenuCategory; item: MenuItem; size: string } | null>(null);
   const [confirm, setConfirm] = useState<{ cat: MenuCategory; item: MenuItem } | null>(null);
+  const [wings, setWings] = useState<{ cat: MenuCategory; item: MenuItem } | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [hitId, setHitId] = useState("");
   const railRef = useRef<HTMLElement>(null);
   const searchWrapRef = useRef<HTMLDivElement>(null);
   const searchSlotRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const add = useCartStore((s) => s.add);
   const bagOpen = useCartStore((s) => s.bagOpen);
   const closeBag = useCartStore((s) => s.closeBag);
   const lines = useCartStore((s) => s.lines);
   const { count, subtotal } = cartTotals(lines);
-  const visible = useMemo(
-    () => categories.find((c) => c.id === active) ?? categories[0],
-    [categories, active],
-  );
   const suggestions = useMemo(() => rankMenu(categories, query), [categories, query]);
   const pickupAt = `${restaurant.address}, ${restaurant.city}`;
+  const spyLock = useRef(false);
+  const spyGen = useRef(0);
+
+  function railBehavior(): ScrollBehavior {
+    if (typeof window === "undefined") return "smooth";
+    return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+  }
+
+  function centerActivePill(id: string, smooth = false) {
+    const rail = railRef.current;
+    if (!rail) return;
+    const btn = rail.querySelector<HTMLElement>(`[data-cat="${CSS.escape(id)}"]`);
+    if (!btn) return;
+    const railRect = rail.getBoundingClientRect();
+    const btnRect = btn.getBoundingClientRect();
+    const sticky = rail.querySelector<HTMLElement>(".cat-search-slot");
+    const leftPad = sticky ? sticky.getBoundingClientRect().width : 0;
+    const visibleLeft = railRect.left + leftPad;
+    const visibleWidth = Math.max(1, railRect.width - leftPad);
+    const target = visibleLeft + visibleWidth / 2;
+    const current = btnRect.left + btnRect.width / 2;
+    const left = Math.max(0, rail.scrollLeft + (current - target));
+    const behavior: ScrollBehavior = smooth && railBehavior() === "smooth" ? "smooth" : "auto";
+    try {
+      rail.scrollTo({ left, behavior });
+    } catch {
+      rail.scrollLeft = left;
+    }
+  }
+
+  function pulseArrow(btn: HTMLButtonElement) {
+    btn.classList.remove("is-pulse");
+    void btn.offsetWidth;
+    btn.classList.add("is-pulse");
+    window.setTimeout(() => btn.classList.remove("is-pulse"), 220);
+  }
 
   function pickCategory(id: string) {
+    const stacked = spyLock.current;
     setActive(id);
+    const gen = ++spyGen.current;
+    spyLock.current = true;
+    centerActivePill(id, !stacked);
     window.setTimeout(() => {
-      const btn = railRef.current?.querySelector<HTMLElement>(`[data-cat="${id}"]`);
-      btn?.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+      if (gen !== spyGen.current) return;
+      const panel = document.getElementById(`menu-${id}`);
       const wrap = document.querySelector(".cat-search-wrap");
-      const panel = document.getElementById("menu");
-      if (!wrap || !panel) return;
-      if (wrap.getBoundingClientRect().top > 2) return;
-      const y = window.scrollY + panel.getBoundingClientRect().top - wrap.getBoundingClientRect().height;
-      window.scrollTo({ top: Math.max(0, y) });
+      if (!panel) {
+        spyLock.current = false;
+        return;
+      }
+      const offset = wrap instanceof HTMLElement ? wrap.getBoundingClientRect().height + 10 : 88;
+      const y = window.scrollY + panel.getBoundingClientRect().top - offset;
+      const how: ScrollBehavior = stacked || railBehavior() === "auto" ? "auto" : "smooth";
+      try {
+        window.scrollTo({ top: Math.max(0, y), behavior: how });
+      } catch {
+        window.scrollTo(0, Math.max(0, y));
+      }
+      const unlock = () => {
+        if (gen !== spyGen.current) return;
+        spyLock.current = false;
+      };
+      const onEnd = () => {
+        window.removeEventListener("scrollend", onEnd);
+        unlock();
+      };
+      window.addEventListener("scrollend", onEnd);
+      window.setTimeout(() => {
+        window.removeEventListener("scrollend", onEnd);
+        unlock();
+      }, 1100);
     }, 10);
   }
 
   function openItem(cat: MenuCategory, item: MenuItem) {
     if (cat.kind === "pizza") {
       setCustom({ cat, item, size: item.prices[0]?.label || "" });
+      return;
+    }
+    if (isWingsBuild(cat, item)) {
+      setWings({ cat, item });
       return;
     }
     setConfirm({ cat, item });
@@ -254,7 +319,8 @@ export function Storefront({
     setHitId(hit.item.id ?? hit.item.name);
     setSearchOpen(false);
     setQuery("");
-    openItem(hit.cat, hit.item);
+    pickCategory(hit.cat.id);
+    window.setTimeout(() => openItem(hit.cat, hit.item), 80);
   }
 
   useEffect(() => {
@@ -285,12 +351,76 @@ export function Storefront({
   }, [searchOpen]);
 
   useEffect(() => {
+    if (searchOpen && query.trim()) return;
+    const sections = Array.from(document.querySelectorAll<HTMLElement>(".cat-panel[data-cat]"));
+    if (!sections.length) return;
+    let tick: number | null = null;
+    const spyLine = () => {
+      const wrap = document.querySelector(".cat-search-wrap");
+      return wrap instanceof HTMLElement ? wrap.getBoundingClientRect().bottom + 10 : 96;
+    };
+    const pickVisible = () => {
+      if (spyLock.current) return;
+      const line = spyLine();
+      let crossed: HTMLElement | null = null;
+      for (const s of sections) {
+        if (s.getBoundingClientRect().top - line <= 8) crossed = s;
+        else break;
+      }
+      const id = crossed?.dataset.cat;
+      if (!id) return;
+      setActive((prev) => {
+        if (prev === id) return prev;
+        const prevEl = sections.find((s) => s.dataset.cat === prev);
+        if (prevEl) {
+          const top = prevEl.getBoundingClientRect().top;
+          const bottom = prevEl.getBoundingClientRect().bottom;
+          if (top < line - 12 && bottom > line + 80) return prev;
+        }
+        const prevIdx = sections.findIndex((s) => s.dataset.cat === prev);
+        const nextIdx = sections.findIndex((s) => s.dataset.cat === id);
+        if (prevIdx >= 0 && Math.abs(nextIdx - prevIdx) > 1) {
+          const neighbor = sections[prevIdx + Math.sign(nextIdx - prevIdx)];
+          const nTop = neighbor?.getBoundingClientRect().top ?? 0;
+          if (neighbor && nTop - line < 48) return neighbor.dataset.cat ?? id;
+        }
+        return id;
+      });
+    };
+    const onScroll = () => {
+      if (tick != null) window.cancelAnimationFrame(tick);
+      tick = window.requestAnimationFrame(pickVisible);
+    };
+    pickVisible();
+    window.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      if (tick != null) window.cancelAnimationFrame(tick);
+      window.removeEventListener("scroll", onScroll);
+    };
+  }, [categories, searchOpen, query]);
+
+  useEffect(() => {
+    if (!active || searchOpen) return;
+    if (spyLock.current) return;
+    centerActivePill(active, false);
+  }, [active, searchOpen]);
+
+  useEffect(() => {
     if (!searchOpen) return;
-    searchSlotRef.current?.scrollIntoView({ inline: "start", block: "nearest" });
+    const rail = railRef.current;
+    if (rail) {
+      try {
+        rail.scrollTo({ left: 0, behavior: railBehavior() });
+      } catch {
+        rail.scrollLeft = 0;
+      }
+    }
+    window.setTimeout(() => searchInputRef.current?.focus(), 20);
   }, [searchOpen]);
 
   return (
     <div className="store-layout">
+      <StaleCartPrompt />
       <div className="store-main">
         <section className="shop-hero">
           <div className="shop-hero-copy">
@@ -329,41 +459,33 @@ export function Storefront({
               type="button"
               className="cat-skip"
               aria-label="Previous category"
-              onClick={() => skipCategories(-1)}
+              onClick={(e) => {
+                pulseArrow(e.currentTarget);
+                skipCategories(-1);
+              }}
             >
               <ChevronLeft size={20} strokeWidth={2.4} />
             </button>
             <nav className="cat-rail" aria-label="Menu categories" ref={railRef}>
               <div className="cat-search-slot" ref={searchSlotRef}>
-                <label className="cat-search">
-                  <Search size={16} strokeWidth={2.2} aria-hidden />
-                  <input
-                    value={query}
-                    onChange={(e) => {
-                      setQuery(e.target.value);
-                      setSearchOpen(true);
-                    }}
-                    onFocus={() => setSearchOpen(true)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Escape") {
-                        setSearchOpen(false);
-                        (e.target as HTMLInputElement).blur();
-                      }
-                      if (e.key === "Enter" && suggestions[0]) {
-                        e.preventDefault();
-                        jumpTo(suggestions[0]);
-                      }
-                    }}
-                    placeholder="Search"
-                    aria-label="Search the menu"
-                    autoComplete="off"
-                    enterKeyHint="search"
-                  />
-                </label>
+                <button
+                  type="button"
+                  className="cat-search cat-search-icon"
+                  aria-label={searchOpen ? "Close menu search" : "Search the menu"}
+                  aria-expanded={searchOpen}
+                  onClick={() => {
+                    setSearchOpen((open) => {
+                      if (open) setQuery("");
+                      return !open;
+                    });
+                  }}
+                >
+                  {searchOpen ? <X size={18} strokeWidth={2.2} aria-hidden /> : <Search size={18} strokeWidth={2.2} aria-hidden />}
+                </button>
               </div>
               {categories.map((cat) => {
                 const Icon = iconFor(cat.icon ?? cat.id);
-                const on = visible?.id === cat.id;
+                const on = active === cat.id;
                 return (
                   <button
                     key={cat.id}
@@ -386,52 +508,82 @@ export function Storefront({
               type="button"
               className="cat-skip"
               aria-label="Next category"
-              onClick={() => skipCategories(1)}
+              onClick={(e) => {
+                pulseArrow(e.currentTarget);
+                skipCategories(1);
+              }}
             >
               <ChevronRight size={20} strokeWidth={2.4} />
             </button>
           </div>
-          {searchOpen && query.trim() ? (
-            <ul className="cat-suggest" role="listbox" aria-label="Menu suggestions">
-              {suggestions.length === 0 ? (
-                <li className="cat-suggest-empty">No matches for “{query.trim()}”.</li>
+          {searchOpen ? (
+            <div className="cat-suggest" role="listbox" aria-label="Menu suggestions">
+              <label className="cat-search-field">
+                <Search size={16} strokeWidth={2.2} aria-hidden />
+                <input
+                  ref={searchInputRef}
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Escape") {
+                      setSearchOpen(false);
+                      setQuery("");
+                    }
+                    if (e.key === "Enter" && suggestions[0]) {
+                      e.preventDefault();
+                      jumpTo(suggestions[0]);
+                    }
+                  }}
+                  aria-label="Search the menu"
+                  autoComplete="off"
+                  enterKeyHint="search"
+                />
+              </label>
+              {query.trim() ? (
+                suggestions.length === 0 ? (
+                  <p className="cat-suggest-empty">No matches for “{query.trim()}”.</p>
+                ) : (
+                  <ul className="cat-suggest-list">
+                    {suggestions.map((hit) => (
+                      <li key={`${hit.cat.id}-${hit.item.id ?? hit.item.name}`}>
+                        <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => jumpTo(hit)}>
+                          <strong>{hit.item.name}</strong>
+                          <em>{hit.cat.name}</em>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )
               ) : (
-                suggestions.map((hit) => (
-                  <li key={`${hit.cat.id}-${hit.item.id ?? hit.item.name}`}>
-                    <button type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => jumpTo(hit)}>
-                      <strong>{hit.item.name}</strong>
-                      <em>{hit.cat.name}</em>
-                    </button>
-                  </li>
-                ))
+                <p className="cat-suggest-empty">Type a dish name.</p>
               )}
-            </ul>
+            </div>
           ) : null}
         </div>
-        {visible ? (
-          <section className="cat-panel" id="menu">
+        {categories.map((cat) => (
+          <section key={cat.id} className="cat-panel" id={`menu-${cat.id}`} data-cat={cat.id}>
             <header className="cat-panel-head">
-              <h2>{visible.name}</h2>
-              {visible.note ? <p>{visible.note}</p> : null}
+              <h2>{cat.name}</h2>
             </header>
             <div
               className="food-grid"
+              data-count={cat.items.length}
               data-card-size={settings.cardTextSize}
               data-card-fit={settings.cardSize}
               style={cardTypeStyle(settings.cardTextColor, settings.cardDescColor, settings.cardPriceColor, settings.cardBg)}
             >
-              {visible.items.map((item) => (
+              {cat.items.map((item) => (
                 <CatalogItem
                   key={item.id ?? item.name}
-                  cat={visible}
+                  cat={cat}
                   item={item}
                   hit={hitId === (item.id ?? item.name)}
-                  onOpen={() => openItem(visible, item)}
+                  onOpen={() => openItem(cat, item)}
                 />
               ))}
             </div>
           </section>
-        ) : null}
+        ))}
       </div>
       {bagOpen ? (
         <CartPop
@@ -475,6 +627,7 @@ export function Storefront({
         <ItemConfirm
           item={confirm.item}
           categoryName={confirm.cat.name}
+          categoryId={confirm.cat.id}
           onClose={() => setConfirm(null)}
           onConfirm={(result) => {
             add({
@@ -486,8 +639,29 @@ export function Storefront({
               comment: result.comment,
               condiments: result.condiments,
               unitPrice: result.unitPrice,
+              qty: result.qty,
             });
             setConfirm(null);
+          }}
+        />
+      ) : null}
+      {wings ? (
+        <WingsCustomize
+          item={wings.item}
+          categoryId={wings.cat.id}
+          onClose={() => setWings(null)}
+          onConfirm={(result) => {
+            add({
+              itemId: wings.item.id ?? wings.item.name,
+              categoryId: wings.cat.id,
+              name: wings.item.name,
+              size: result.size,
+              detail: result.detail,
+              comment: result.comment,
+              condiments: result.condiments,
+              unitPrice: result.unitPrice,
+            });
+            setWings(null);
           }}
         />
       ) : null}

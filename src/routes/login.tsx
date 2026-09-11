@@ -1,13 +1,23 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
-import { GROK_PROVIDERS, authClient, authEnabled } from "@/lib/auth/client";
+import { GROK_PROVIDERS, authClient, authEnabled, dropClientSession } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
-import { identifierToEmail } from "@/lib/phone";
+import { identifierToEmail, isPhoneAuthEmail } from "@/lib/phone";
 import { captureReferral, peekReferral } from "@/lib/referral";
-import { claimReferral, getStorefront, updateProfile } from "@/lib/shop-server";
+import {
+  claimReferral,
+  getMe,
+  getStorefront,
+  sendSignupEmailCode,
+  updateProfile,
+  verifySignupEmailCode,
+} from "@/lib/shop-server";
+import { isStaffAdminAccount, isStaffAdminUsername } from "@/lib/staff-admin";
+import { noteStaffDeskLogin } from "@/lib/shop-server";
 import { BrandMark } from "@/components/brand-mark";
+import { PizzaSpinner } from "@/components/pizza-spinner";
 
 function safeNext(raw: unknown) {
   if (typeof raw !== "string") return undefined;
@@ -57,6 +67,17 @@ function providerMark(label: string) {
   return <GoogleMark />;
 }
 
+function needsEmailOtp(_email: string) {
+  // Time-boxed: email OTP is not the desk gate. Bots sign up with email+password until OTP ships as required.
+  return false;
+}
+
+type VerifyStep = {
+  email: string;
+  masked: string;
+  previewCode?: string;
+};
+
 function Login() {
   const { user, isPending } = useCurrentUserState();
   const navigate = useNavigate();
@@ -70,6 +91,10 @@ function Login() {
   const [error, setError] = useState(searchError ? friendlyAuthError(new Error(searchError)) : "");
   const [busy, setBusy] = useState(false);
   const [showMark, setShowMark] = useState(true);
+  const [verifyStep, setVerifyStep] = useState<VerifyStep | null>(null);
+  const [signupOtp, setSignupOtp] = useState("");
+  const [otpLeft, setOtpLeft] = useState(0);
+  const [gatePending, setGatePending] = useState(false);
 
   const closeTo = (next || "/") as "/";
 
@@ -83,10 +108,80 @@ function Login() {
       .catch(() => setShowMark(true));
   }, []);
 
+  // If a credential email session exists but is unverified, force the OTP step
+  // (blocks refresh / deep-link skip). Phone + OAuth + desk Admin skip.
+  useEffect(() => {
+    if (!user || verifyStep || !needsEmailOtp("")) {
+      setGatePending(false);
+      return;
+    }
+    let cancelled = false;
+    setGatePending(true);
+    void (async () => {
+      try {
+        const me = await getMe();
+        if (cancelled) return;
+        const email = String(me.email ?? "").trim().toLowerCase();
+        if (!email || !needsEmailOtp(email) || me.emailVerified) return;
+        const sent = await sendSignupEmailCode({ data: { email } });
+        if (cancelled) return;
+        if (sent.alreadyVerified) return;
+        setVerifyStep({
+          email,
+          masked: sent.email,
+          previewCode: sent.previewCode,
+        });
+        setSignupOtp("");
+        setOtpLeft(sent.expiresIn || 60);
+      } catch {
+        /* keep normal navigate; rate-limit / missing user surface on retry */
+      } finally {
+        if (!cancelled) setGatePending(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user, verifyStep]);
+
+  useEffect(() => {
+    if (otpLeft <= 0) return;
+    const t = window.setInterval(() => setOtpLeft((n) => Math.max(0, n - 1)), 1000);
+    return () => window.clearInterval(t);
+  }, [otpLeft]);
+
   // Keep the form up while a submit is in flight so a session refetch cannot
   // trap the visitor on "Checking sign-in…" after email login.
-  if (isPending && !busy) return <div className="page-skel">Checking sign-in…</div>;
-  if (user && !busy) return <Navigate to={closeTo} replace />;
+  // Stay on the OTP step even when a session already exists (unverified email).
+  // A failed password MUST stay on this form with the error — never hop into
+  // a leftover desk session.
+  if ((isPending || gatePending) && !busy && !verifyStep && !error) {
+    return (
+      <main className="login-page" data-popup="true">
+        <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
+        <section className="login-card login-dialog" role="status" aria-busy="true" aria-labelledby="login-title">
+          <PizzaSpinner size="md" />
+          <h1 id="login-title">Loading account</h1>
+          <p className="ed-sub">Connecting you to the shop…</p>
+        </section>
+      </main>
+    );
+  }
+  if (user && !busy && !verifyStep && !gatePending && !error) return <Navigate to={closeTo} replace />;
+
+  async function beginEmailVerify(email: string) {
+    if (!needsEmailOtp(email)) return true;
+    const sent = await sendSignupEmailCode({ data: { email } });
+    if (sent.alreadyVerified) return true;
+    setVerifyStep({
+      email,
+      masked: sent.email,
+      previewCode: sent.previewCode,
+    });
+    setSignupOtp("");
+    setOtpLeft(sent.expiresIn || 60);
+    return false;
+  }
 
   async function submit(e: FormEvent) {
     e.preventDefault();
@@ -129,16 +224,77 @@ function Login() {
         if (invite) {
           void claimReferral({ data: { code: invite } }).catch(() => undefined);
         }
+        if (needsEmailOtp(parsed.email)) {
+          const ok = await beginEmailVerify(parsed.email);
+          if (!ok) {
+            setBusy(false);
+            return;
+          }
+        }
       } else {
-        const { error: err } = await authClient.signIn.email({
+        const { data, error: err } = await authClient.signIn.email({
           email: parsed.email,
           password,
         });
-        if (err) throw new Error(err.message || "Could not sign in.");
+        if (err || !data?.user) {
+          throw new Error(err?.message || "Invalid email, username, or password.");
+        }
+        if (isStaffAdminAccount(undefined, parsed.email) || isStaffAdminUsername(identifier)) {
+          void noteStaffDeskLogin().catch(() => undefined);
+        }
+        if (needsEmailOtp(parsed.email)) {
+          const ok = await beginEmailVerify(parsed.email);
+          if (!ok) {
+            setBusy(false);
+            return;
+          }
+        }
       }
       void navigate({ to: closeTo, replace: true });
     } catch (err) {
-      setError(friendlyAuthError(err));
+      const username = mode === "email" && !identifier.includes("@");
+      setError(friendlyAuthError(err, { username }));
+      setBusy(false);
+      void dropClientSession();
+    }
+  }
+
+  async function submitVerify(e: FormEvent) {
+    e.preventDefault();
+    if (!verifyStep) return;
+    setError("");
+    setBusy(true);
+    try {
+      await verifySignupEmailCode({ data: { email: verifyStep.email, code: signupOtp } });
+      setVerifyStep(null);
+      void navigate({ to: closeTo, replace: true });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not verify that code.");
+      setBusy(false);
+    }
+  }
+
+  async function resendVerify() {
+    if (!verifyStep || otpLeft > 0) return;
+    setError("");
+    setBusy(true);
+    try {
+      const sent = await sendSignupEmailCode({ data: { email: verifyStep.email } });
+      if (sent.alreadyVerified) {
+        setVerifyStep(null);
+        void navigate({ to: closeTo, replace: true });
+        return;
+      }
+      setVerifyStep({
+        email: verifyStep.email,
+        masked: sent.email,
+        previewCode: sent.previewCode,
+      });
+      setSignupOtp("");
+      setOtpLeft(sent.expiresIn || 60);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Could not send another code.");
+    } finally {
       setBusy(false);
     }
   }
@@ -164,6 +320,7 @@ function Login() {
       <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
       <section
         className="login-card login-dialog"
+        data-error={error ? "true" : undefined}
         role="dialog"
         aria-modal="true"
         aria-labelledby="login-title"
@@ -173,104 +330,167 @@ function Login() {
         </Link>
         {showMark ? <BrandMark variant="login" /> : null}
         <p className="shop-brand-kicker">South End Pizza III</p>
-        <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
-        <p className="ed-sub">
-          {next === "/checkout"
-            ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
-            : "Email, the shop username, or a US phone number. Google and X work too."}
-        </p>
-        <div className="seg" role="group" aria-label="Identifier type">
-          <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
-            Email
-          </button>
-          <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
-            Phone
-          </button>
-        </div>
-        <div className="seg" role="group" aria-label="Create or sign in">
-          <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>
-            Sign in
-          </button>
-          <button type="button" data-on={tab === "up"} onClick={() => setTab("up")}>
-            Create account
-          </button>
-        </div>
-        <form className="login-form" onSubmit={(e) => void submit(e)}>
-          {tab === "up" ? (
-            <label className="ed-field">
-              <span>Name</span>
-              <input className="ed-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
-            </label>
-          ) : null}
-          <label className="ed-field">
-            <span>{mode === "phone" ? "Phone" : "Email or username"}</span>
-            <input
-              className="ed-input"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-              autoComplete={mode === "phone" ? "tel" : "username"}
-              inputMode={mode === "phone" ? "tel" : "email"}
-              placeholder={mode === "phone" ? "(609) 555-0100" : "you@email.com or username"}
-              required
-            />
-          </label>
-          <label className="ed-field">
-            <span>Password</span>
-            <input
-              className="ed-input"
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              autoComplete={tab === "up" ? "new-password" : "current-password"}
-              placeholder="Password"
-              minLength={8}
-              required
-            />
-          </label>
-          {tab === "up" ? (
-            <label className="ed-field">
-              <span>Confirm password</span>
-              <input
-                className="ed-input"
-                type="password"
-                value={password2}
-                onChange={(e) => setPassword2(e.target.value)}
-                autoComplete="new-password"
-                minLength={8}
-                required
-              />
-            </label>
-          ) : null}
-          {error ? <p className="form-error">{error}</p> : null}
-          <button type="submit" className="btn-print" disabled={busy}>
-            {busy ? "Please wait…" : tab === "up" ? "Create account" : "Sign in"}
-          </button>
-          {tab === "in" ? (
-            <Link to="/recover" className="login-back">
-              Forgot password?
-            </Link>
-          ) : null}
-        </form>
-        <div className="login-split">or continue with</div>
-        <div className="login-socials">
-          {GROK_PROVIDERS.map((p) => (
-            <button
-              key={p.providerId}
-              type="button"
-              className="login-social"
-              disabled={busy}
-              onClick={() => void social(p.providerId)}
-            >
-              {providerMark(p.label)}
-              {p.label}
-            </button>
-          ))}
-        </div>
-        {next === "/checkout" ? (
-          <Link to="/checkout" className="login-back">
-            Checkout as a guest
-          </Link>
-        ) : null}
+        {verifyStep ? (
+          <>
+            <h1 id="login-title">Check your inbox</h1>
+            <p className="ed-sub">
+              We sent a 6-digit code to {verifyStep.masked}. Enter it below to finish setting up your South End Pizza
+              account.
+            </p>
+            <form className="login-form" onSubmit={(e) => void submitVerify(e)}>
+              <div className="mail-slip" role="status">
+                <p className="slip-kind">Inbox · {verifyStep.masked}</p>
+                <strong>Your South End Pizza signup code</strong>
+                {verifyStep.previewCode && otpLeft > 0 ? (
+                  <p className="otp-code">{verifyStep.previewCode}</p>
+                ) : (
+                  <p className="ed-sub">
+                    {otpLeft > 0 ? `Enter the 6-digit code. ${otpLeft}s left.` : "That code expired. Send a new one."}
+                  </p>
+                )}
+                {verifyStep.previewCode && otpLeft > 0 ? (
+                  <p className="ed-sub">This shop preview shows the message here. It expires in {otpLeft}s.</p>
+                ) : null}
+              </div>
+              <label className="ed-field">
+                <span>One-time code</span>
+                <input
+                  className="ed-input"
+                  inputMode="numeric"
+                  autoComplete="one-time-code"
+                  value={signupOtp}
+                  onChange={(e) => setSignupOtp(e.target.value.replace(/\D/g, "").slice(0, 6))}
+                  placeholder="6-digit code"
+                  minLength={6}
+                  maxLength={6}
+                  required
+                />
+              </label>
+              {error ? <p className="form-error">{error}</p> : null}
+              <button type="submit" className="btn-print" disabled={busy || signupOtp.length !== 6}>
+                {busy ? "Please wait…" : "Verify & continue"}
+              </button>
+              <button
+                type="button"
+                className="ed-btn ed-btn-quiet"
+                disabled={busy || otpLeft > 0}
+                onClick={() => void resendVerify()}
+              >
+                {otpLeft > 0 ? `Send again in ${otpLeft}s` : "Send a new code"}
+              </button>
+            </form>
+          </>
+        ) : (
+          <>
+            <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
+            <p className="ed-sub">
+              {next === "/checkout"
+                ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
+                : "Email, the shop username, or a US phone number. Google and X work too."}
+            </p>
+            <div className="seg" role="group" aria-label="Identifier type">
+              <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
+                Email
+              </button>
+              <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
+                Phone
+              </button>
+            </div>
+            <div className="seg" role="group" aria-label="Create or sign in">
+              <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>
+                Sign in
+              </button>
+              <button type="button" data-on={tab === "up"} onClick={() => setTab("up")}>
+                Create account
+              </button>
+            </div>
+            <form className="login-form" onSubmit={(e) => void submit(e)}>
+              {tab === "up" ? (
+                <label className="ed-field">
+                  <span>Name</span>
+                  <input className="ed-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />
+                </label>
+              ) : null}
+              <label className="ed-field">
+                <span>{mode === "phone" ? "Phone" : "Email or username"}</span>
+                <input
+                  className="ed-input"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                  autoComplete={mode === "phone" ? "tel" : "username"}
+                  inputMode={mode === "phone" ? "tel" : "email"}
+                  placeholder={mode === "phone" ? "(609) 555-0100" : "you@email.com or username"}
+                  required
+                />
+              </label>
+              <label className="ed-field">
+                <span>Password</span>
+                <input
+                  className="ed-input"
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete={tab === "up" ? "new-password" : "current-password"}
+                  placeholder="Password"
+                  minLength={isStaffAdminUsername(identifier) ? 4 : 8}
+                  required
+                />
+              </label>
+              {tab === "up" ? (
+                <label className="ed-field">
+                  <span>Confirm password</span>
+                  <input
+                    className="ed-input"
+                    type="password"
+                    value={password2}
+                    onChange={(e) => setPassword2(e.target.value)}
+                    autoComplete="new-password"
+                    minLength={8}
+                    required
+                  />
+                </label>
+              ) : null}
+              {error ? <p className="form-error">{error}</p> : null}
+              <button type="submit" className="btn-print" disabled={busy}>
+                {busy ? (
+                  <span className="login-busy">
+                    <PizzaSpinner size="sm" />
+                    Loading account
+                  </span>
+                ) : tab === "up" ? (
+                  "Create account"
+                ) : (
+                  "Sign in"
+                )}
+              </button>
+              {tab === "in" ? (
+                <Link to="/recover" className="login-back">
+                  Forgot password?
+                </Link>
+              ) : null}
+            </form>
+            <div className="login-split">or continue with</div>
+            <div className="login-socials">
+              {GROK_PROVIDERS.map((p) => (
+                <button
+                  key={p.providerId}
+                  type="button"
+                  className="login-social"
+                  disabled={busy}
+                  onClick={() => void social(p.providerId)}
+                >
+                  {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
+                  {p.label}
+                </button>
+              ))}
+            </div>
+            {next === "/checkout" ? (
+              <Link to="/checkout" className="login-back">
+                Checkout as a guest
+              </Link>
+            ) : null}
+          </>
+        )}
       </section>
     </main>
   );

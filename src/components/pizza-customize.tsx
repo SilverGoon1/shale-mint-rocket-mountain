@@ -123,7 +123,7 @@ export function PizzaCustomize({
         <header className="pizza-modal-head pizza-item-head">
           {photo ? <img className="pizza-item-thumb" src={photo} alt="" decoding="async" /> : null}
           <div className="pizza-item-copy">
-            <p className="shop-brand-kicker">Make it yours</p>
+            <p className="shop-brand-kicker">Customize your pizza</p>
             <h2 id={titleId}>{item.name}</h2>
             {item.description ? <p className="pizza-item-desc">{item.description}</p> : null}
           </div>
@@ -232,7 +232,7 @@ export function PizzaCustomize({
           </fieldset>
         ) : null}
 
-        <CookNoteField id={noteId} noteRef={noteRef} placeholder="Well done, light sauce, cut in squares…" />
+        <CookNoteField key={item.id || item.name} id={noteId} noteRef={noteRef} placeholder="e.g. well done, light sauce, cut in squares" />
 
         <footer className="pizza-modal-foot">
           <div className="pizza-modal-total">

@@ -4,6 +4,7 @@ import { GROK_PROVIDERS, authEnabled, signIn, signOut } from "./client";
 import { hasGateSessionMarker } from "./gate-session-marker";
 import { resolveSignInGateState } from "./sign-in-gate";
 import { useCurrentUser, useCurrentUserState } from "./use-current-user";
+import { AccountLoading } from "@/components/pizza-spinner";
 
 const subscribeToNothing = () => () => {};
 const noGateSessionOnServer = () => false;
@@ -58,7 +59,7 @@ export function SignInGate({
 }) {
   const { user, isPending } = useCurrentUserState();
   const state = resolveSignInGateState({ isPending, hasUser: user !== null });
-  if (state === "pending") return null;
+  if (state === "pending") return fallback ? <>{fallback}</> : <AccountLoading compact />;
   if (state === "signed_in") return <>{children}</>;
   return <>{fallback ?? <SignInButtons />}</>;
 }

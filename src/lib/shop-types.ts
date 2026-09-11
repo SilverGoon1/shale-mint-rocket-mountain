@@ -16,10 +16,15 @@ export type ProfileView = {
   adminInbox: number;
   banned: boolean;
   email: string;
+  emailVerified: boolean;
   referralCode: string;
   inviteCount: number;
   orderCount: number;
   memberSince: string;
+  adminMode: boolean;
+  adminModeAllowed: boolean;
+  deskGrant: boolean;
+  avatarUrl: string;
 };
 
 export const SEASON_EFFECTS = [
@@ -286,6 +291,15 @@ export type PosTicket = OrderView & {
   chatThreadId: string | null;
 };
 
+export type DeskAccountRow = {
+  userId: string;
+  emailLocal: string;
+  emailMasked: string;
+  displayName: string;
+  adminModeAllowed: boolean;
+  adminMode: boolean;
+};
+
 export type CustomerRecord = {
   userId: string;
   displayName: string;
@@ -299,6 +313,7 @@ export type CustomerRecord = {
   spend: number;
   lastOrderAt: string | null;
   banned: boolean;
+  adminModeAllowed: boolean;
   orders: OrderView[];
 };
 

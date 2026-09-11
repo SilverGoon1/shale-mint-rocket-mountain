@@ -130,6 +130,7 @@ export function AdminFinancialsPage() {
         <Kpi label="This week" value={formatUsd(insightsView.sales.week)} />
         <Kpi label="Tips" value={formatUsd(insightsView.financials.tips)} />
         <Kpi label="Collected" value={formatUsd(insightsView.financials.collected)} />
+        <Kpi label="Outstanding" value={formatUsd(insightsView.financials.awaitingPayment)} />
       </div>
       <FinancialsPanel insights={insightsView} />
       <SalesPanel insights={insightsView} orders={orders} />

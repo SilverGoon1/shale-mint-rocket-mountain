@@ -20,6 +20,8 @@ import {
 import type { MenuCategory, MenuItem, RestaurantInfo } from "@/data/menu";
 import { RESTAURANT } from "@/data/menu";
 import { POS_ACCEPTED_EVENT } from "@/components/incoming-order-queue";
+import { PosStaffToast, type PosStaffToastState } from "@/components/pos-staff-toast";
+import { formatCompletedToast, POS_TOAST_MS } from "@/lib/pos-toast";
 
 export const Route = createFileRoute("/admin/pos")({
   validateSearch: (search: Record<string, unknown>): { ticket?: string } => {
@@ -66,6 +68,8 @@ function PosTicketDialog({
   itemQuery,
   menuHits,
   busyId,
+  statusBusy,
+  statusError,
   onClose,
   onQuery,
   onStatus,
@@ -76,6 +80,8 @@ function PosTicketDialog({
   itemQuery: string;
   menuHits: { cat: MenuCategory; item: MenuItem }[];
   busyId: string;
+  statusBusy: string;
+  statusError: string;
   onClose: () => void;
   onQuery: (q: string) => void;
   onStatus: (status: string) => void;
@@ -122,12 +128,18 @@ function PosTicketDialog({
               type="button"
               data-on={bucket === s.id}
               data-tone={s.id}
+              disabled={
+                Boolean(statusBusy) ||
+                (s.id === "accepted" && (bucket === "accepted" || bucket === "completed")) ||
+                (s.id === bucket && s.id !== "completed")
+              }
               onClick={() => onStatus(s.id)}
             >
-              {s.label}
+              {s.id === "completed" && statusBusy === "completed" ? "Completing…" : s.label}
             </button>
           ))}
         </fieldset>
+        {statusError ? <p className="form-error">{statusError}</p> : null}
 
         <ul className="cart-lines pos-edit-lines">
           {ticket.items.map((it, i) => (
@@ -307,11 +319,22 @@ function AdminPos() {
   const [restaurant, setRestaurant] = useState<RestaurantInfo>(RESTAURANT);
   const [taxRate, setTaxRate] = useState(6.625);
   const [busyId, setBusyId] = useState("");
+  const [statusBusy, setStatusBusy] = useState("");
+  const [dialogError, setDialogError] = useState("");
   const [desk, setDesk] = useState<"open" | "done">("open");
+  const [completeToast, setCompleteToast] = useState<PosStaffToastState | null>(null);
   const [chromeHost, setChromeHost] = useState<Element | null>(null);
   const seenChat = useRef(new Set<string>());
   const primedChat = useRef(false);
   const heldAccepted = useRef(new Set<string>());
+  const closedByStaff = useRef(new Set<string>());
+  const statusBusyRef = useRef(false);
+
+  useEffect(() => {
+    if (!completeToast) return;
+    const t = window.setTimeout(() => setCompleteToast(null), POS_TOAST_MS);
+    return () => window.clearTimeout(t);
+  }, [completeToast]);
 
   useEffect(() => {
     const onAccepted = (event: Event) => {
@@ -350,14 +373,12 @@ function AdminPos() {
             if (fresh[0]) prefer = fresh[0].id;
           }
           setOpenId((cur) => {
-            if (prefer) return prefer;
-            if (ticket && list.some((t) => t.id === ticket)) return ticket;
+            if (prefer && !closedByStaff.current.has(prefer)) return prefer;
+            if (ticket && !closedByStaff.current.has(ticket) && list.some((t) => t.id === ticket)) return ticket;
             if (cur && list.some((t) => t.id === cur)) return cur;
             return "";
           });
           if (ticket) setQuery(ticket);
-          const hit = ticket ? list.find((t) => t.id === ticket) : undefined;
-          if (hit) setDesk(posBucket(hit.status) === "completed" ? "done" : "open");
         })
         .catch((e) => {
           if (isTransientFetchError(e)) return;
@@ -383,14 +404,43 @@ function AdminPos() {
   }
 
   function setStatus(id: string, status: string) {
+    if (statusBusyRef.current) return;
+    statusBusyRef.current = true;
     setError("");
+    setDialogError("");
+    setStatusBusy(status);
+    const prior = tickets.find((t) => t.id === id);
     void updateOrderStatus({ data: { id, status } })
       .then((r) => {
         if (!r.order) return;
         mergeTicket(id, r.order);
-        setDesk(posBucket(r.order.status) === "completed" ? "done" : "open");
+        if (status !== "completed") return;
+        const wasComplete = posBucket(prior?.status ?? "") === "completed";
+        closedByStaff.current.add(id);
+        setOpenId("");
+        setItemQuery("");
+        if (!wasComplete) {
+          setDesk("open");
+          setCompleteToast(
+            formatCompletedToast({
+              ticketNo: r.order.ticketNo || prior?.ticketNo || 0,
+              total: r.order.total || prior?.total || 0,
+              tip: r.order.tip || prior?.tip,
+              formatTicketNo,
+              formatUsd,
+            }),
+          );
+        }
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not update"));
+      .catch((e) => {
+        const msg = e instanceof Error ? e.message : "Could not update";
+        if (status === "completed") setDialogError(msg);
+        else setError(msg);
+      })
+      .finally(() => {
+        statusBusyRef.current = false;
+        setStatusBusy("");
+      });
   }
 
   function saveItems(id: string, items: OrderItem[]) {
@@ -503,12 +553,33 @@ function AdminPos() {
 
   return (
     <div className="pos-page">
+      <PosStaffToast toast={completeToast} />
       {chromeHost ? createPortal(deskTabs, chromeHost) : <div className="pos-chrome">{deskTabs}</div>}
       {error ? <p className="form-error">{error}</p> : null}
       {shown.length === 0 ? (
-        <section className="page-card">
-          <p className="ed-empty">{desk === "done" ? "No completed tickets." : "No open tickets."}</p>
-        </section>
+        desk === "open" ? (
+          <section className="page-card pos-empty-open">
+            <h2>You're caught up</h2>
+            <p className="ed-sub">No open tickets. New orders will show here.</p>
+            {doneTickets.length ? (
+              <button
+                type="button"
+                className="ed-btn"
+                onClick={() => {
+                  setDesk("done");
+                  setOpenId("");
+                  setItemQuery("");
+                }}
+              >
+                View completed
+              </button>
+            ) : null}
+          </section>
+        ) : (
+          <section className="page-card">
+            <p className="ed-empty">No completed tickets.</p>
+          </section>
+        )
       ) : (
         <ol className="pos-list">
           {shown.map((t) => {
@@ -526,6 +597,7 @@ function AdminPos() {
                   onClick={() => {
                     setOpenId(t.id);
                     setItemQuery("");
+                    setDialogError("");
                   }}
                 >
                   <span className="pos-when">
@@ -575,9 +647,12 @@ function AdminPos() {
           itemQuery={itemQuery}
           menuHits={menuHits}
           busyId={busyId}
+          statusBusy={statusBusy}
+          statusError={dialogError}
           onClose={() => {
             setOpenId("");
             setItemQuery("");
+            setDialogError("");
           }}
           onQuery={setItemQuery}
           onStatus={(status) => setStatus(openTicket.id, status)}

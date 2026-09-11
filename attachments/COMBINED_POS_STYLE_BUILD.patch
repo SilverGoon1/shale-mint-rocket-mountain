@@ -1,0 +1,538 @@
+diff --git a/src/components/guards.tsx b/src/components/guards.tsx
+index cb3e211..ad82e84 100644
+--- a/src/components/guards.tsx
++++ b/src/components/guards.tsx
+@@ -19,7 +19,7 @@ function accountLoadMessage(err: unknown) {
+ 
+ async function loadStaffAccount() {
+   let last: unknown;
+-  for (let i = 0; i < 3; i += 1) {
++  for (let i = 0; i < 4; i += 1) {
+     try {
+       return await Promise.all([getMe(), getTwoFactorStatus()]);
+     } catch (err) {
+@@ -28,8 +28,8 @@ async function loadStaffAccount() {
+       const retryable =
+         isTransientFetchError(err) ||
+         /profiles_pkey|duplicate key|unique constraint/i.test(msg);
+-      if (!retryable || i === 2) throw err;
+-      await new Promise((resolve) => setTimeout(resolve, 280 * (i + 1)));
++      if (!retryable || i === 3) throw err;
++      await new Promise((resolve) => setTimeout(resolve, 220 * (i + 1)));
+     }
+   }
+   throw last;
+diff --git a/src/components/incoming-order-queue.tsx b/src/components/incoming-order-queue.tsx
+index 3483e44..eafd0f6 100644
+--- a/src/components/incoming-order-queue.tsx
++++ b/src/components/incoming-order-queue.tsx
+@@ -91,7 +91,15 @@ export function IncomingOrderQueue() {
+   }
+ 
+   function applyIncoming(list: PosTicket[]) {
+-    const live = fifoIncoming(list.filter((t) => !snoozed.current.has(t.id) && !taken.current.has(t.id)));
++    // Only un-accepted tickets; skip anything already taken this session (kills double-accept flicker).
++    const live = fifoIncoming(
++      list.filter(
++        (t) =>
++          (t.status === "placed" || t.status === "awaiting_payment") &&
++          !snoozed.current.has(t.id) &&
++          !taken.current.has(t.id),
++      ),
++    );
+     setQueue(live);
+     setCurrentId((cur) => {
+       if (cur && live.some((t) => t.id === cur)) return cur;
+@@ -145,8 +153,16 @@ export function IncomingOrderQueue() {
+         setToast(`Ticket #${formatTicketNo(accepted.ticketNo)} accepted — sent to the kitchen.`);
+       })
+       .catch((e) => {
++        const msg = e instanceof Error ? e.message : "Could not accept";
++        // If another station already accepted, treat as success — do not put it back in the modal.
++        if (/already|accepted|preparing|ready|cannot be accepted/i.test(msg)) {
++          taken.current.add(ticket.id);
++          emitPosAccepted({ ...ticket, status: "accepted" });
++          setToast(`Ticket #${formatTicketNo(ticket.ticketNo)} accepted — sent to the kitchen.`);
++          return;
++        }
+         taken.current.delete(ticket.id);
+-        setError(e instanceof Error ? e.message : "Could not accept");
++        setError(msg);
+         setQueue((list) => {
+           if (list.some((t) => t.id === ticket.id)) return list;
+           return fifoIncoming([ticket, ...list]);
+diff --git a/src/data/patches.ts b/src/data/patches.ts
+index 65d2a15..283d4d6 100644
+--- a/src/data/patches.ts
++++ b/src/data/patches.ts
+@@ -6,6 +6,15 @@ export type PatchEntry = {
+ };
+ 
+ export const PATCHES: PatchEntry[] = [
++  {
++    id: "2026-09-10-style-custom-bots",
++    date: "September 10, 2026",
++    title: "Style bot + custom bot minting",
++    added: [
++      "Admin → Bot access includes a Style preset (menu/health read) and a New Customer preset.",
++      "Custom mode lets you mint any future bot by name and role without another code drop.",
++    ],
++  },
+   {
+     id: "2026-09-10-admin-totp-toggle",
+     date: "September 10, 2026",
+diff --git a/src/lib/bot/scopes.ts b/src/lib/bot/scopes.ts
+index 1cd654d..31cf109 100644
+--- a/src/lib/bot/scopes.ts
++++ b/src/lib/bot/scopes.ts
+@@ -29,11 +29,21 @@ export type BotPreset = {
+   scopes?: readonly BotScope[];
+ };
+ 
++export const BOT_ROLE_LABELS: Record<BotRole, string> = {
++  security_read: "Security read",
++  ops_read: "Ops read",
++  menu_write: "Menu write",
++  orders_read: "Orders read",
++  admin_write: "Admin write",
++};
++
+ export const BOT_PRESETS: BotPreset[] = [
+   { name: "security-guard", role: "security_read", label: "Security Guard" },
+   { name: "chief-of-staff", role: "ops_read", label: "Chief of Staff" },
+   { name: "finance", role: "orders_read", label: "Finance", scopes: ["orders.read", "payments.read"] },
+   { name: "pos", role: "orders_read", label: "POS Employee" },
++  { name: "style", role: "ops_read", label: "Style", scopes: ["health.read", "menu.read"] },
++  { name: "new-customer", role: "ops_read", label: "New Customer", scopes: ["health.read", "menu.read", "orders.read"] },
+ ];
+ 
+ export function isBotScope(raw: string): raw is BotScope {
+diff --git a/src/lib/shop-server.ts b/src/lib/shop-server.ts
+index d857e9b..e41b1bb 100644
+--- a/src/lib/shop-server.ts
++++ b/src/lib/shop-server.ts
+@@ -872,20 +872,28 @@ async function ensureStaffAdmin(sql: Sql) {
+ }
+ 
+ async function ensureProfile(sql: Sql, userId: string, displayName?: string) {
+-	const inflight = profileLocks.get(userId);
+-	if (inflight) {
+-		await inflight;
++	// Serialize per-user inserts so POS boot (getMe + getTwoFactorStatus) cannot race
++	// into profiles_pkey. Waiters re-check after the inflight settles — if the first
++	// attempt failed before insert, we still create the row instead of returning empty.
++	for (let spin = 0; spin < 4; spin += 1) {
++		const inflight = profileLocks.get(userId);
++		if (inflight) {
++			await inflight.catch(() => undefined);
++			if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
++			continue;
++		}
++		const run = ensureProfileRow(sql, userId, displayName).finally(() => {
++			profileLocks.delete(userId);
++		});
++		profileLocks.set(userId, run);
++		await run;
+ 		return;
+ 	}
+-	const run = ensureProfileRow(sql, userId, displayName).finally(() => {
+-		profileLocks.delete(userId);
+-	});
+-	profileLocks.set(userId, run);
+-	await run;
++	await ensureProfileRow(sql, userId, displayName);
+ }
+ 
+ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string) {
+-	if ((await sql`select user_id from profiles where user_id = ${userId}`).length) return;
++	if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
+ 	const settings = await loadSettingsRow(sql);
+ 	const bonus = Math.round(num(settings.welcome_bonus));
+ 	for (let i = 0; i < 6; i++) {
+@@ -901,7 +909,11 @@ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string)
+ 			return;
+ 		} catch (err) {
+ 			const msg = err instanceof Error ? err.message : String(err ?? "");
+-			if (/profiles_pkey/i.test(msg)) return;
++			// Concurrent boot or referral_code unique collision — treat existing row as success.
++			if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
++				if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
++				continue;
++			}
+ 			if (i === 5) throw err;
+ 		}
+ 	}
+@@ -1059,11 +1071,28 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
+ 	await ensureProfile(sql, context.userId);
+ 	await grantSilverAdmin(sql, context.userId);
+ 	let profile: Record<string, unknown>[] = [];
++	const loadProfile = async () => {
++		try {
++			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
++		} catch {
++			await ensureSettingsSchema(sql);
++			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
++		}
++	};
+ 	try {
+-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
+-	} catch {
+-		await ensureSettingsSchema(sql);
+-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
++		profile = await loadProfile();
++		if (!profile[0]) {
++			await ensureProfile(sql, context.userId);
++			profile = await loadProfile();
++		}
++	} catch (err) {
++		const msg = err instanceof Error ? err.message : String(err ?? "");
++		if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
++			await ensureProfile(sql, context.userId);
++			profile = await loadProfile();
++		} else {
++			throw err;
++		}
+ 	}
+ 	const admins = await sql`select count(*)::int as n from profiles where role = 'admin'`;
+ 	const unread = await sql`
+diff --git a/src/routes/admin/bots.tsx b/src/routes/admin/bots.tsx
+index bac28c2..af082b2 100644
+--- a/src/routes/admin/bots.tsx
++++ b/src/routes/admin/bots.tsx
+@@ -1,7 +1,7 @@
+ import { useEffect, useState } from "react";
+ import { createFileRoute } from "@tanstack/react-router";
+ import { Copy } from "lucide-react";
+-import { BOT_PRESETS } from "@/lib/bot/scopes";
++import { BOT_PRESETS, BOT_ROLES, BOT_ROLE_LABELS, type BotRole } from "@/lib/bot/scopes";
+ import {
+   createBotAgent,
+   listBotAgents,
+@@ -15,10 +15,15 @@ import { formatShopWhen } from "@/lib/hours";
+ 
+ export const Route = createFileRoute("/admin/bots")({ component: AdminBots });
+ 
++type CreateMode = "preset" | "custom";
++
+ function AdminBots() {
+   const [agents, setAgents] = useState<BotAgentView[]>([]);
+   const [audit, setAudit] = useState<BotAuditView[]>([]);
++  const [mode, setMode] = useState<CreateMode>("preset");
+   const [preset, setPreset] = useState(BOT_PRESETS[0]?.name ?? "security-guard");
++  const [customName, setCustomName] = useState("");
++  const [customRole, setCustomRole] = useState<BotRole>("ops_read");
+   const [busy, setBusy] = useState("");
+   const [msg, setMsg] = useState("");
+   const [issued, setIssued] = useState<{ name: string; token: string } | null>(null);
+@@ -40,6 +45,32 @@ function AdminBots() {
+     void navigator.clipboard.writeText(token).then(() => setMsg("Token copied. Store it as a bot secret — it will not be shown again."));
+   }
+ 
++  function onCreated(r: { agent: BotAgentView; token: string }) {
++    setIssued({ name: r.agent.name, token: r.token });
++    setAgents((list) => [...list.filter((a) => a.id !== r.agent.id), r.agent].sort((a, b) => a.name.localeCompare(b.name)));
++  }
++
++  function createPreset() {
++    setBusy("create");
++    setMsg("");
++    void createBotAgent({ data: { preset } })
++      .then(onCreated)
++      .catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot"))
++      .finally(() => setBusy(""));
++  }
++
++  function createCustom() {
++    setBusy("create");
++    setMsg("");
++    void createBotAgent({ data: { name: customName.trim().toLowerCase(), role: customRole } })
++      .then((r) => {
++        onCreated(r);
++        setCustomName("");
++      })
++      .catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot"))
++      .finally(() => setBusy(""));
++  }
++
+   return (
+     <div className="settings-page">
+       <header className="page-card">
+@@ -47,45 +78,78 @@ function AdminBots() {
+         <h1>Bot access</h1>
+         <p className="ed-sub">
+           Each bot gets its own token and the least scopes it needs. Bots never sign in as Admin. The raw token is
+-          shown once — copy it into the bot’s secret store, then treat it like a password.
++          shown once — copy it into the bot’s secret store, then treat it like a password. Use a preset for known
++          desk roles, or Custom to mint any future agent by name and role.
+         </p>
+       </header>
+ 
+       <section className="page-card">
+         <h2>Create an agent</h2>
+-        <div className="two-col">
+-          <label className="ed-field">
+-            <span>Preset</span>
+-            <select className="ed-input" value={preset} onChange={(e) => setPreset(e.target.value)}>
+-              {BOT_PRESETS.map((p) => (
+-                <option key={p.name} value={p.name}>
+-                  {p.label}
+-                </option>
+-              ))}
+-            </select>
+-          </label>
+-          <div className="ed-field">
+-            <span>Issue</span>
+-            <button
+-              type="button"
+-              className="btn-print"
+-              disabled={Boolean(busy)}
+-              onClick={() => {
+-                setBusy("create");
+-                setMsg("");
+-                void createBotAgent({ data: { preset } })
+-                  .then((r) => {
+-                    setIssued({ name: r.agent.name, token: r.token });
+-                    setAgents((list) => [...list.filter((a) => a.id !== r.agent.id), r.agent].sort((a, b) => a.name.localeCompare(b.name)));
+-                  })
+-                  .catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot"))
+-                  .finally(() => setBusy(""));
+-              }}
+-            >
+-              {busy === "create" ? "Creating…" : "Create token"}
+-            </button>
+-          </div>
++        <div className="seg" role="tablist" aria-label="Create mode" style={{ marginBottom: 12 }}>
++          <button type="button" className="seg-btn" data-on={mode === "preset" ? "true" : "false"} onClick={() => setMode("preset")}>
++            Preset
++          </button>
++          <button type="button" className="seg-btn" data-on={mode === "custom" ? "true" : "false"} onClick={() => setMode("custom")}>
++            Custom
++          </button>
+         </div>
++
++        {mode === "preset" ? (
++          <div className="two-col">
++            <label className="ed-field">
++              <span>Preset</span>
++              <select className="ed-input" value={preset} onChange={(e) => setPreset(e.target.value)}>
++                {BOT_PRESETS.map((p) => (
++                  <option key={p.name} value={p.name}>
++                    {p.label}
++                  </option>
++                ))}
++              </select>
++            </label>
++            <div className="ed-field">
++              <span>Issue</span>
++              <button type="button" className="btn-print" disabled={Boolean(busy)} onClick={createPreset}>
++                {busy === "create" ? "Creating…" : "Create token"}
++              </button>
++            </div>
++          </div>
++        ) : (
++          <div className="two-col">
++            <label className="ed-field">
++              <span>Name</span>
++              <input
++                className="ed-input"
++                value={customName}
++                placeholder="style"
++                autoComplete="off"
++                onChange={(e) => setCustomName(e.target.value)}
++              />
++              <span className="ed-sub">2–40 chars: letters, numbers, dashes</span>
++            </label>
++            <label className="ed-field">
++              <span>Role</span>
++              <select className="ed-input" value={customRole} onChange={(e) => setCustomRole(e.target.value as BotRole)}>
++                {BOT_ROLES.map((role) => (
++                  <option key={role} value={role}>
++                    {BOT_ROLE_LABELS[role]}
++                  </option>
++                ))}
++              </select>
++            </label>
++            <div className="ed-field">
++              <span>Issue</span>
++              <button
++                type="button"
++                className="btn-print"
++                disabled={Boolean(busy) || customName.trim().length < 2}
++                onClick={createCustom}
++              >
++                {busy === "create" ? "Creating…" : "Create token"}
++              </button>
++            </div>
++          </div>
++        )}
++
+         {issued ? (
+           <div className="bot-token-box">
+             <p className="ed-sub">
+diff --git a/src/routes/admin/pos.tsx b/src/routes/admin/pos.tsx
+index d9034c9..7f16a08 100644
+--- a/src/routes/admin/pos.tsx
++++ b/src/routes/admin/pos.tsx
+@@ -451,7 +451,19 @@ function AdminPos() {
+     return hits.slice(0, 8);
+   }, [categories, itemQuery]);
+ 
+-  const openTickets = useMemo(() => visible.filter((t) => posBucket(t.status) !== "completed"), [visible]);
++  const openTickets = useMemo(() => {
++    const open = visible.filter((t) => posBucket(t.status) !== "completed");
++    // Stable kitchen order: placed/awaiting first (oldest first), then accepted+ (oldest first).
++    return [...open].sort((a, b) => {
++      const ap = a.status === "placed" || a.status === "awaiting_payment" ? 0 : 1;
++      const bp = b.status === "placed" || b.status === "awaiting_payment" ? 0 : 1;
++      if (ap !== bp) return ap - bp;
++      const ta = Date.parse(a.createdAt) || 0;
++      const tb = Date.parse(b.createdAt) || 0;
++      if (ta !== tb) return ta - tb;
++      return (a.ticketNo || 0) - (b.ticketNo || 0) || a.id.localeCompare(b.id);
++    });
++  }, [visible]);
+   const doneTickets = useMemo(() => visible.filter((t) => posBucket(t.status) === "completed"), [visible]);
+   const shown = desk === "done" ? doneTickets : openTickets;
+   const openTicket = tickets.find((t) => t.id === openId) ?? null;
+diff --git a/src/routes/api/bot/v1/$.ts b/src/routes/api/bot/v1/$.ts
+index 16acff3..a301ffc 100644
+--- a/src/routes/api/bot/v1/$.ts
++++ b/src/routes/api/bot/v1/$.ts
+@@ -1,3 +1,17 @@
++/**
++ * Bot API v1 — South End Pizza
++ *
++ * Changelog (POS quality-up):
++ * - GET /orders/recent: adds itemCount, itemSummary, customerName, notes, tip
++ *   (nullable-safe). Joins profiles for display name; items come from orders.items jsonb.
++ *   Existing fields (id, ticketNo, status, fulfillment, total, paymentMethod,
++ *   createdAt, scheduledFor) are unchanged.
++ * - POST /orders/status: accepting/preparing is idempotent — if the ticket is
++ *   already accepted, preparing, or further along the kitchen path, returns 200
++ *   with the current state (no error spam). Other transitions still update normally.
++ *
++ * Scope: build-only. No Neon cutover, auth/BETTER_AUTH, card processor, or bot scope changes.
++ */
+ import { createFileRoute } from "@tanstack/react-router";
+ import { writeBotAudit, requestIp } from "@/lib/bot/audit.server";
+ import { agentHasScope, rateLimitBot, verifyBotBearer, type BotAgent } from "@/lib/bot/tokens.server";
+@@ -134,25 +148,70 @@ async function handle(request: Request) {
+       agentId = gate.agent.id;
+       const sql = await getSql();
+       const rows = await sql`
+-        select id, ticket_no, status, fulfillment, total, payment_method, created_at, scheduled_for
+-        from orders
+-        order by created_at desc
++        select o.id, o.ticket_no, o.status, o.fulfillment, o.total, o.payment_method,
++               o.created_at, o.scheduled_for, o.notes, o.tip, o.items, o.pickup_name,
++               p.display_name
++        from orders o
++        left join profiles p on p.user_id = o.user_id
++        order by o.created_at desc
+         limit 25`;
+       return reply({
+-        orders: rows.map((row) => ({
+-          id: String(row.id),
+-          ticketNo: Math.round(Number(row.ticket_no) || 0),
+-          status: String(row.status ?? ""),
+-          fulfillment: String(row.fulfillment ?? ""),
+-          total: String(row.total ?? "0"),
+-          paymentMethod: String(row.payment_method ?? ""),
+-          createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
+-          scheduledFor: row.scheduled_for
+-            ? row.scheduled_for instanceof Date
+-              ? row.scheduled_for.toISOString()
+-              : String(row.scheduled_for)
+-            : null,
+-        })),
++        orders: rows.map((row) => {
++          const itemsRaw = row.items;
++          let items: unknown[] = [];
++          if (Array.isArray(itemsRaw)) items = itemsRaw;
++          else if (typeof itemsRaw === "string") {
++            try {
++              const parsed = JSON.parse(itemsRaw);
++              if (Array.isArray(parsed)) items = parsed;
++            } catch {
++              items = [];
++            }
++          }
++          let itemCount = 0;
++          const bits: string[] = [];
++          for (const raw of items) {
++            const it = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
++            const qty = Math.max(1, Math.round(Number(it.qty) || 1));
++            itemCount += qty;
++            const name = String(it.name ?? "").trim() || "Item";
++            const size = String(it.size ?? "").trim();
++            bits.push(size ? `${qty}× ${name} · ${size}` : `${qty}× ${name}`);
++          }
++          const tipRaw = row.tip;
++          const tip =
++            tipRaw === null || tipRaw === undefined || tipRaw === ""
++              ? null
++              : String(tipRaw);
++          const notesRaw = row.notes;
++          const notes =
++            notesRaw === null || notesRaw === undefined
++              ? null
++              : String(notesRaw).trim() || null;
++          const customerName =
++            String(row.display_name ?? "").trim() ||
++            String(row.pickup_name ?? "").trim() ||
++            "Guest";
++          return {
++            id: String(row.id),
++            ticketNo: Math.round(Number(row.ticket_no) || 0),
++            status: String(row.status ?? ""),
++            fulfillment: String(row.fulfillment ?? ""),
++            total: String(row.total ?? "0"),
++            paymentMethod: String(row.payment_method ?? ""),
++            createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
++            scheduledFor: row.scheduled_for
++              ? row.scheduled_for instanceof Date
++                ? row.scheduled_for.toISOString()
++                : String(row.scheduled_for)
++              : null,
++            itemCount,
++            itemSummary: bits.slice(0, 6).join(", ") + (bits.length > 6 ? "…" : ""),
++            customerName,
++            notes,
++            tip,
++          };
++        }),
+       });
+     }
+ 
+@@ -210,6 +269,31 @@ async function handle(request: Request) {
+       if (!id) return reply({ error: "missing_id" }, 400);
+       if (!KITCHEN_STATUSES.has(next)) return reply({ error: "invalid_status" }, 400);
+       const sql = await getSql();
++      const existing = await sql.query(
++        `select id, ticket_no, status from orders where id = $1`,
++        [id],
++      );
++      if (!existing[0]) return reply({ error: "not_found" }, 404);
++      const current = String(existing[0].status ?? "");
++      const pastAccepted = new Set(["accepted", "preparing", "ready", "out_for_delivery", "completed"]);
++      const pastPreparing = new Set(["preparing", "ready", "out_for_delivery", "completed"]);
++      // Idempotent accept/preparing: already there (or further) → 200 current state, no error spam.
++      if (next === "accepted" && pastAccepted.has(current)) {
++        return reply({
++          ok: true,
++          id: String(existing[0].id),
++          ticketNo: Math.round(Number(existing[0].ticket_no) || 0),
++          status: current,
++        });
++      }
++      if (next === "preparing" && pastPreparing.has(current)) {
++        return reply({
++          ok: true,
++          id: String(existing[0].id),
++          ticketNo: Math.round(Number(existing[0].ticket_no) || 0),
++          status: current,
++        });
++      }
+       const updated = await sql.query(
+         `update orders set status = $1, accepted_at = case when $1 in ('accepted','preparing') then coalesce(accepted_at, now()) else accepted_at end
+          where id = $2 returning id, ticket_no, status`,

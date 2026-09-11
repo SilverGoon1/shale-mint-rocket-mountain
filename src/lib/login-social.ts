@@ -5,7 +5,7 @@ const BEARER_KEY = "grok-auth.bearer-token";
 
 type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: string };
 
-export function friendlyAuthError(err: unknown): string {
+export function friendlyAuthError(err: unknown, hint?: { username?: boolean }): string {
   const raw = err instanceof Error ? err.message : "Sign-in failed.";
   const lower = raw.toLowerCase();
   if (lower.includes("invalid origin")) {
@@ -17,7 +17,10 @@ export function friendlyAuthError(err: unknown): string {
   if (lower.includes("cancelled") || lower.includes("canceled") || lower.includes("did not finish")) {
     return "Sign-in did not finish. Try again.";
   }
-  return raw;
+  if (lower.includes("invalid") || lower.includes("credential") || lower.includes("unauthorized") || lower.includes("password") || lower.includes("not found") || lower.includes("user")) {
+    return hint?.username ? "Invalid username or password." : "Invalid email, username, or password.";
+  }
+  return "Invalid email, username, or password.";
 }
 
 function inSandboxPreview(): boolean {

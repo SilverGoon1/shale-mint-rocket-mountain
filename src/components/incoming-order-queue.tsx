@@ -3,11 +3,15 @@ import { Bell, Volume2, VolumeX, X } from "lucide-react";
 import { acceptOrder, getAdminShop, listIncomingOrders } from "@/lib/shop-server";
 import { formatShopWhen } from "@/lib/hours";
 import { formatUsd, formatTicketNo, type PosTicket } from "@/lib/shop-types";
+import { lineSummary, payStatusLabel } from "@/lib/ticket-line";
 import { onVisibleInterval } from "@/lib/page-visible";
+import { PosStaffToast, type PosStaffToastState } from "@/components/pos-staff-toast";
+import { formatAcceptedToast, POS_TOAST_MS } from "@/lib/pos-toast";
 
 const DEFAULT_ALARM = "/order-alarm.wav";
 const SNOOZE_KEY = "southend-order-snooze";
 export const POS_ACCEPTED_EVENT = "southend-pos-accepted";
+export const POS_COMPLETED_EVENT = "southend-pos-completed";
 
 function loadSnooze() {
   try {
@@ -48,7 +52,7 @@ export function IncomingOrderQueue() {
   const [error, setError] = useState("");
   const [muted, setMuted] = useState(false);
   const [src, setSrc] = useState(DEFAULT_ALARM);
-  const [toast, setToast] = useState("");
+  const [toast, setToast] = useState<PosStaffToastState | null>(null);
   const seen = useRef(new Set<string>());
   const snoozed = useRef(loadSnooze());
   const taken = useRef(new Set<string>());
@@ -78,7 +82,7 @@ export function IncomingOrderQueue() {
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(""), 3200);
+    const t = window.setTimeout(() => setToast(null), POS_TOAST_MS);
     return () => window.clearTimeout(t);
   }, [toast]);
 
@@ -150,7 +154,7 @@ export function IncomingOrderQueue() {
           chatThreadId: ticket.chatThreadId,
         };
         emitPosAccepted(accepted);
-        setToast(`Ticket #${formatTicketNo(accepted.ticketNo)} accepted — sent to the kitchen.`);
+        setToast(formatAcceptedToast({ ticketNo: accepted.ticketNo, formatTicketNo }));
       })
       .catch((e) => {
         const msg = e instanceof Error ? e.message : "Could not accept";
@@ -158,7 +162,7 @@ export function IncomingOrderQueue() {
         if (/already|accepted|preparing|ready|cannot be accepted/i.test(msg)) {
           taken.current.add(ticket.id);
           emitPosAccepted({ ...ticket, status: "accepted" });
-          setToast(`Ticket #${formatTicketNo(ticket.ticketNo)} accepted — sent to the kitchen.`);
+          setToast(formatAcceptedToast({ ticketNo: ticket.ticketNo, formatTicketNo }));
           return;
         }
         taken.current.delete(ticket.id);
@@ -172,12 +176,7 @@ export function IncomingOrderQueue() {
       .finally(() => setBusy(false));
   }
 
-  const toastEl = toast ? (
-    <div className="save-toast pos-accept-toast" data-ok="true" role="status">
-      <strong>Accepted</strong>
-      <span>{toast}</span>
-    </div>
-  ) : null;
+  const toastEl = <PosStaffToast toast={toast} />;
 
   if (!current) return toastEl;
 
@@ -219,23 +218,24 @@ export function IncomingOrderQueue() {
             </button>
           </header>
           <p className="order-alert-who">
-            <strong>{current.customerName}</strong>
+            <strong>{current.pickupName || current.customerName}</strong>
             <span>
               {current.fulfillment === "delivery" ? "Delivery" : "Pickup"} · {formatUsd(current.total)}
             </span>
           </p>
+          {current.customerPhone ? <p className="ed-sub">{current.customerPhone}</p> : null}
           <p className="ed-sub">
             Placed {formatShopWhen(current.createdAt)}
-            {current.scheduledFor ? ` · scheduled ${formatShopWhen(current.scheduledFor)}` : " · as soon as ready"}
+            {current.scheduledFor
+              ? ` · promised ${formatShopWhen(current.scheduledFor)}`
+              : " · as soon as ready"}
           </p>
           <p className="ed-sub">{where}</p>
+          <p className="ed-sub">{payStatusLabel(current.paymentMethod, current.status)}</p>
           <ul className="cart-lines">
             {current.items.slice(0, 8).map((it, i) => (
               <li key={`${it.itemId}-${i}`}>
-                <span>
-                  {it.qty}× {it.name}
-                  {it.size ? ` · ${it.size}` : ""}
-                </span>
+                <span>{lineSummary(it)}</span>
                 <span>{formatUsd(it.unitPrice * it.qty)}</span>
               </li>
             ))}
@@ -245,11 +245,49 @@ export function IncomingOrderQueue() {
               <strong>Notes</strong> {current.notes}
             </p>
           ) : null}
+          <dl className="totals">
+            <div>
+              <dt>Food</dt>
+              <dd>{formatUsd(current.subtotal)}</dd>
+            </div>
+            {current.discount ? (
+              <div>
+                <dt>Rewards</dt>
+                <dd>−{formatUsd(current.discount)}</dd>
+              </div>
+            ) : null}
+            {current.deliveryFee ? (
+              <div>
+                <dt>Delivery</dt>
+                <dd>{formatUsd(current.deliveryFee)}</dd>
+              </div>
+            ) : null}
+            <div>
+              <dt>Tax</dt>
+              <dd>{formatUsd(current.tax)}</dd>
+            </div>
+            {current.tip ? (
+              <div>
+                <dt>Tip</dt>
+                <dd>{formatUsd(current.tip)}</dd>
+              </div>
+            ) : null}
+            <div className="totals-grand">
+              <dt>Total</dt>
+              <dd>{formatUsd(current.total)}</dd>
+            </div>
+          </dl>
           {error ? <p className="form-error">{error}</p> : null}
           <div className="confirm-actions">
-            <button type="button" className="btn-print" disabled={busy || taken.current.has(current.id)} onClick={take}>
-              {busy ? "Accepting…" : "Accept order"}
-            </button>
+            {current.status === "accepted" || current.status === "preparing" || current.status === "ready" || taken.current.has(current.id) ? (
+              <button type="button" className="btn-print" disabled>
+                Accepted
+              </button>
+            ) : (
+              <button type="button" className="btn-print" disabled={busy} onClick={take}>
+                {busy ? "Accepting…" : "Accept order"}
+              </button>
+            )}
             {queue.length > 1 ? (
               <button
                 type="button"

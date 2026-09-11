@@ -8,7 +8,74 @@ import { RESTAURANT } from "@/data/menu";
 import { onVisibleInterval } from "@/lib/page-visible";
 import { getMe, getShopContact } from "@/lib/shop-server";
 
-const HIDDEN = [/^\/admin/, /^\/board/, /^\/login/, /^\/verify-2fa/, /^\/auth/, /^\/help/, /^\/pair-printer/];
+const HIDDEN = [/^\/admin/, /^\/board/, /^\/login/, /^\/verify-2fa/, /^\/auth/, /^\/help/, /^\/pair-printer/, /^\/checkout/];
+
+function prefersReducedMotion() {
+  return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+function isScrollable(el: Element) {
+  if (!(el instanceof HTMLElement)) return false;
+  const style = window.getComputedStyle(el);
+  if (!/(auto|scroll|overlay)/.test(style.overflowY)) return false;
+  return el.scrollHeight > el.clientHeight + 2;
+}
+
+function scrollPageToTop() {
+  const instant = prefersReducedMotion();
+  const behavior: ScrollBehavior = instant ? "auto" : "smooth";
+  const header = document.getElementById("shop-top") ?? document.querySelector(".shop-header");
+  const nodes = new Set<HTMLElement>();
+  let node: HTMLElement | null = header instanceof HTMLElement ? header : document.body;
+  while (node) {
+    if (isScrollable(node)) nodes.add(node);
+    node = node.parentElement;
+  }
+  if (document.scrollingElement instanceof HTMLElement) nodes.add(document.scrollingElement);
+  nodes.add(document.documentElement);
+  if (document.body) nodes.add(document.body);
+  document.querySelectorAll<HTMLElement>(".app-root, .shop-shell, .shop-main, .store-layout").forEach((el) => {
+    if (isScrollable(el) || el.scrollTop > 0) nodes.add(el);
+  });
+
+  const jump = (smooth: boolean) => {
+    const how: ScrollBehavior = smooth ? behavior : "auto";
+    try {
+      window.scrollTo({ top: 0, left: 0, behavior: how });
+    } catch {
+      window.scrollTo(0, 0);
+    }
+    try {
+      window.parent?.scrollTo?.({ top: 0, left: 0, behavior: how });
+    } catch {
+      /* cross-origin preview host */
+    }
+    for (const el of nodes) {
+      try {
+        el.scrollTo({ top: 0, left: 0, behavior: how });
+      } catch {
+        el.scrollTop = 0;
+      }
+    }
+    if (header instanceof HTMLElement) {
+      try {
+        header.scrollIntoView({ block: "start", inline: "nearest", behavior: how });
+      } catch {
+        /* */
+      }
+    }
+  };
+
+  jump(true);
+  window.requestAnimationFrame(() => {
+    const y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    if (y > 4) jump(false);
+  });
+  window.setTimeout(() => {
+    const y = window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0;
+    if (y > 4) jump(false);
+  }, 320);
+}
 
 export function SupportDock() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -87,12 +154,7 @@ export function SupportDock() {
       ) : null}
       <div className="dock-fabs">
         {!titleVisible ? (
-          <button
-            type="button"
-            className="dock-fab dock-top"
-            aria-label="Back to top"
-            onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
-          >
+          <button type="button" className="dock-fab dock-top" aria-label="Back to top" onClick={scrollPageToTop}>
             <ArrowUp size={20} strokeWidth={2.2} />
             <span>Top</span>
           </button>

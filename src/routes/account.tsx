@@ -1,10 +1,11 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { Copy, Link2 } from "lucide-react";
-import { ShopHeader } from "@/components/shop-header";
+import { Copy, ImagePlus, Link2 } from "lucide-react";
+import { AccountAvatar, ShopHeader } from "@/components/shop-header";
 import { InviteQr } from "@/components/invite-qr";
 import { SessionGate } from "@/components/guards";
 import { useCartStore } from "@/lib/cart-store";
+import { fileToDataImage } from "@/lib/image-file";
 import { formatPhone } from "@/lib/phone";
 import { formatShopWhen } from "@/lib/hours";
 import {
@@ -14,6 +15,7 @@ import {
   getMyRewards,
   listMyOrders,
   sendPasswordResetCode,
+  setMyAvatar,
   startTotpSetup,
   updateProfile,
 } from "@/lib/shop-server";
@@ -86,6 +88,9 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
   const [previewCode, setPreviewCode] = useState("");
   const [otpLeft, setOtpLeft] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || "");
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [photoErr, setPhotoErr] = useState("");
 
   useEffect(() => {
     void listMyOrders().then(setOrders).catch(() => setOrders([]));
@@ -116,12 +121,17 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
     <>
       <header className="page-card account-hero">
         <p className="shop-brand-kicker">Your account</p>
-        <h1>Hello, {who}</h1>
-        <p className="ed-sub">
-          {email || "Signed in"}
-          {phone ? ` · ${formatPhone(phone) || phone}` : ""}
-        </p>
-        <p className="points-chip">{points} reward points</p>
+        <div className="account-hero-who">
+          <AccountAvatar src={avatarUrl} name={who} size={72} />
+          <div>
+            <h1>Hello, {who}</h1>
+            <p className="ed-sub">
+              {email || "Signed in"}
+              {phone ? ` · ${formatPhone(phone) || phone}` : ""}
+            </p>
+            <p className="points-chip">{points} reward points</p>
+          </div>
+        </div>
       </header>
 
       <div className="account-tabs" role="tablist" aria-label="Account">
@@ -256,6 +266,56 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
           <h2>Account details</h2>
           <p className="ed-sub">The name on tickets, the phone the shop texts, and the address used for delivery.</p>
           <div className="ed-shop">
+            <div className="account-icon-edit">
+              <AccountAvatar src={avatarUrl} name={who} size={72} />
+              <div>
+                <span className="ed-field">
+                  <span>Account icon</span>
+                </span>
+                <p className="ed-sub">This picture shows in the title bar. Square photos work best.</p>
+                <div className="account-icon-actions">
+                  <label className="ed-btn ed-btn-quiet ed-photo-pick">
+                    <ImagePlus size={14} strokeWidth={2.2} />
+                    {avatarUrl ? "Replace photo" : "Upload photo"}
+                    <input
+                      type="file"
+                      accept="image/png,image/jpeg,image/webp"
+                      disabled={photoBusy}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!file) return;
+                        setPhotoBusy(true);
+                        setPhotoErr("");
+                        void fileToDataImage(file, { maxEdge: 384, maxChars: 120000, quality: 0.84 })
+                          .then((url) => setMyAvatar({ data: { image: url } }).then((r) => setAvatarUrl(r.avatarUrl)))
+                          .catch((err) => setPhotoErr(err instanceof Error ? err.message : "Could not save that photo"))
+                          .finally(() => setPhotoBusy(false));
+                      }}
+                    />
+                  </label>
+                  {avatarUrl ? (
+                    <button
+                      type="button"
+                      className="ed-btn ed-btn-quiet"
+                      disabled={photoBusy}
+                      onClick={() => {
+                        setPhotoBusy(true);
+                        setPhotoErr("");
+                        void setMyAvatar({ data: { image: "" } })
+                          .then((r) => setAvatarUrl(r.avatarUrl))
+                          .catch((err) => setPhotoErr(err instanceof Error ? err.message : "Could not remove that photo"))
+                          .finally(() => setPhotoBusy(false));
+                      }}
+                    >
+                      Remove
+                    </button>
+                  ) : null}
+                </div>
+                {photoBusy ? <p className="ed-empty">Saving photo…</p> : null}
+                {photoErr ? <p className="form-error">{photoErr}</p> : null}
+              </div>
+            </div>
             <label className="ed-field">
               <span>Name</span>
               <input className="ed-input" value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" />

@@ -240,3 +240,13 @@ export async function signOut(redirectTo = "/"): Promise<void> {
     },
   });
 }
+
+/** Drop a local session without leaving the page — used after a failed password. */
+export async function dropClientSession(): Promise<void> {
+  try {
+    await authClient.signOut();
+  } catch {
+    /* still clear the preview token */
+  }
+  setBearerToken(null);
+}

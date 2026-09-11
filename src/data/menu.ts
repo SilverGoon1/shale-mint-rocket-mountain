@@ -378,14 +378,14 @@ export const MENU: MenuCategory[] = [
   {
     id: "wings",
     name: "Wings",
-    note: "Tossed in your choice of sauce.",
+    note: "Tossed in Hot, Mild, Dry, or BBQ. Includes 2 Ranch, 2 Blue cheese, or none. Extra dips priced per 2 cups.",
     kind: "split",
     items: [
       {
         name: "Fresh Wings",
         description: "Deep-fried chicken wings with your choice of sauce",
         prices: [{ label: "10 pc", price: "14.00" }],
-        condiments: extras(["Ranch", "0.75"], ["Blue cheese", "0.75"], ["Celery", "0"], ["Extra sauce", "0.75"]),
+        condiments: extras(["Extra Ranch", "1.50"], ["Extra Blue cheese", "1.50"]),
       },
       {
         name: "Chicken Nuggets with Fries",

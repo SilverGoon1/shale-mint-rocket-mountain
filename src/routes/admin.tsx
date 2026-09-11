@@ -15,7 +15,7 @@ function AdminLayout() {
       <SessionGate needAdmin>
         {({ profile }) => (
           <>
-            {posMode ? null : <ShopHeader profile={profile} />}
+            <ShopHeader profile={profile} />
             <div className="admin-layout">
               <AdminDrawer />
               <main className="admin-main" id="main">

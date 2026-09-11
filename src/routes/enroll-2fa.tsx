@@ -4,6 +4,7 @@ import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { InviteQr } from "@/components/invite-qr";
 import { confirmTotpSetup, startTotpSetup } from "@/lib/shop-server";
+import { AccountLoading } from "@/components/pizza-spinner";
 
 function safeNext(raw: unknown) {
   if (typeof raw !== "string") return undefined;
@@ -68,12 +69,12 @@ function Enroll2fa() {
     };
   }, [user?.id]);
 
-  if (isPending) return <div className="page-skel">Checking sign-in…</div>;
+  if (isPending) return <AccountLoading />;
   if (!user) return <RedirectToSignIn />;
   if (done) {
     const dest = next || "/admin/pos";
     window.location.replace(dest);
-    return <div className="page-skel">Opening the shop desk…</div>;
+    return <AccountLoading label="Loading account" />;
   }
 
   return (

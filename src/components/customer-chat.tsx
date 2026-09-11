@@ -81,7 +81,7 @@ export function CustomerChat({ compact }: { compact?: boolean }) {
       .then((list) => {
         const live = list.filter((o) => isActiveOrderStatus(o.status));
         setOrders(live);
-        setOrderId((cur) => (cur && live.some((o) => o.id === cur) ? cur : ""));
+        setOrderId((cur) => (cur && live.some((o) => o.id === cur) ? cur : live[0]?.id ?? ""));
       })
       .catch(() => setOrders([]));
     const t = window.setInterval(() => {

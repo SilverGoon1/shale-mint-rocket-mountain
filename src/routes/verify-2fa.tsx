@@ -3,6 +3,7 @@ import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { RedirectToSignIn } from "@/lib/auth/gates";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { verifyTotpChallenge } from "@/lib/shop-server";
+import { AccountLoading } from "@/components/pizza-spinner";
 
 function safeNext(raw: unknown) {
   if (typeof raw !== "string") return undefined;
@@ -26,12 +27,12 @@ function Verify2fa() {
   const [busy, setBusy] = useState(false);
   const [done, setDone] = useState(false);
 
-  if (isPending) return <div className="page-skel">Checking sign-in…</div>;
+  if (isPending) return <AccountLoading />;
   if (!user) return <RedirectToSignIn />;
   if (done) {
     if (next) {
       window.location.replace(next);
-      return <div className="page-skel">Continuing…</div>;
+      return <AccountLoading label="Loading account" />;
     }
     return <Navigate to="/" />;
   }

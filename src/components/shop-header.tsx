@@ -1,15 +1,17 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronDown, CircleHelp, LogOut, Monitor, ShoppingBag, UserRound } from "lucide-react";
+import { CircleHelp, LogOut, Monitor, ShoppingBag, UserRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { PizzaSpinner } from "@/components/pizza-spinner";
 import { SignedOut } from "@/lib/auth/gates";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { useCurrentUserState, type AppUser } from "@/lib/auth/use-current-user";
 import { onAdminInbox } from "@/lib/admin-inbox";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { onVisibleInterval } from "@/lib/page-visible";
+import { formatPhone } from "@/lib/phone";
 import { captureReferral, clearReferral, peekReferral } from "@/lib/referral";
-import { claimReferral, getAdminInboxCount } from "@/lib/shop-server";
+import { claimReferral, getAdminInboxCount, setAdminMode } from "@/lib/shop-server";
 import type { ProfileView } from "@/lib/shop-types";
 
 function accountLabel(profile?: ProfileView | null, user?: AppUser | null) {
@@ -19,6 +21,26 @@ function accountLabel(profile?: ProfileView | null, user?: AppUser | null) {
   const at = email.indexOf("@");
   if (at > 0) return email.slice(0, at);
   return "You";
+}
+
+export function AccountAvatar({
+  src,
+  name,
+  size = 40,
+}: {
+  src?: string | null;
+  name: string;
+  size?: number;
+}) {
+  if (src) {
+    return <img className="account-avatar" src={src} alt="" width={size} height={size} />;
+  }
+  return (
+    <span className="account-avatar account-avatar-fallback" style={{ width: size, height: size }} aria-hidden>
+      <UserRound size={Math.round(size * 0.52)} strokeWidth={2.2} />
+      <span className="sr-only">{name}</span>
+    </span>
+  );
 }
 
 function SignOutItem() {
@@ -51,19 +73,34 @@ function SignOutItem() {
 
 function AccountMenu({
   label,
+  email,
+  phone,
+  points,
+  avatarUrl,
   isAdmin,
+  adminModeAllowed,
   adminUnread,
   unreadChats,
   adminExists,
+  onAdminMode,
+  togglingMode,
 }: {
   label: string;
+  email: string;
+  phone: string;
+  points: number;
+  avatarUrl?: string | null;
   isAdmin: boolean;
+  adminModeAllowed: boolean;
   adminUnread: number;
   unreadChats: number;
   adminExists: boolean;
+  onAdminMode: (on: boolean) => void;
+  togglingMode: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const prettyPhone = phone ? formatPhone(phone) || phone : "";
 
   useEffect(() => {
     if (!open) return;
@@ -85,18 +122,35 @@ function AccountMenu({
     <div className="account-menu" ref={wrapRef} data-open={open ? "true" : undefined}>
       <button
         type="button"
-        className="shop-nav-link shop-nav-name"
+        className="shop-nav-link shop-nav-avatar-btn"
         aria-expanded={open}
         aria-haspopup="menu"
         aria-label={`Account menu, ${label}`}
         onClick={() => setOpen((v) => !v)}
       >
-        <span className="shop-nav-name-text">{label}</span>
-        <ChevronDown size={14} strokeWidth={2.2} aria-hidden />
+        <AccountAvatar src={avatarUrl} name={label} size={40} />
         {adminUnread + unreadChats > 0 ? <span className="nav-pip">{adminUnread + unreadChats}</span> : null}
       </button>
       {open ? (
         <div className="account-menu-pop" role="menu">
+          <div className="account-menu-card">
+            <AccountAvatar src={avatarUrl} name={label} size={48} />
+            <div className="account-menu-card-copy">
+              <strong>{label}</strong>
+              {isAdmin ? <span className="admin-mode-badge">Admin</span> : null}
+              {email ? <em>{email}</em> : null}
+              <span>
+                {points} pts
+                {prettyPhone ? ` · ${prettyPhone}` : ""}
+              </span>
+            </div>
+          </div>
+          {isAdmin ? (
+            <Link to="/admin/pos" role="menuitem" onClick={() => setOpen(false)}>
+              <Monitor size={16} strokeWidth={2.2} aria-hidden />
+              POS
+            </Link>
+          ) : null}
           <Link to="/account" role="menuitem" onClick={() => setOpen(false)}>
             <UserRound size={16} strokeWidth={2.2} aria-hidden />
             Your account
@@ -122,6 +176,22 @@ function AccountMenu({
               Shop admin
             </Link>
           ) : null}
+          {adminModeAllowed ? (
+            <label className="account-menu-admin" onClick={(e) => e.stopPropagation()}>
+              <span>
+                Admin mode
+                <em>{isAdmin ? "Desk is on for this account" : "Enter the shop desk"}</em>
+              </span>
+              <input
+                className="toggle"
+                type="checkbox"
+                role="menuitemcheckbox"
+                checked={isAdmin}
+                disabled={togglingMode}
+                onChange={(e) => onAdminMode(e.target.checked)}
+              />
+            </label>
+          ) : null}
           <SignOutItem />
         </div>
       ) : null}
@@ -141,11 +211,18 @@ export function ShopHeader({
   const { isPending, user } = useCurrentUserState();
   const [authReady, setAuthReady] = useState(false);
   const [adminUnread, setAdminUnread] = useState(profile?.adminInbox ?? 0);
+  const [liveProfile, setLiveProfile] = useState(profile ?? null);
+  const [modeBusy, setModeBusy] = useState(false);
   const lines = useCartStore((s) => s.lines);
   const bagOpen = useCartStore((s) => s.bagOpen);
   const { count } = cartTotals(lines);
-  const isAdmin = profile?.role === "admin";
+  const isAdmin = liveProfile?.role === "admin" || Boolean(liveProfile?.adminMode);
   const headerRef = useRef<HTMLElement>(null);
+  const avatarUrl = liveProfile?.avatarUrl || user?.profileImageUrl || "";
+
+  useEffect(() => {
+    setLiveProfile(profile ?? null);
+  }, [profile]);
 
   useEffect(() => {
     setAuthReady(true);
@@ -162,8 +239,8 @@ export function ShopHeader({
   }, [isPending, user]);
 
   useEffect(() => {
-    setAdminUnread(profile?.adminInbox ?? 0);
-  }, [profile?.adminInbox]);
+    setAdminUnread(liveProfile?.adminInbox ?? 0);
+  }, [liveProfile?.adminInbox]);
 
   useEffect(() => {
     const el = headerRef.current;
@@ -175,7 +252,7 @@ export function ShopHeader({
     const ro = new ResizeObserver(apply);
     ro.observe(el);
     return () => ro.disconnect();
-  }, [isAdmin, adminUnread, count, authReady, isPending, user, profile?.displayName]);
+  }, [isAdmin, adminUnread, count, authReady, isPending, user, avatarUrl]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -192,7 +269,7 @@ export function ShopHeader({
   }, [isAdmin]);
 
   return (
-    <header className="shop-header no-print" ref={headerRef}>
+    <header className="shop-header no-print" id="shop-top" ref={headerRef} data-staff={isAdmin ? "true" : undefined}>
       <div className="shop-header-inner">
         <Link to="/" className="shop-brand">
           <BrandMark variant="stamp" />
@@ -204,21 +281,41 @@ export function ShopHeader({
         {authReady && !isPending && user ? (
           <nav className="shop-nav" aria-label="Shop">
             <AccountMenu
-              label={accountLabel(profile, user)}
+              label={accountLabel(liveProfile, user)}
+              email={liveProfile?.email || user.primaryEmail || ""}
+              phone={liveProfile?.phone || ""}
+              points={liveProfile?.points ?? 0}
+              avatarUrl={avatarUrl}
               isAdmin={isAdmin}
+              adminModeAllowed={Boolean(liveProfile?.adminModeAllowed)}
               adminUnread={adminUnread}
-              unreadChats={profile?.unreadChats ?? 0}
-              adminExists={profile?.adminExists ?? true}
+              unreadChats={liveProfile?.unreadChats ?? 0}
+              adminExists={liveProfile?.adminExists ?? true}
+              togglingMode={modeBusy}
+              onAdminMode={(on) => {
+                setModeBusy(true);
+                void setAdminMode({ data: { on } })
+                  .then((r) => {
+                    setLiveProfile((prev) =>
+                      prev
+                        ? { ...prev, adminMode: r.adminMode, adminModeAllowed: r.adminModeAllowed, role: r.role }
+                        : prev,
+                    );
+                    if (!on && typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
+                      window.location.assign("/");
+                    }
+                  })
+                  .catch(() => undefined)
+                  .finally(() => setModeBusy(false));
+              }}
             />
           </nav>
         ) : null}
         <div className="shop-header-actions">
-          {!authReady || isPending ? <div className="auth-skel" aria-hidden /> : null}
-          {isAdmin ? (
-            <Link to="/admin/pos" className="btn-print pos-title-btn">
-              <Monitor size={18} strokeWidth={2.2} />
-              POS
-            </Link>
+          {!authReady || isPending ? (
+            <span className="header-account-wait">
+              <PizzaSpinner size="sm" />
+            </span>
           ) : null}
           {authReady && !isPending ? (
             <SignedOut>
@@ -238,7 +335,7 @@ export function ShopHeader({
               aria-controls="bag"
             >
               <ShoppingBag size={18} strokeWidth={2.2} />
-              Cart
+              <span className="cart-btn-label">Cart</span>
               {count ? (
                 <span className="cart-count" aria-live="polite">
                   {count}

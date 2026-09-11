@@ -3,7 +3,9 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { ShopHeader } from "@/components/shop-header";
 import { SessionGate } from "@/components/guards";
+import { StaleCartPrompt } from "@/components/stale-cart";
 import { useCartHydrated } from "@/components/cart-hydrate";
+import { AccountLoading } from "@/components/pizza-spinner";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
@@ -32,28 +34,74 @@ function CheckoutPending() {
   );
 }
 
+const GUEST_CHECKOUT_KEY = "southend-checkout-guest";
+
+function readGuestCheckout() {
+  try {
+    return sessionStorage.getItem(GUEST_CHECKOUT_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeGuestCheckout() {
+  try {
+    sessionStorage.setItem(GUEST_CHECKOUT_KEY, "1");
+  } catch {
+    /* ignore */
+  }
+}
+
 function CheckoutPage() {
   const data = Route.useLoaderData();
   const { user, isPending } = useCurrentUserState();
+  const [guestAnyway, setGuestAnyway] = useState(readGuestCheckout);
+
+  function stayGuest() {
+    writeGuestCheckout();
+    setGuestAnyway(true);
+  }
+
   if (isPending) {
     return (
       <div className="shop-shell">
         <ShopHeader />
         <main className="shop-main" id="main">
-          <div className="page-skel">Loading checkout…</div>
+          <AccountLoading />
         </main>
       </div>
     );
   }
-  if (user) {
+
+  if (user && !guestAnyway) {
     return (
       <div className="shop-shell">
-        <SessionGate>
+        <SessionGate
+          softGuest
+          onContinueAsGuest={stayGuest}
+          fallback={({ error }) => (
+            <main className="shop-main" id="main">
+              <section className="page-card">
+                <h1>Could not load your account</h1>
+                <p>{error}</p>
+                <p className="ed-sub">You can still place a pickup order as a guest.</p>
+                <div className="confirm-actions">
+                  <button type="button" className="btn-print" onClick={stayGuest}>
+                    Continue as guest
+                  </button>
+                  <Link to="/login" search={{ next: "/checkout" }} className="ed-btn">
+                    Sign in
+                  </Link>
+                </div>
+              </section>
+            </main>
+          )}
+        >
           {({ profile }) => (
             <>
               <ShopHeader profile={profile} />
               <main className="shop-main" id="main">
-                <CheckoutForm profile={profile} restaurant={data.restaurant} settings={data.settings} />
+                <CheckoutForm profile={profile} restaurant={data.restaurant} settings={data.settings} onLockGuest={stayGuest} />
               </main>
             </>
           )}
@@ -65,7 +113,31 @@ function CheckoutPage() {
     <div className="shop-shell">
       <ShopHeader />
       <main className="shop-main" id="main">
-        <CheckoutForm profile={null} restaurant={data.restaurant} settings={data.settings} />
+        {user && guestAnyway ? (
+          <p className="ed-sub" style={{ marginBottom: "0.75rem" }}>
+            Checking out as a guest.{" "}
+            <button
+              type="button"
+              className="ed-btn ed-btn-quiet"
+              onClick={() => {
+                try {
+                  sessionStorage.removeItem(GUEST_CHECKOUT_KEY);
+                } catch {
+                  /* ignore */
+                }
+                setGuestAnyway(false);
+              }}
+            >
+              Use signed-in account
+            </button>
+          </p>
+        ) : null}
+        <CheckoutForm
+          profile={null}
+          restaurant={data.restaurant}
+          settings={data.settings}
+          onLockGuest={stayGuest}
+        />
       </main>
     </div>
   );
@@ -75,10 +147,12 @@ function CheckoutForm({
   profile,
   restaurant,
   settings: loadedSettings,
+  onLockGuest,
 }: {
   profile: ProfileView | null;
   restaurant: RestaurantInfo;
   settings: ShopSettingsPublic;
+  onLockGuest?: () => void;
 }) {
   const hydrated = useCartHydrated();
   const lines = useCartStore((s) => s.lines);
@@ -107,6 +181,7 @@ function CheckoutForm({
   const [pickupName, setPickupName] = useState(profile?.displayName || "");
   const [guestName, setGuestName] = useState(profile?.displayName || "");
   const [guestPhone, setGuestPhone] = useState(profile?.phone || "");
+  const [pickupPhone, setPickupPhone] = useState(profile?.phone || "");
   const guest = !profile;
   const guestMustCard = CARD_PROCESSOR_LIVE && guest && settings.guestCardRequired;
   const [whenMode, setWhenMode] = useState<"asap" | "schedule">(loadedSettings.openNow ? "asap" : "schedule");
@@ -238,6 +313,22 @@ function CheckoutForm({
         setError("Check a deliverable address first.");
         return false;
       }
+      if (subtotal < settings.minOrderDelivery) {
+        setError(`Delivery minimum is ${formatUsd(settings.minOrderDelivery)}.`);
+        return false;
+      }
+    }
+    if (fulfillment === "pickup") {
+      const name = (pickupName.trim() || guestName.trim());
+      const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+      if (!name) {
+        setError("Enter the name for pickup.");
+        return false;
+      }
+      if (phone.length < 10) {
+        setError("Enter a 10-digit US phone number.");
+        return false;
+      }
     }
     if (whenMode === "schedule") {
       if (!scheduledAt) {
@@ -260,7 +351,18 @@ function CheckoutForm({
   }
 
   function submitOrder() {
-    if (guest) {
+    const name = (pickupName.trim() || guestName.trim());
+    const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+    if (fulfillment === "pickup") {
+      if (!name) {
+        setError("Enter the name for pickup.");
+        return;
+      }
+      if (phone.length < 10) {
+        setError("Enter a 10-digit US phone number.");
+        return;
+      }
+    } else if (guest) {
       if (!guestName.trim()) {
         setError("Enter your name.");
         return;
@@ -269,10 +371,6 @@ function CheckoutForm({
         setError("Enter a 10-digit US phone number.");
         return;
       }
-    }
-    if (fulfillment === "pickup" && !(pickupName.trim() || guestName.trim())) {
-      setError("Enter the name for pickup.");
-      return;
     }
     if (pay === "pay_card" && !CARD_PROCESSOR_LIVE) {
       setError("Card payments are not live yet. Pay at pickup or with cash.");
@@ -301,11 +399,11 @@ function CheckoutForm({
       redeemPoints: guest ? 0 : redeem,
       paymentMethod: pay,
       tip,
-      pickupName: fulfillment === "pickup" ? (pickupName.trim() || guestName.trim()) : "",
+      pickupName: fulfillment === "pickup" ? name : "",
       scheduledDate: whenMode === "schedule" ? schedDate : "",
       scheduledTime: whenMode === "schedule" ? schedTime : "",
-      guestName: guestName.trim(),
-      guestPhone,
+      guestName: guestName.trim() || name,
+      guestPhone: guestPhone || pickupPhone,
     };
     const work = guest ? placeGuestOrder({ data: payload }) : placeOrder({ data: payload });
     void work
@@ -334,16 +432,33 @@ function CheckoutForm({
             <p className="shop-brand-kicker">{fulfillment === "delivery" ? "Deliver to" : "Pickup"}</p>
             <strong>{fulfillment === "delivery" ? `${address}, ${city} ${zip}` : pickupAt}</strong>
             {fulfillment === "pickup" ? (
-              <label className="ed-field">
-                <span>Name for pickup</span>
-                <input
-                  className="ed-input"
-                  value={pickupName}
-                  onChange={(e) => setPickupName(e.target.value)}
-                  required
-                  autoComplete="name"
-                />
-              </label>
+              <>
+                <label className="ed-field">
+                  <span>Name for pickup</span>
+                  <input
+                    className="ed-input"
+                    value={pickupName}
+                    onChange={(e) => setPickupName(e.target.value)}
+                    required
+                    autoComplete="name"
+                  />
+                </label>
+                <label className="ed-field">
+                  <span>Phone</span>
+                  <input
+                    className="ed-input"
+                    value={pickupPhone || guestPhone}
+                    onChange={(e) => {
+                      setPickupPhone(e.target.value);
+                      if (guest) setGuestPhone(e.target.value);
+                    }}
+                    required
+                    autoComplete="tel"
+                    inputMode="tel"
+                    placeholder="e.g. (609) 555-0100"
+                  />
+                </label>
+              </>
             ) : null}
             <em>
               {whenLabel} · {payLabel()}
@@ -415,11 +530,11 @@ function CheckoutForm({
           </dl>
           {error ? <p className="form-error">{error}</p> : null}
           <div className="confirm-actions">
+            <button type="button" className="btn-print checkout-primary" disabled={busy || (fulfillment === "pickup" && (!(pickupName.trim() || guestName.trim()) || (pickupPhone || guestPhone).replace(/\D/g, "").length < 10))} onClick={submitOrder}>
+              {busy ? "Placing…" : "Confirm and place"}
+            </button>
             <button type="button" className="ed-btn" disabled={busy} onClick={() => setStep("form")}>
               Edit order
-            </button>
-            <button type="button" className="btn-print" disabled={busy} onClick={submitOrder}>
-              {busy ? "Placing…" : "Confirm and place"}
             </button>
           </div>
         </section>
@@ -434,9 +549,11 @@ function CheckoutForm({
         e.preventDefault();
         if (!validateCheckout()) return;
         setError("");
+        onLockGuest?.();
         setStep("review");
       }}
     >
+      <StaleCartPrompt />
       <section className="page-card">
         <h1>Checkout</h1>
         {guest ? (
@@ -489,7 +606,33 @@ function CheckoutForm({
           </button>
         </div>
         {fulfillment === "pickup" ? (
-          <p className="ed-sub">Pickup at {pickupAt}. Pay when you arrive. We will ask for a name at confirmation.</p>
+          <p className="ed-sub">Pickup at {pickupAt}. Pay when you arrive.</p>
+        ) : null}
+        {fulfillment === "pickup" && !guest ? (
+          <div className="two-col">
+            <label className="ed-field">
+              <span>Name for pickup</span>
+              <input
+                className="ed-input"
+                value={pickupName}
+                onChange={(e) => setPickupName(e.target.value)}
+                autoComplete="name"
+                required
+              />
+            </label>
+            <label className="ed-field">
+              <span>Phone</span>
+              <input
+                className="ed-input"
+                value={pickupPhone}
+                onChange={(e) => setPickupPhone(e.target.value)}
+                autoComplete="tel"
+                inputMode="tel"
+                placeholder="e.g. (609) 555-0100"
+                required
+              />
+            </label>
+          </div>
         ) : null}
         {!settings.openNow ? (
           <p className="ed-sub">
@@ -553,15 +696,23 @@ function CheckoutForm({
             </p>
             <label className="ed-field">
               <span>Street</span>
-              <input className="ed-input" value={address} onChange={(e) => setAddress(e.target.value)} required />
+              <input
+                className="ed-input"
+                value={address}
+                onChange={(e) => {
+                  setAddress(e.target.value);
+                  setGeo(null);
+                }}
+                required
+              />
             </label>
             <label className="ed-field">
               <span>City</span>
-              <input className="ed-input" value={city} onChange={(e) => setCity(e.target.value)} />
+              <input className="ed-input" value={city} onChange={(e) => { setCity(e.target.value); setGeo(null); }} />
             </label>
             <label className="ed-field">
               <span>ZIP</span>
-              <input className="ed-input" value={zip} onChange={(e) => setZip(e.target.value)} />
+              <input className="ed-input" value={zip} onChange={(e) => { setZip(e.target.value); setGeo(null); }} />
             </label>
             <button
               type="button"
@@ -605,7 +756,7 @@ function CheckoutForm({
             maxLength={500}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="Well done, extra ranch, doorbell is broken…"
+            placeholder="e.g. extra napkins, doorbell is broken"
             suppressHydrationWarning
           />
         </label>
@@ -653,13 +804,9 @@ function CheckoutForm({
         <fieldset className="pay-box">
           <legend>Payment</legend>
           <p className="ed-sub">
-            {guestMustCard
-              ? "Guest checkout is card-only. Sign in if you need to pay at pickup or with cash."
-              : CARD_PROCESSOR_LIVE
-                ? settings.paymentPlaceholder
-                : "Pay at pickup or with cash. Card is coming soon."}
+            {fulfillment === "pickup" ? "Pay at pickup when you arrive." : "Pay the driver with cash."}
           </p>
-          {guestMustCard ? null : fulfillment === "pickup" ? (
+          {fulfillment === "pickup" ? (
             <label className="pay-opt">
               <input type="radio" name="pay" checked={pay === "pay_pickup"} onChange={() => setPay("pay_pickup")} />
               Pay at pickup
@@ -675,10 +822,7 @@ function CheckoutForm({
               Cash
             </label>
           )}
-          <label className="pay-opt pay-disabled">
-            <input type="radio" name="pay" checked={false} disabled />
-            Card coming soon
-          </label>
+          <p className="ed-sub pay-card-note">Card coming soon. Pay at pickup or with cash today.</p>
         </fieldset>
       </section>
 
@@ -762,7 +906,7 @@ function CheckoutForm({
           {whenMode === "schedule" ? whenLabel : `About ${eta} minutes for ${fulfillment === "delivery" ? "delivery" : "pickup"}.`}
         </p>
         {error ? <p className="form-error">{error}</p> : null}
-        <button type="submit" className="btn-print" disabled={busy}>
+        <button type="submit" className="btn-print checkout-primary" disabled={busy}>
           Review order
         </button>
       </aside>

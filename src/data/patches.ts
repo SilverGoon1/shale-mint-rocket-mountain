@@ -7,6 +7,110 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-11-update-auth-isolation-continuity",
+    date: "September 11, 2026",
+    title: "Wrong password stays on sign-in",
+    added: [
+      "A bad password stays on the sign-in card with a clear error and never opens a desk. Signed-in checkout keeps the account through Review. Call and Chat sit above the last menu cards, category arrows hug the phone edge, and POS shows the account menu.",
+    ],
+  },
+  {
+    id: "2026-09-11-followup-account-load",
+    date: "September 11, 2026",
+    title: "Desk account load no longer hangs",
+    added: [
+      "Admin pages load from a fast account read — no schema work on the way in. Guest /admin returns to the desk after sign-in. Category chips follow the section on screen, and Call/Chat sit clear of the last menu cards.",
+    ],
+  },
+  {
+    id: "2026-09-11-admin-mode-per-account",
+    date: "September 11, 2026",
+    title: "Admin mode per account",
+    added: [
+      "Each teammate uses their own login. Allowed accounts turn Admin mode on from the name menu. Guests cannot. Shared diagnostic desk login is no longer the path.",
+    ],
+  },
+  {
+    id: "2026-09-11-category-carousel",
+    date: "September 11, 2026",
+    title: "Category rail sticks, centers, and pulses",
+    added: [
+      "Phone arrows sit flush on the category rail. Search stays with the sticky pills. The active category slides to the middle as you browse, and the arrows pulse when you tap them.",
+    ],
+  },
+  {
+    id: "2026-09-11-staff-admin-login-column",
+    date: "September 11, 2026",
+    title: "Desk login toggle no longer 500s",
+    added: [
+      "Bot access Diagnostic Admin login writes a real column on first load. Security summary stays 200 even if the column was missing. The toggle still starts off.",
+    ],
+  },
+  {
+    id: "2026-09-11-category-headers",
+    date: "September 11, 2026",
+    title: "Bigger category names, no section blurbs",
+    added: [
+      "Menu sections are the category name only — larger and heavier. The extra line under Wings, Pizza, and the rest is gone. Item cards still show their own copy.",
+    ],
+  },
+  {
+    id: "2026-09-11-pizza-account-loader",
+    date: "September 11, 2026",
+    title: "Pepperoni pizza while your account connects",
+    added: [
+      "Sign-in and the header chip spin a pepperoni pie while the shop is connecting your account. It clears as soon as you are in.",
+    ],
+  },
+  {
+    id: "2026-09-11-bugfix-desk-wings-pos",
+    date: "September 11, 2026",
+    title: "Diagnostic desk, wing tens, checkout and POS polish",
+    added: [
+      "Diagnostic Admin login is a Bot access toggle plus a host flag. Off clears the desk password. Bots stay as they are.",
+      "Complete still toasts on the Open board. Accept turns off after a ticket is Accepted. Wings sell in tens. Guest checkout no longer jumps to a leftover account.",
+      "Financials Collected skips unpaid card tickets. Today uses New Jersey time. Kitchen notes stay on the device until you place the order.",
+    ],
+  },
+  {
+    id: "2026-09-11-slice-browse-wings-price",
+    date: "September 11, 2026",
+    title: "Slice-style menu, live wing dips, tighter phone bar",
+    added: [
+      "The menu is one long page. Sticky category pills scroll you to each section and follow as you browse.",
+      "Wing extra Ranch / Blue cheese prices come from the menu editor (per 2 cups). Accept cards and bot tickets show sauce, dips, notes, and the money stack.",
+      "On a phone the title bar is a single line — South End Pizza, icon cart, no POS for guests — and the grid stays two cards wide.",
+    ],
+  },
+  {
+    id: "2026-09-11-complete-toast-wings-guest",
+    date: "September 11, 2026",
+    title: "Completed toast, wings builder, guest checkout",
+    added: [
+      "Complete uses the same staff toast as Accept — ticket, total, and tip only — below the POS tabs.",
+      "Fresh Wings require sauce and included dips. Extra dips sell in 2-cup sets at $1.50.",
+      "Guests never see POS. Pickup needs name and phone. Card is a notice. Resume or start fresh on a leftover bag.",
+    ],
+  },
+  {
+    id: "2026-09-10-email-otp-resend",
+    date: "September 10, 2026",
+    title: "Email signup codes via Resend",
+    added: [
+      "Email create-account and unverified sign-in ask for a 6-digit inbox code. Phone, Google, X, and the desk Admin skip it.",
+      "Password reset actually emails the code when Resend is configured. Preview still shows the code on screen.",
+    ],
+  },
+  {
+    id: "2026-09-10-pos-complete-stay-open",
+    date: "September 10, 2026",
+    title: "Complete closes the ticket and stays on Open",
+    added: [
+      "Marking a ticket Completed saves, closes the popup, and keeps the Open tab — no jump to history.",
+      "Staff toast is ticket number, total, and tip only. Last ticket completed shows You're caught up.",
+    ],
+  },
+  {
     id: "2026-09-10-style-custom-bots",
     date: "September 10, 2026",
     title: "Style bot + custom bot minting",

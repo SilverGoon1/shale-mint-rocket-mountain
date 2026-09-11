@@ -5,17 +5,20 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
 import { cellSetHas, CELL, MAP_CENTER, cellKey } from "@/lib/geo";
-import { formatPhone, identifierToEmail, toTenDigitPhone } from "@/lib/phone";
+import { formatPhone, identifierToEmail, isPhoneAuthEmail, toTenDigitPhone } from "@/lib/phone";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentTotal, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments } from "@/lib/condiments";
+import { isWingsBuild, parseWingQty, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
+import { isVercelProduction } from "@/lib/prod-guard.server";
 import { seedMenu } from "@/lib/menu-store";
-import { hoursSummary, isOpenNow, nyWallToDate, parseWeeklyHours } from "@/lib/hours";
+import { hoursSummary, isOpenNow, nyWallToDate, nyYmd, parseWeeklyHours } from "@/lib/hours";
 import type {
   AdminInsights,
   ChatMessageView,
   ChatOrderBrief,
   ChatThreadView,
   CustomerRecord,
+  DeskAccountRow,
   OrderItem,
   OrderView,
   PosTicket,
@@ -25,7 +28,7 @@ import type {
   RewardsView,
   ShopSettingsPublic,
 } from "@/lib/shop-types";
-import { clampTip, computeTax, moneyNumber, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
+import { CARD_PROCESSOR_LIVE, clampTip, computeTax, moneyNumber, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
 import {
   DEFAULT_TOPPING_PRICES,
   DEFAULT_XL_ADD,
@@ -103,6 +106,27 @@ async function backfillSeedCondiments(sql: Sql) {
 	}
 	bustStorefrontCache();
 }
+
+async function ensureWingExtraCondiments(sql: Sql) {
+	const rows = await sql.query<{ id: string; condiments: unknown }>(
+		`select id, condiments from menu_items where lower(name) like '%wing%'`,
+	);
+	for (const row of rows) {
+		const list = sanitizeCondiments(row.condiments);
+		let changed = false;
+		if (!list.some((c) => c.id === "wing-extra-ranch" || /extra ranch/i.test(c.name))) {
+			list.push({ id: "wing-extra-ranch", name: "Extra Ranch", price: "1.50", extraPrice: "1.50", maxQty: "6" });
+			changed = true;
+		}
+		if (!list.some((c) => c.id === "wing-extra-blue" || /extra blue/i.test(c.name))) {
+			list.push({ id: "wing-extra-blue", name: "Extra Blue cheese", price: "1.50", extraPrice: "1.50", maxQty: "6" });
+			changed = true;
+		}
+		if (!changed) continue;
+		await sql.query(`update menu_items set condiments = $1::jsonb where id = $2`, [JSON.stringify(list), String(row.id)]);
+	}
+}
+
 async function seedDemoSalesIfEmpty(sql: Sql) {
 	if (dbSource !== "pglite") return;
 	if ((await sql`select id from orders limit 1`).length) return;
@@ -477,6 +501,7 @@ const shopBoot = globalThis as typeof globalThis & {
 	__southendBoot__?: Promise<void>;
 	__southendStaffAdmin__?: Promise<void>;
 	__southendHasMenu__?: boolean;
+	__adminModeCols__?: Promise<void>;
 };
 const profileLocks = new Map<string, Promise<void>>();
 
@@ -491,6 +516,44 @@ async function ensureSettingsSchema(sql: Sql) {
 }
 
 async function applySettingsSchema(sql: Sql) {
+	await sql.query(`create table if not exists order_status_audit (
+    id text primary key,
+    order_id text not null,
+    from_status text not null default '',
+    to_status text not null,
+    actor_id text not null default '',
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists order_status_audit_order_idx on order_status_audit (order_id, created_at desc)`);
+	await sql.query(`create table if not exists email_signup_codes (
+    id text primary key,
+    user_id text not null,
+    email text not null,
+    code_hash text not null,
+    salt text not null,
+    expires_at timestamptz not null,
+    attempts integer not null default 0,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc)`);
+	await sql.query(`create index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc)`);
+	const { ensureStaffAdminLoginColumns } = await import("@/lib/staff-credential.server");
+	try {
+		await ensureStaffAdminLoginColumns(sql);
+	} catch {
+		/* staff desk columns must not block admin_mode */
+	}
+	try {
+		await ensureAdminModeColumns(sql);
+	} catch {
+		/* reads catch missing columns and never 500 */
+	}
+	try {
+		await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
+	} catch {
+		/* reads catch missing column */
+	}
 	const cols = await sql.query(
 		`select table_name, column_name from information_schema.columns
      where (table_name = 'shop_settings' and column_name = 'invitee_bonus')
@@ -590,6 +653,13 @@ async function applySettingsSchema(sql: Sql) {
 	await sql.query(`alter table menu_items add column if not exists condiments jsonb not null default '[]'::jsonb`);
 	await sql.query(`alter table shop_settings add column if not exists guest_card_required boolean not null default false`);
 	await sql.query(`alter table shop_settings add column if not exists admin_totp_required boolean not null default false`);
+	await sql.query(`create table if not exists staff_desk_audit (
+    id text primary key,
+    user_id text not null default '',
+    kind text not null,
+    diagnostic boolean not null default false,
+    created_at timestamptz not null default now()
+  )`);
 	await sql.query(`alter table shop_settings add column if not exists card_desc_color text not null default 'muted'`);
 	await sql.query(`alter table shop_settings add column if not exists card_price_color text not null default 'ink'`);
 	await sql.query(`alter table shop_settings add column if not exists card_size text not null default 'md'`);
@@ -616,6 +686,68 @@ async function applySettingsSchema(sql: Sql) {
   )`);
 	await sql.query(`create index if not exists rewards_ledger_user_idx on rewards_ledger (user_id, created_at desc)`);
 }
+function isMissingAdminModeColumn(err: unknown) {
+	const msg = err instanceof Error ? err.message : String(err);
+	return /admin_mode|desk_grant/i.test(msg);
+}
+
+async function applyAdminModeColumns(sql: Sql) {
+	for (const stmt of [
+		`alter table profiles add column if not exists admin_mode boolean not null default false`,
+		`alter table profiles add column if not exists admin_mode_allowed boolean not null default false`,
+		`alter table profiles add column if not exists desk_grant boolean not null default false`,
+	]) {
+		try {
+			await sql.query(stmt);
+		} catch {
+			/* already exists */
+		}
+	}
+	for (const stmt of [
+		`alter table profiles alter column role set default 'customer'`,
+		`alter table profiles alter column admin_mode set default false`,
+		`alter table profiles alter column admin_mode_allowed set default false`,
+	]) {
+		try {
+			await sql.query(stmt);
+		} catch {
+			/* */
+		}
+	}
+	try {
+		await sql.query(
+			`update profiles set admin_mode_allowed = true, admin_mode = true, desk_grant = true where role = 'admin' and admin_mode_allowed is not true`,
+		);
+	} catch {
+		/* first boot */
+	}
+	try {
+		await sql.query(`create table if not exists desk_grant_audit (
+      id text primary key,
+      actor_id text not null default '',
+      target_id text not null default '',
+      action text not null default '',
+      created_at timestamptz not null default now()
+    )`);
+	} catch {
+		/* */
+	}
+}
+
+async function ensureAdminModeColumns(sql: Sql) {
+	if (!shopBoot.__adminModeCols__) {
+		shopBoot.__adminModeCols__ = applyAdminModeColumns(sql).catch((err) => {
+			shopBoot.__adminModeCols__ = undefined;
+			throw err;
+		});
+	}
+	return shopBoot.__adminModeCols__;
+}
+
+function deskOnFrom(row: Record<string, unknown> | undefined) {
+	return bool(row?.admin_mode) && bool(row?.admin_mode_allowed);
+}
+
 async function ensureTicketNumbers(sql: Sql) {
 	await sql.query(`
     with mx as (select coalesce(max(ticket_no), 0) as m from orders),
@@ -630,6 +762,7 @@ async function ensureTicketNumbers(sql: Sql) {
 async function runShopPatches(sql: Sql) {
 	await seedIfEmpty(sql);
 	await backfillSeedCondiments(sql);
+	await ensureWingExtraCondiments(sql);
 	await seedDemoSalesIfEmpty(sql);
 	const missingTickets = await sql.query(`select 1 from orders where ticket_no is null limit 1`);
 	if (missingTickets.length) await ensureTicketNumbers(sql);
@@ -704,7 +837,7 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		vacationMessage: String(row.vacation_message ?? ""),
 		vacationUntil: String(row.vacation_until ?? ""),
 		paymentPlaceholder: String(row.payment_placeholder ?? ""),
-		guestCardRequired: bool(row.guest_card_required),
+		guestCardRequired: CARD_PROCESSOR_LIVE && bool(row.guest_card_required),
 		adminTotpRequired: bool(row.admin_totp_required),
 		pointsPerDollar: num(row.points_per_dollar) || 1,
 		redeemRate: Math.max(1, Math.round(num(row.redeem_rate) || 100)),
@@ -867,7 +1000,13 @@ async function ensureStaffAdmin(sql: Sql) {
 	const { applyStaffCredential, applyStaffTotpFromEnv } = await import("@/lib/staff-credential.server");
 	const userId = await applyStaffCredential(sql);
 	await ensureProfile(sql, userId, STAFF_ADMIN_NAME);
-	await sql`update profiles set role = 'admin', display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	await ensureAdminModeColumns(sql);
+	try {
+		await sql`update profiles set admin_mode_allowed = true, display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await sql`update profiles set display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	}
 	await applyStaffTotpFromEnv(sql, userId);
 }
 
@@ -899,7 +1038,8 @@ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string) 
 	for (let i = 0; i < 6; i++) {
 		try {
 			const inserted = await sql.query(
-				`insert into profiles (user_id, display_name, points, referral_code) values ($1,$2,$3,$4)
+				`insert into profiles (user_id, role, display_name, points, referral_code, admin_mode, admin_mode_allowed, desk_grant)
+         values ($1,'customer',$2,$3,$4,false,false,false)
          on conflict (user_id) do nothing
          returning user_id`,
 				[userId, displayName ?? "", bonus, makeReferralCode()],
@@ -909,9 +1049,12 @@ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string) 
 			return;
 		} catch (err) {
 			const msg = err instanceof Error ? err.message : String(err ?? "");
-			// Concurrent boot or referral_code unique collision — treat existing row as success.
 			if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
 				if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
+				continue;
+			}
+			if (isMissingAdminModeColumn(err)) {
+				await ensureAdminModeColumns(sql);
 				continue;
 			}
 			if (i === 5) throw err;
@@ -919,10 +1062,64 @@ async function ensureProfileRow(sql: Sql, userId: string, displayName?: string) 
 	}
 }
 async function requireAdmin(sql: Sql, userId: string) {
-	if ((await sql`select role from profiles where user_id = ${userId}`)[0]?.role !== "admin") {
+	let on = false;
+	try {
+		const row = (await sql`select role, admin_mode, admin_mode_allowed from profiles where user_id = ${userId}`)[0] as
+			| Record<string, unknown>
+			| undefined;
+		if (row && "admin_mode" in row) on = deskOnFrom(row);
+		else on = row?.role === "admin";
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		on = (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
+	}
+	if (!on) {
 		const err = new Error("Forbidden") as Error & { status?: number };
 		err.status = 403;
 		throw err;
+	}
+}
+
+async function actorCanGrantDesk(sql: Sql, userId: string) {
+	let row: Record<string, unknown> | undefined;
+	try {
+		row = (
+			await sql`select p.role, p.admin_mode, p.admin_mode_allowed, p.desk_grant, p.display_name, u.email, u.name as user_name
+        from profiles p
+        left join "user" u on u.id = p.user_id
+        where p.user_id = ${userId}`
+		)[0] as Record<string, unknown> | undefined;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		row = (await sql`select role, display_name from profiles where user_id = ${userId}`)[0] as Record<string, unknown> | undefined;
+	}
+	if (!row) return false;
+	if (row && "admin_mode" in row && !deskOnFrom(row)) return false;
+	if (!("admin_mode" in row) && row.role !== "admin") return false;
+	const email = String(row.email ?? "");
+	const name = String(row.user_name ?? "");
+	if (silverAccountMatch(email, name, String(row.display_name ?? ""))) return true;
+	return bool(row.desk_grant);
+}
+
+async function requireDeskGrant(sql: Sql, userId: string) {
+	await requireAdmin(sql, userId);
+	if (await actorCanGrantDesk(sql, userId)) return;
+	const err = new Error("Only the shop owner can grant Admin mode.") as Error & { status?: number };
+	err.status = 403;
+	throw err;
+}
+
+async function profileDeskOn(sql: Sql, userId: string) {
+	try {
+		const row = (await sql`select admin_mode, admin_mode_allowed, role from profiles where user_id = ${userId}`)[0] as
+			| Record<string, unknown>
+			| undefined;
+		if (row && "admin_mode" in row) return deskOnFrom(row);
+		return row?.role === "admin";
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		return (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
 	}
 }
 function silverAccountMatch(email: string, name: string, displayName: string) {
@@ -934,24 +1131,50 @@ function silverAccountMatch(email: string, name: string, displayName: string) {
 	return `${email} ${name} ${displayName}`.toLowerCase().includes("silvergoon");
 }
 async function grantSilverAdmin(sql: Sql, userId?: string) {
-	const rows = userId
-		? await sql`
+	try {
+		await ensureAdminModeColumns(sql);
+	} catch {
+		/* missing columns handled below */
+	}
+	let rows: Record<string, unknown>[] = [];
+	try {
+		rows = userId
+			? await sql`
+        select p.user_id, p.role, p.admin_mode_allowed, p.display_name, u.email, u.name as user_name
+        from profiles p
+        left join "user" u on u.id = p.user_id
+        where p.user_id = ${userId}`
+			: await sql`
+        select p.user_id, p.role, p.admin_mode_allowed, p.display_name, u.email, u.name as user_name
+        from profiles p
+        left join "user" u on u.id = p.user_id`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		rows = userId
+			? await sql`
         select p.user_id, p.role, p.display_name, u.email, u.name as user_name
         from profiles p
         left join "user" u on u.id = p.user_id
         where p.user_id = ${userId}`
-		: await sql`
+			: await sql`
         select p.user_id, p.role, p.display_name, u.email, u.name as user_name
         from profiles p
         left join "user" u on u.id = p.user_id`;
+	}
 	for (const row of rows) {
 		const id = String(row.user_id ?? "");
 		const email = String(row.email ?? "");
 		const name = String(row.user_name ?? "");
 		const displayName = String(row.display_name ?? "");
-		if (!id || String(row.role) === "admin") continue;
+		if (!id) continue;
+		if (String(row.role) === "admin" || bool(row.admin_mode_allowed)) continue;
 		if (!silverAccountMatch(email, name, displayName)) continue;
-		await sql`update profiles set role = 'admin' where user_id = ${id}`;
+		try {
+			await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${id}`;
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			await sql`update profiles set role = 'admin' where user_id = ${id}`;
+		}
 	}
 }
 async function assertNotBanned(sql: Sql, userId: string) {
@@ -1024,6 +1247,35 @@ function toOrder(row: Record<string, unknown>): OrderView {
 	};
 }
 
+let orderAuditReady = false;
+
+async function writeOrderStatusAudit(
+	sql: Sql,
+	input: { orderId: string; fromStatus: string; toStatus: string; actorId: string },
+) {
+	if (input.fromStatus === input.toStatus) return;
+	try {
+		if (!orderAuditReady) {
+			await sql.query(`create table if not exists order_status_audit (
+        id text primary key,
+        order_id text not null,
+        from_status text not null default '',
+        to_status text not null,
+        actor_id text not null default '',
+        created_at timestamptz not null default now()
+      )`);
+			await sql.query(`create index if not exists order_status_audit_order_idx on order_status_audit (order_id, created_at desc)`);
+			orderAuditReady = true;
+		}
+		await sql.query(
+			`insert into order_status_audit (id, order_id, from_status, to_status, actor_id) values ($1,$2,$3,$4,$5)`,
+			[`osa-${randomBytes(8).toString("hex")}`, input.orderId, input.fromStatus, input.toStatus, input.actorId],
+		);
+	} catch (err) {
+		console.error("[southend] order status audit", err);
+	}
+}
+
 let storefrontCache: { at: number; data: Awaited<ReturnType<typeof loadStorefront>> } | null = null;
 const STOREFRONT_TTL_MS = 2500;
 
@@ -1067,49 +1319,58 @@ export const getShopContact = createServerFn({ method: "GET" }).handler(async ()
 
 export const getMe = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
-	await ensureSettingsSchema(sql);
-	await ensureProfile(sql, context.userId);
-	await grantSilverAdmin(sql, context.userId);
-	let profile: Record<string, unknown>[] = [];
-	const loadProfile = async () => {
-		try {
-			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
-		} catch {
-			await ensureSettingsSchema(sql);
-			return await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
-		}
-	};
+	let p: Record<string, unknown> | undefined;
 	try {
-		profile = await loadProfile();
-		if (!profile[0]) {
-			await ensureProfile(sql, context.userId);
-			profile = await loadProfile();
-		}
-	} catch (err) {
-		const msg = err instanceof Error ? err.message : String(err ?? "");
-		if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
-			await ensureProfile(sql, context.userId);
-			profile = await loadProfile();
-		} else {
-			throw err;
+		p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant, avatar_url from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
+	} catch {
+		try {
+			p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
+		} catch {
+			try {
+				p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
+			} catch {
+				p = undefined;
+			}
 		}
 	}
-	const admins = await sql`select count(*)::int as n from profiles where role = 'admin'`;
-	const unread = await sql`
-      select coalesce(sum(unread_customer), 0)::int as n from chat_threads where user_id = ${context.userId} and status <> 'solved'`;
-	const p = profile[0];
-	const isAdmin = p?.role === "admin";
+	if (!p) {
+		try {
+			await sql.query(
+				`insert into profiles (user_id, role, display_name, points) values ($1,'customer','',0) on conflict (user_id) do nothing`,
+				[context.userId],
+			);
+			p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
+		} catch {
+			p = { role: "customer", points: 0 };
+		}
+	}
+	let userRow: Record<string, unknown> | undefined;
+	try {
+		userRow = (await sql.query(`select email, name, "emailVerified" as verified from "user" where id = $1 limit 1`, [context.userId]))[0];
+	} catch {
+		userRow = undefined;
+	}
+	const hasModeCol = Boolean(p && "admin_mode" in p);
+	const silver = silverAccountMatch(String(userRow?.email ?? ""), String(userRow?.name ?? ""), String(p?.display_name ?? ""));
+	const adminModeAllowed = hasModeCol ? bool(p?.admin_mode_allowed) || silver : p?.role === "admin" || silver;
+	const adminMode = hasModeCol ? bool(p?.admin_mode) && adminModeAllowed : Boolean(p?.role === "admin" || silver);
+	const deskGrant = hasModeCol ? bool(p?.desk_grant) || silver : Boolean(p?.role === "admin" || silver);
+	if (silver && hasModeCol && (!bool(p?.admin_mode_allowed) || !bool(p?.desk_grant))) {
+		void sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${context.userId}`.catch(() => undefined);
+	}
+	let unreadChats = 0;
 	let adminInbox = 0;
-	if (isAdmin) {
-		adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
+	try {
+		unreadChats = Math.round(num((await sql`select coalesce(sum(unread_customer), 0)::int as n from chat_threads where user_id = ${context.userId} and status <> 'solved'`)[0]?.n));
+		if (adminMode) {
+			adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
+		}
+	} catch {
+		/* badges are optional on account load */
 	}
-	const userRow = (await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0];
-	const referralCode = await ensureReferralCode(sql, context.userId);
-	const inviteCount = Math.round(num((await sql`select count(*)::int as n from profiles where referred_by = ${context.userId}`)[0]?.n));
-	const orderCount = Math.round(num((await sql`select count(*)::int as n from orders where user_id = ${context.userId}`)[0]?.n));
 	const me: ProfileView = {
 		userId: context.userId,
-		role: isAdmin ? "admin" : "customer",
+		role: adminMode && adminModeAllowed ? "admin" : "customer",
 		phone: String(p?.phone ?? ""),
 		displayName: String(p?.display_name ?? ""),
 		addressLine: String(p?.address_line ?? ""),
@@ -1117,15 +1378,20 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 		zip: String(p?.zip ?? ""),
 		points: Math.round(num(p?.points)),
 		totpEnabled: bool(p?.totp_enabled),
-		adminExists: num(admins[0]?.n) > 0,
-		unreadChats: Math.round(num(unread[0]?.n)),
+		adminExists: true,
+		unreadChats,
 		adminInbox,
 		banned: bool(p?.banned),
 		email: String(userRow?.email ?? ""),
-		referralCode,
-		inviteCount,
-		orderCount,
+		emailVerified: bool(userRow?.verified),
+		referralCode: String(p?.referral_code ?? ""),
+		inviteCount: 0,
+		orderCount: 0,
 		memberSince: p?.created_at ? String(p.created_at) : "",
+		adminMode,
+		adminModeAllowed,
+		deskGrant,
+		avatarUrl: String(p?.avatar_url ?? ""),
 	};
 	return me;
 });
@@ -1226,26 +1492,136 @@ export const updateProfile = createServerFn({ method: "POST" }).middleware([auth
 	}
 	return { ok: true };
 });
+export const setMyAvatar = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { image?: string }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		try {
+			await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
+		} catch {
+			/* */
+		}
+		await ensureProfile(sql, context.userId);
+		const image = String(data?.image ?? "").trim();
+		if (!image) {
+			try {
+				await sql`update profiles set avatar_url = '' where user_id = ${context.userId}`;
+			} catch {
+				/* column missing */
+			}
+			return { avatarUrl: "" };
+		}
+		if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(image)) {
+			throw new Error("Choose a JPG, PNG, or WebP photo.");
+		}
+		if (image.length > 200000) throw new Error("That photo is too large. Try a smaller crop.");
+		try {
+			await sql`update profiles set avatar_url = ${image} where user_id = ${context.userId}`;
+		} catch {
+			throw new Error("Could not save that photo yet. Try again.");
+		}
+		return { avatarUrl: image };
+	});
 export const claimAdmin = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await ensureAdminModeColumns(sql);
 	await ensureProfile(sql, context.userId);
-	if (num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n) > 0) throw new Error("A shop admin already exists.");
-	await sql`update profiles set role = 'admin' where user_id = ${context.userId}`;
+	let taken = 0;
+	try {
+		taken = num((await sql`select count(*)::int as n from profiles where role = 'admin' or admin_mode_allowed is true`)[0]?.n);
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		taken = num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n);
+	}
+	if (taken > 0) throw new Error("A shop admin already exists.");
+	try {
+		await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${context.userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await sql`update profiles set role = 'admin' where user_id = ${context.userId}`;
+	}
 	return { ok: true };
 });
+export const setAdminMode = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { on?: boolean }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		await ensureAdminModeColumns(sql);
+		const on = Boolean(data?.on);
+		let row: Record<string, unknown> | undefined;
+		try {
+			row = (
+				await sql`select role, admin_mode, admin_mode_allowed, display_name from profiles where user_id = ${context.userId}`
+			)[0];
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			await ensureAdminModeColumns(sql);
+			try {
+				row = (
+					await sql`select role, admin_mode, admin_mode_allowed, display_name from profiles where user_id = ${context.userId}`
+				)[0];
+			} catch {
+				row = (await sql`select role, display_name from profiles where user_id = ${context.userId}`)[0];
+			}
+		}
+		if (!row) throw new Error("Account not found.");
+		const email = String((await sql.query(`select email, name from "user" where id = $1 limit 1`, [context.userId]))[0]?.email ?? "");
+		const name = String((await sql.query(`select name from "user" where id = $1 limit 1`, [context.userId]))[0]?.name ?? "");
+		const allowed =
+			bool(row.admin_mode_allowed) ||
+			row.role === "admin" ||
+			isStaffAdminAccount(context.userId, email) ||
+			silverAccountMatch(email, name, String(row.display_name ?? ""));
+		if (!allowed) {
+			const err = new Error("Admin mode is not enabled for this account.") as Error & { status?: number };
+			err.status = 403;
+			throw err;
+		}
+		if (on) {
+			try {
+				await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true where user_id = ${context.userId}`;
+			} catch (err) {
+				if (!isMissingAdminModeColumn(err)) throw err;
+				await ensureAdminModeColumns(sql);
+				await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true where user_id = ${context.userId}`;
+			}
+		} else {
+			try {
+				await sql`update profiles set role = 'customer', admin_mode = false where user_id = ${context.userId}`;
+			} catch (err) {
+				if (!isMissingAdminModeColumn(err)) throw err;
+				await ensureAdminModeColumns(sql);
+				await sql`update profiles set role = 'customer', admin_mode = false where user_id = ${context.userId}`;
+			}
+		}
+		const { writeStaffDeskAudit } = await import("@/lib/staff-credential.server");
+		await writeStaffDeskAudit(sql, {
+			userId: context.userId,
+			kind: on ? "mode-on" : "mode-off",
+			diagnostic: false,
+		});
+		return {
+			ok: true,
+			adminMode: on,
+			adminModeAllowed: true,
+			role: on ? ("admin" as const) : ("customer" as const),
+		};
+	});
 export const getTwoFactorStatus = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
-	await ensureProfile(sql, context.userId);
-	const profile = (await sql`select totp_enabled, role from profiles where user_id = ${context.userId}`)[0];
-	const email = String((await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0]?.email ?? "");
-	const isAdmin = profile?.role === "admin" || isStaffAdminAccount(context.userId, email);
-	const shopRequires = isAdmin && bool((await loadSettingsRow(sql)).admin_totp_required);
-	const enabled = bool(profile?.totp_enabled);
-	if (shopRequires && !enabled) {
-		return { required: true, unlocked: false, enabled: false, enroll: true, locked: true };
+	let enabled = false;
+	try {
+		enabled = bool((await sql`select totp_enabled from profiles where user_id = ${context.userId} limit 1`)[0]?.totp_enabled);
+	} catch {
+		enabled = false;
 	}
 	if (!enabled) {
-		return { required: false, unlocked: true, enabled: false, enroll: false, locked: shopRequires };
+		return { required: false, unlocked: true, enabled: false, enroll: false, locked: false };
 	}
 	const exp = (await sql`select expires_at from two_factor_unlocks where user_id = ${context.userId}`)[0]?.expires_at;
 	const unlocked = Boolean(exp && new Date(String(exp)).getTime() > Date.now());
@@ -1254,7 +1630,7 @@ export const getTwoFactorStatus = createServerFn({ method: "GET" }).middleware([
 		unlocked,
 		enabled: true,
 		enroll: false,
-		locked: shopRequires,
+		locked: true,
 	};
 });
 export const startTotpSetup = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
@@ -1332,7 +1708,10 @@ async function assertTwoFactor(sql: Sql, userId: string) {
 export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: data.query.trim() })).handler(async ({ data }) => {
 	if (!data.query) throw new Error("Enter a street address.");
 	const cells = await zoneCells(await getSql());
-	const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(`${data.query}, Egg Harbor Township, NJ`)}`;
+	const q = /nj|new jersey|northfield|pleasantville|absecon|linwood|somers point|egg harbor/i.test(data.query)
+		? data.query
+		: `${data.query}, Egg Harbor Township, NJ`;
+	const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
 	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
 	const hits = await res.json();
@@ -1409,6 +1788,35 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 		const qty = Math.max(1, Math.min(20, Math.round(num(line.qty))));
 		const kind = kindByCat.get(String(item.category_id ?? ""));
 		const comment = String(line.comment ?? "").trim().slice(0, 160) || undefined;
+		const catalogItem = {
+			id: String(item.id ?? ""),
+			name: String(item.name ?? ""),
+			prices,
+		};
+		const catMeta = cats.find((c) => c.id === String(item.category_id ?? ""));
+		if (catMeta && isWingsBuild(catMeta, catalogItem)) {
+			const catalog = sanitizeCondiments(item.condiments);
+			const built = sanitizeWingPicks(line.condiments, catalog);
+			if (!built) throw new Error("Pick a sauce and included dips for wings.");
+			const pieceQty = parseWingQty(wantSize) || parseWingQty(col?.label) || WING_QTY_MIN;
+			const baseCol =
+				prices.find((p) => parseWingQty(p.label) === WING_QTY_MIN) ??
+				prices.find((p) => p.price) ??
+				col;
+			const bags = pieceQty / WING_QTY_MIN;
+			priced.push({
+				itemId: String(item.id ?? ""),
+				categoryId: String(item.category_id ?? ""),
+				name: String(item.name ?? ""),
+				size: `${pieceQty} pc`,
+				detail: built.detail,
+				comment,
+				condiments: built.condiments,
+				unitPrice: Math.round((num(baseCol?.price) * bags + built.extras) * 100) / 100,
+				qty
+			});
+			continue;
+		}
 		const catalog = sanitizeCondiments(item.condiments);
 		const condiments = sanitizeCondimentPicks(line.condiments, catalog);
 		const extra = condimentTotal(condiments);
@@ -1572,8 +1980,19 @@ export const placeGuestOrder = createServerFn({ method: "POST" }).validator((dat
 	return writePlacedOrder(sql, userId, { ...data, redeemPoints: 0, pickupName });
 });
 export const listMyOrders = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
-	return (await (await getSql())`
-      select * from orders where user_id = ${context.userId} order by created_at desc limit 50`).map(toOrder);
+	const sql = await getSql();
+	const mine = await sql`select * from orders where user_id = ${context.userId} order by created_at desc limit 50`;
+	if (mine.length) return mine.map(toOrder);
+	let phone = "";
+	try {
+		phone = String((await sql`select phone from profiles where user_id = ${context.userId} limit 1`)[0]?.phone ?? "").replace(/\D/g, "");
+	} catch {
+		phone = "";
+	}
+	if (phone.length < 10) return [];
+	const guestId = `guest-${phone}`;
+	const extra = await sql`select * from orders where user_id = ${guestId} order by created_at desc limit 50`;
+	return extra.map(toOrder);
 });
 export const saveShopMenu = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
@@ -1630,7 +2049,7 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("vacation_message", data.vacationMessage);
 	add("vacation_until", data.vacationUntil);
 	add("payment_placeholder", data.paymentPlaceholder);
-	add("guest_card_required", data.guestCardRequired);
+	add("guest_card_required", CARD_PROCESSOR_LIVE ? data.guestCardRequired : false);
 	add("admin_totp_required", data.adminTotpRequired);
 	add("points_per_dollar", data.pointsPerDollar);
 	add("redeem_rate", data.redeemRate === void 0 ? void 0 : Math.round(data.redeemRate));
@@ -1707,6 +2126,52 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	bustStorefrontCache();
 	return { ok: true };
 });
+
+export const setDiagnosticDeskAuth = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { on?: boolean }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		await requireAdmin(sql, context.userId);
+		const on = Boolean(data?.on);
+		const { applyStaffCredential, diagnosticDeskAuthStatus, writeStaffDeskAudit, ensureStaffAdminLoginColumns } =
+			await import("@/lib/staff-credential.server");
+		await ensureStaffAdminLoginColumns(sql);
+		try {
+			await sql.query(
+				`update shop_settings set staff_admin_login_enabled = $1, diagnostic_desk_auth = $1, staff_admin_login_touched = true where id = 1`,
+				[on],
+			);
+		} catch {
+			await ensureStaffAdminLoginColumns(sql);
+			await sql.query(
+				`update shop_settings set staff_admin_login_enabled = $1, diagnostic_desk_auth = $1, staff_admin_login_touched = true where id = 1`,
+				[on],
+			);
+		}
+		await applyStaffCredential(sql);
+		const status = await diagnosticDeskAuthStatus(sql);
+		await writeStaffDeskAudit(sql, {
+			userId: context.userId,
+			kind: on ? "toggle-on" : "toggle-off",
+			diagnostic: status.diagnosticDeskAuth,
+		});
+		return status;
+	});
+
+export const noteStaffDeskLogin = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const { diagnosticDeskEnabled, writeStaffDeskAudit } = await import("@/lib/staff-credential.server");
+	if (!isStaffAdminAccount(context.userId)) return { ok: true, diagnostic: false };
+	const diagnostic = await diagnosticDeskEnabled(sql);
+	if (diagnostic) {
+		await writeStaffDeskAudit(sql, { userId: context.userId, kind: "login", diagnostic: true });
+	}
+	return { ok: true, diagnostic };
+});
 export const saveWebsite = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureProfile(sql, context.userId);
@@ -1729,6 +2194,7 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
 	const categories = await loadCategories(sql);
+	const desk = await (await import("@/lib/staff-credential.server")).diagnosticDeskAuthStatus(sql);
 	return {
 		restaurant: restaurantFrom(row),
 		footer: String(row.footer || "Ask about extra toppings, wing sauces, and dressing. Prices may change."),
@@ -1737,7 +2203,11 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 		printers: parsePrinters(row.printers),
 		receiptOptions: parseReceiptOptions(row.receipt_options),
 		cells,
-		notifyAudio: sanitizeNotifyAudio(row.notify_audio)
+		notifyAudio: sanitizeNotifyAudio(row.notify_audio),
+		diagnosticDeskAuth: desk.diagnosticDeskAuth,
+		staffAdminLoginEnabled: desk.staffAdminLoginEnabled,
+		staffSecretConfigured: desk.staffSecretConfigured,
+		prodLikeHost: isVercelProduction(),
 	};
 });
 export const saveDeliveryZone = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
@@ -1763,6 +2233,7 @@ export const listAllOrders = createServerFn({ method: "GET" }).middleware([authM
 });
 export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
 	if (!( new Set([
@@ -1775,9 +2246,27 @@ export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([
 		"completed",
 		"canceled"
 	])).has(data.status)) throw new Error("Invalid status.");
-	if (data.status === "preparing" || data.status === "accepted") await sql.query(`update orders set status = $1, accepted_at = coalesce(accepted_at, now()) where id = $2`, [data.status, data.id]);
-	else await sql`update orders set status = ${data.status} where id = ${data.id}`;
-	const rows = await sql`select * from orders where id = ${data.id}`;
+	const id = String(data?.id ?? "").trim();
+	if (!id) throw new Error("Ticket is missing.");
+	const next = String(data.status);
+	const existing = await sql.query(`select * from orders where id = $1`, [id]);
+	if (!existing[0]) throw new Error("Order not found.");
+	const current = String(existing[0].status ?? "");
+	if (next === "completed" && current === "completed") {
+		return {
+			ok: true,
+			order: toOrder(existing[0])
+		};
+	}
+	if (next === "preparing" || next === "accepted") await sql.query(`update orders set status = $1, accepted_at = coalesce(accepted_at, now()) where id = $2`, [next, id]);
+	else await sql`update orders set status = ${next} where id = ${id}`;
+	await writeOrderStatusAudit(sql, {
+		orderId: id,
+		fromStatus: current,
+		toStatus: next,
+		actorId: context.userId,
+	});
+	const rows = await sql`select * from orders where id = ${id}`;
 	return {
 		ok: true,
 		order: rows[0] ? toOrder(rows[0]) : null
@@ -1789,6 +2278,7 @@ export const acceptOrder = createServerFn({ method: "POST" }).middleware([authMi
 	await requireAdmin(sql, context.userId);
 	const id = String(data?.id ?? "").trim();
 	if (!id) throw new Error("Ticket is missing.");
+	const prior = await sql.query(`select status from orders where id = $1`, [id]);
 	const taken = await sql.query(
 		`update orders
      set status = 'accepted', accepted_at = coalesce(accepted_at, now())
@@ -1796,7 +2286,15 @@ export const acceptOrder = createServerFn({ method: "POST" }).middleware([authMi
      returning *`,
 		[id],
 	);
-	if (taken[0]) return toOrder(taken[0]);
+	if (taken[0]) {
+		await writeOrderStatusAudit(sql, {
+			orderId: id,
+			fromStatus: String(prior[0]?.status ?? "placed"),
+			toStatus: "accepted",
+			actorId: context.userId,
+		});
+		return toOrder(taken[0]);
+	}
 	const rows = await sql`select * from orders where id = ${id}`;
 	if (!rows[0]) throw new Error("Order not found.");
 	const current = String(rows[0].status);
@@ -1810,120 +2308,129 @@ export const getAdminInsights = createServerFn({ method: "GET" }).middleware([au
 	await bootShop(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
+	const paid = `status not in ('canceled', 'awaiting_payment')`;
+	const nyStart = `((current_timestamp at time zone 'America/New_York')::date at time zone 'America/New_York')`;
+	const totals = (
+		await sql.query<{
+			collected: string;
+			outstanding: string;
+			food: string;
+			tax: string;
+			discounts: string;
+			fees: string;
+			tips: string;
+			pickup: string;
+			delivery: string;
+			today: string;
+			week: string;
+			month: string;
+			tickets: number;
+			canceled: number;
+		}>(
+			`select
+        coalesce(sum(total) filter (where ${paid}), 0)::text as collected,
+        coalesce(sum(total) filter (where status = 'awaiting_payment'), 0)::text as outstanding,
+        coalesce(sum(subtotal) filter (where ${paid}), 0)::text as food,
+        coalesce(sum(tax) filter (where ${paid}), 0)::text as tax,
+        coalesce(sum(discount) filter (where ${paid}), 0)::text as discounts,
+        coalesce(sum(delivery_fee) filter (where ${paid}), 0)::text as fees,
+        coalesce(sum(tip) filter (where ${paid}), 0)::text as tips,
+        coalesce(sum(total) filter (where ${paid} and fulfillment = 'pickup'), 0)::text as pickup,
+        coalesce(sum(total) filter (where ${paid} and fulfillment = 'delivery'), 0)::text as delivery,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart}), 0)::text as today,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart} - interval '7 days'), 0)::text as week,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart} - interval '30 days'), 0)::text as month,
+        count(*) filter (where ${paid})::int as tickets,
+        count(*) filter (where status = 'canceled')::int as canceled
+       from orders`,
+		)
+	)[0];
+	const payRows = await sql.query<{ method: string; total: string; count: number }>(
+		`select payment_method as method, coalesce(sum(total), 0)::text as total, count(*)::int as count
+     from orders where ${paid} group by payment_method`,
+	);
+	const spendRows = await sql.query<{ user_id: string; orders: number; spend: string }>(
+		`select user_id, count(*)::int as orders, coalesce(sum(total), 0)::text as spend
+     from orders where ${paid} group by user_id`,
+	);
+	const itemRows = await sql.query<{ name: string; qty: string; sales: string }>(
+		`select coalesce(item->>'name', 'Item') as name,
+            coalesce(sum((item->>'qty')::numeric), 0)::text as qty,
+            coalesce(sum((item->>'unitPrice')::numeric * (item->>'qty')::numeric), 0)::text as sales
+     from orders, jsonb_array_elements(items) as item
+     where ${paid}
+     group by 1
+     order by coalesce(sum((item->>'unitPrice')::numeric * (item->>'qty')::numeric), 0) desc
+     limit 8`,
+	).catch(async () => [] as { name: string; qty: string; sales: string }[]);
+	const seriesRows = await sql.query<{ day: string; total: string; tickets: number }>(
+		`select to_char(created_at at time zone 'America/New_York', 'YYYY-MM-DD') as day,
+            coalesce(sum(total), 0)::text as total,
+            count(*)::int as tickets
+     from orders
+     where ${paid} and created_at >= ${nyStart} - interval '13 days'
+     group by 1`,
+	).catch(async () => [] as { day: string; total: string; tickets: number }[]);
 	const profiles = await sql`select user_id, display_name, points, totp_enabled, created_at from profiles`;
-	const parsed = (await sql`
-      select * from orders order by created_at desc limit 400`).map(toOrder);
-	const live = parsed.filter((o) => o.status !== "canceled");
-	const weekAgo = Date.now() - 6048e5;
-	const monthAgo = Date.now() - 2592e6;
-	const startToday =  new Date();
-	startToday.setHours(0, 0, 0, 0);
-	const sum = (list: OrderView[], pick: (o: OrderView) => number) => list.reduce((s, o) => s + pick(o), 0);
-	const today = live.filter((o) => new Date(o.createdAt).getTime() >= startToday.getTime());
-	const week = live.filter((o) => new Date(o.createdAt).getTime() >= weekAgo);
-	const month = live.filter((o) => new Date(o.createdAt).getTime() >= monthAgo);
 	const spendByUser = new Map<string, { orders: number; spend: number }>();
-	for (const o of live) {
-		const cur = spendByUser.get(o.userId) ?? {
-			orders: 0,
-			spend: 0
-		};
-		cur.orders += 1;
-		cur.spend += o.total;
-		spendByUser.set(o.userId, cur);
-	}
-	const itemMap = new Map<string, { qty: number; sales: number }>();
-	for (const o of live) for (const it of o.items) {
-		const cur = itemMap.get(it.name) ?? {
-			qty: 0,
-			sales: 0
-		};
-		cur.qty += it.qty;
-		cur.sales += it.unitPrice * it.qty;
-		itemMap.set(it.name, cur);
+	for (const r of spendRows) {
+		spendByUser.set(String(r.user_id), { orders: Math.round(Number(r.orders) || 0), spend: num(r.spend) });
 	}
 	const seriesMap = new Map<string, { total: number; tickets: number }>();
+	const now = Date.now();
 	for (let i = 13; i >= 0; i--) {
-		const d =  new Date();
-		d.setHours(0, 0, 0, 0);
-		d.setDate(d.getDate() - i);
-		seriesMap.set(d.toISOString().slice(0, 10), {
-			total: 0,
-			tickets: 0
-		});
+		seriesMap.set(nyYmd(new Date(now - i * 86400000)), { total: 0, tickets: 0 });
 	}
-	for (const o of live) {
-		const key = o.createdAt.slice(0, 10);
-		const row = seriesMap.get(key);
+	for (const r of seriesRows) {
+		const row = seriesMap.get(String(r.day));
 		if (!row) continue;
-		row.total += o.total;
-		row.tickets += 1;
+		row.total = num(r.total);
+		row.tickets = Math.round(Number(r.tickets) || 0);
 	}
-	const payMap = new Map<string, { total: number; count: number }>();
-	for (const o of live) {
-		const cur = payMap.get(o.paymentMethod) ?? {
-			total: 0,
-			count: 0
-		};
-		cur.total += o.total;
-		cur.count += 1;
-		payMap.set(o.paymentMethod, cur);
-	}
-	const new7d = profiles.filter((p) => new Date(String(p.created_at ?? "")).getTime() >= weekAgo).length;
-	const avgPoints = profiles.length === 0 ? 0 : Math.round(profiles.reduce((acc, p) => acc + num(p.points), 0) / profiles.length);
+	const weekAgo = Date.now() - 6048e5;
+	const tickets = Math.round(Number(totals?.tickets) || 0);
+	const collected = num(totals?.collected);
 	const insights: AdminInsights = {
 		customers: {
 			total: profiles.length,
-			new7d,
+			new7d: profiles.filter((p) => new Date(String(p.created_at ?? "")).getTime() >= weekAgo).length,
 			twoFactor: profiles.filter((p) => bool(p.totp_enabled)).length,
-			avgPoints,
+			avgPoints: profiles.length === 0 ? 0 : Math.round(profiles.reduce((acc, p) => acc + num(p.points), 0) / profiles.length),
 			repeat: [...spendByUser.values()].filter((s) => s.orders > 1).length,
 			top: profiles.map((p) => {
-				const spent = spendByUser.get(String(p.user_id)) ?? {
-					orders: 0,
-					spend: 0
-				};
+				const spent = spendByUser.get(String(p.user_id)) ?? { orders: 0, spend: 0 };
 				return {
 					userId: String(p.user_id ?? ""),
 					name: String(p.display_name || "Guest"),
 					orders: spent.orders,
 					spend: spent.spend,
-					points: Math.round(num(p.points))
+					points: Math.round(num(p.points)),
 				};
-			}).sort((a, b) => b.spend - a.spend).slice(0, 12)
+			}).sort((a, b) => b.spend - a.spend).slice(0, 12),
 		},
 		sales: {
-			today: sum(today, (o) => o.total),
-			week: sum(week, (o) => o.total),
-			month: sum(month, (o) => o.total),
-			allTime: sum(live, (o) => o.total),
-			tickets: live.length,
-			avgTicket: live.length ? sum(live, (o) => o.total) / live.length : 0,
-			canceled: parsed.filter((o) => o.status === "canceled").length,
-			series: [...seriesMap.entries()].map(([day, v]) => ({
-				day,
-				...v
-			})),
-			topItems: [...itemMap.entries()].map(([name, v]) => ({
-				name,
-				...v
-			})).sort((a, b) => b.sales - a.sales).slice(0, 8)
+			today: num(totals?.today),
+			week: num(totals?.week),
+			month: num(totals?.month),
+			allTime: collected,
+			tickets,
+			avgTicket: tickets ? collected / tickets : 0,
+			canceled: Math.round(Number(totals?.canceled) || 0),
+			series: [...seriesMap.entries()].map(([day, v]) => ({ day, ...v })),
+			topItems: itemRows.map((r) => ({ name: String(r.name), qty: num(r.qty), sales: num(r.sales) })),
 		},
 		financials: {
-			food: sum(live, (o) => o.subtotal),
-			tax: sum(live, (o) => o.tax),
-			discounts: sum(live, (o) => o.discount),
-			deliveryFees: sum(live, (o) => o.deliveryFee),
-			tips: sum(live, (o) => o.tip),
-			collected: sum(live, (o) => o.total),
-			pickup: sum(live.filter((o) => o.fulfillment === "pickup"), (o) => o.total),
-			delivery: sum(live.filter((o) => o.fulfillment === "delivery"), (o) => o.total),
-			awaitingPayment: sum(parsed.filter((o) => o.status === "awaiting_payment"), (o) => o.total),
-			byPay: [...payMap.entries()].map(([method, v]) => ({
-				method,
-				...v
-			}))
-		}
+			food: num(totals?.food),
+			tax: num(totals?.tax),
+			discounts: num(totals?.discounts),
+			deliveryFees: num(totals?.fees),
+			tips: num(totals?.tips),
+			collected,
+			pickup: num(totals?.pickup),
+			delivery: num(totals?.delivery),
+			awaitingPayment: num(totals?.outstanding),
+			byPay: payRows.map((r) => ({ method: String(r.method), total: num(r.total), count: Math.round(Number(r.count) || 0) })),
+		},
 	};
 	return insights;
 });
@@ -1990,12 +2497,24 @@ export const listCustomers = createServerFn({ method: "GET" }).middleware([authM
 	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
-	const profiles = await sql`
+	await ensureAdminModeColumns(sql);
+	let profiles: Record<string, unknown>[] = [];
+	try {
+		profiles = await sql`
+      select p.user_id, p.role, p.admin_mode, p.admin_mode_allowed, p.phone, p.display_name, p.points, p.totp_enabled, p.created_at, p.banned,
+             u.email, u.name as user_name
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      order by p.created_at desc`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		profiles = await sql`
       select p.user_id, p.role, p.phone, p.display_name, p.points, p.totp_enabled, p.created_at, p.banned,
              u.email, u.name as user_name
       from profiles p
       left join "user" u on u.id = p.user_id
       order by p.created_at desc`;
+	}
 	const orders = await sql`
       select * from orders order by created_at desc limit 800`;
 	const byUser = new Map<string, OrderView[]>();
@@ -2013,7 +2532,7 @@ export const listCustomers = createServerFn({ method: "GET" }).middleware([authM
 			displayName: String(p.display_name || p.user_name || "Guest").trim() || "Guest",
 			phone: String(p.phone ?? ""),
 			email: String(p.email ?? ""),
-			role: p.role === "admin" ? "admin" : "customer",
+			role: p.role === "admin" || bool(p.admin_mode) ? "admin" : "customer",
 			points: Math.round(num(p.points)),
 			totpEnabled: bool(p.totp_enabled),
 			createdAt: iso(p.created_at),
@@ -2021,28 +2540,151 @@ export const listCustomers = createServerFn({ method: "GET" }).middleware([authM
 			spend: live.reduce((acc, o) => acc + o.total, 0),
 			lastOrderAt: hist[0]?.createdAt ?? null,
 			banned: bool(p.banned),
+			adminModeAllowed: bool(p.admin_mode_allowed) || p.role === "admin",
 			orders: hist
 		};
 	});
 });
 export const setAccountRole = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
-	await requireAdmin(sql, context.userId);
+	await requireDeskGrant(sql, context.userId);
 	const userId = String(data.userId || "").trim();
 	if (!userId) throw new Error("Choose an account.");
 	if (data.role !== "admin" && data.role !== "customer") throw new Error("Invalid role.");
-	const target = await sql`select role from profiles where user_id = ${userId}`;
-	if (!target[0]) throw new Error("Account not found.");
-	if (data.role === "customer" && target[0].role === "admin") {
-		if (num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n) <= 1) throw new Error("Keep at least one admin account.");
+	await ensureAdminModeColumns(sql);
+	let target: Record<string, unknown>[] = [];
+	try {
+		target = await sql`select role, admin_mode_allowed from profiles where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		try {
+			target = await sql`select role, admin_mode_allowed from profiles where user_id = ${userId}`;
+		} catch {
+			target = await sql`select role from profiles where user_id = ${userId}`;
+		}
 	}
-	await sql`update profiles set role = ${data.role} where user_id = ${userId}`;
+	if (!target[0]) throw new Error("Account not found.");
+	if (data.role === "customer" && (target[0].role === "admin" || bool(target[0].admin_mode_allowed))) {
+		let remaining = 1;
+		try {
+			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin' or admin_mode_allowed is true`)[0]?.n);
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n);
+		}
+		if (remaining <= 1) throw new Error("Keep at least one admin account.");
+	}
+	if (data.role === "admin") {
+		try {
+			await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			await ensureAdminModeColumns(sql);
+			await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+		}
+	} else {
+		try {
+			await sql`update profiles set role = 'customer', admin_mode = false, admin_mode_allowed = false where user_id = ${userId}`;
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			await ensureAdminModeColumns(sql);
+			await sql`update profiles set role = 'customer', admin_mode = false, admin_mode_allowed = false where user_id = ${userId}`;
+		}
+	}
 	return {
 		ok: true,
-		role: data.role
+		role: data.role,
+		adminModeAllowed: data.role === "admin",
 	};
 });
+
+const DESK_GRANT_MAX = 12;
+
+function maskDeskEmail(email: string) {
+	const trimmed = email.trim().toLowerCase();
+	const at = trimmed.indexOf("@");
+	const local = at > 0 ? trimmed.slice(0, at) : trimmed;
+	const domain = at > 0 ? trimmed.slice(at + 1) : "";
+	const masked = local
+		? `${local.slice(0, 1)}•••${domain ? `@${domain}` : ""}`
+		: "—";
+	return { emailLocal: local || "—", emailMasked: masked };
+}
+
+export const listDeskAccounts = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await requireAdmin(sql, context.userId);
+	let rows: Record<string, unknown>[] = [];
+	try {
+		rows = await sql`
+      select p.user_id, p.display_name, p.admin_mode, p.admin_mode_allowed, u.email
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      where coalesce(u.email, '') <> ''
+        and u.email not like '%@guest.southend.pizza'
+        and p.user_id not like 'demo-%'
+      order by p.admin_mode_allowed desc, p.created_at desc
+      limit 80`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		rows = await sql`
+      select p.user_id, p.display_name, u.email
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      where coalesce(u.email, '') <> ''
+        and p.user_id not like 'demo-%'
+      order by p.created_at desc
+      limit 80`;
+	}
+	const accounts: DeskAccountRow[] = rows.map((r) => {
+		const { emailLocal, emailMasked } = maskDeskEmail(String(r.email ?? ""));
+		return {
+			userId: String(r.user_id ?? ""),
+			emailLocal,
+			emailMasked,
+			displayName: String(r.display_name ?? "").trim() || emailLocal,
+			adminModeAllowed: bool(r.admin_mode_allowed) || r.role === "admin",
+			adminMode: bool(r.admin_mode),
+		};
+	});
+	const canGrant = await actorCanGrantDesk(sql, context.userId);
+	const granted = accounts.filter((a) => a.adminModeAllowed).length;
+	return { accounts, canGrant, granted, max: DESK_GRANT_MAX };
+});
+
+export const setDeskAllowed = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { userId?: string; allowed?: boolean }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await requireDeskGrant(sql, context.userId);
+		const userId = String(data.userId || "").trim();
+		if (!userId) throw new Error("Choose an account.");
+		if (userId === context.userId) throw new Error("You cannot change your own desk grant here.");
+		await ensureAdminModeColumns(sql);
+		const allowed = Boolean(data.allowed);
+		if (allowed) {
+			const n = num((await sql`select count(*)::int as n from profiles where admin_mode_allowed is true`)[0]?.n);
+			if (n >= DESK_GRANT_MAX) throw new Error(`Desk roster is full (${DESK_GRANT_MAX}). Revoke someone first.`);
+			await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+		} else {
+			await sql`update profiles set admin_mode_allowed = false, admin_mode = false, role = 'customer' where user_id = ${userId}`;
+		}
+		try {
+			await sql.query(
+				`insert into desk_grant_audit (id, actor_id, target_id, action, created_at) values ($1,$2,$3,$4,now())`,
+				[`dga-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`, context.userId, userId, allowed ? "grant" : "revoke"],
+			);
+		} catch {
+			/* audit is best-effort */
+		}
+		return { ok: true, allowed };
+	});
 export const setAccountBanned = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
@@ -2181,6 +2823,15 @@ export const sendPasswordResetCode = createServerFn({ method: "POST" }).middlewa
 		`insert into password_reset_codes (id, user_id, email, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
 		[id, context.userId, email, digest, salt, expires],
 	);
+	const { sendEmail } = await import("@/lib/email/resend.server");
+	await sendEmail({
+		to: email,
+		subject: "Your South End Pizza reset code",
+		text: `Your South End Pizza password reset code is ${code}. It expires in 60 seconds. If you did not ask for this, you can ignore this message.`,
+		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your South End Pizza password reset code is:</p>
+<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not ask for this, you can ignore this message — your password stays the same.</p>`,
+	});
 	return {
 		sent: true as const,
 		email: maskEmail(email),
@@ -2229,6 +2880,111 @@ export const changeMyPassword = createServerFn({ method: "POST" }).middleware([a
 	await sql.query(`update password_reset_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [context.userId]);
 	return { ok: true as const };
 });
+
+export const sendSignupEmailCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const email = String(data.email ?? "").trim().toLowerCase();
+	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
+	if (isPhoneAuthEmail(email) || isStaffAdminAccount(undefined, email)) {
+		return { alreadyVerified: true as const, skipped: true as const, email: maskEmail(email), expiresIn: 0 };
+	}
+	const users = await sql.query(`select id, email, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
+	const user = users[0];
+	if (!user) throw new Error("We could not send a code for that email. Check the address and try again.");
+	const userId = String(user.id);
+	if (isStaffAdminAccount(userId, email)) {
+		return { alreadyVerified: true as const, skipped: true as const, email: maskEmail(email), expiresIn: 0 };
+	}
+	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
+	if (verified) {
+		return { alreadyVerified: true as const, email: maskEmail(email), expiresIn: 0 };
+	}
+	const credential = await loadCredentialAccount(sql, userId);
+	if (!credential) {
+		// Google / X accounts are treated as verified at the provider.
+		await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+		return { alreadyVerified: true as const, email: maskEmail(email), expiresIn: 0 };
+	}
+	const recent = await sql.query(
+		`select created_at from email_signup_codes where user_id = $1 and created_at > now() - interval '1 hour' order by created_at desc`,
+		[userId],
+	);
+	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification emails. Try again in an hour.");
+	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
+	const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+	const salt = randomBytes(16).toString("hex");
+	const digest = hashOtp(salt, code).toString("hex");
+	const id = `esc-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+	const expires = new Date(Date.now() + OTP_TTL_MS);
+	await sql.query(
+		`insert into email_signup_codes (id, user_id, email, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
+		[id, userId, email, digest, salt, expires],
+	);
+	const { sendEmail } = await import("@/lib/email/resend.server");
+	await sendEmail({
+		to: email,
+		subject: "Your South End Pizza signup code",
+		text: `Welcome to South End Pizza! Your verification code is ${code}. It expires in 60 seconds.`,
+		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Welcome to South End Pizza — almost ready to order.</p>
+<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your verification code is:</p>
+<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not create an account, you can ignore this message.</p>`,
+	});
+	return {
+		sent: true as const,
+		alreadyVerified: false as const,
+		email: maskEmail(email),
+		expiresIn: 60,
+		previewCode: dbSource === "pglite" ? code : undefined,
+	};
+});
+
+export const verifySignupEmailCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const email = String(data.email ?? "").trim().toLowerCase();
+	const code = String(data.code ?? "").replace(/\D/g, "");
+	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
+	if (isPhoneAuthEmail(email) || isStaffAdminAccount(undefined, email)) {
+		return { ok: true as const, skipped: true as const };
+	}
+	if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code from your email.");
+	const users = await sql.query(`select id, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
+	const user = users[0];
+	if (!user) throw new Error("We could not verify that email. Try signing up again.");
+	const userId = String(user.id);
+	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
+	if (verified) return { ok: true as const, alreadyVerified: true as const };
+	const rows = await sql.query(
+		`select id, code_hash, salt, expires_at, attempts, consumed_at from email_signup_codes
+     where user_id = $1 and consumed_at is null order by created_at desc limit 1`,
+		[userId],
+	);
+	const row = rows[0];
+	if (!row) throw new Error("Send a new one-time code first.");
+	if (new Date(String(row.expires_at)).getTime() < Date.now()) {
+		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("That code expired. Send a new one.");
+	}
+	const attempts = Math.round(num(row.attempts));
+	if (attempts >= OTP_MAX_ATTEMPTS) {
+		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("Too many tries. Send a new code.");
+	}
+	const expected = Buffer.from(String(row.code_hash), "hex");
+	const got = hashOtp(String(row.salt), code);
+	if (expected.length !== got.length || !timingSafeEqual(expected, got)) {
+		await sql.query(`update email_signup_codes set attempts = attempts + 1 where id = $1`, [String(row.id)]);
+		throw new Error("That code does not match. Try again.");
+	}
+	await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
+	return { ok: true as const };
+});
+
 export const patchPosOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
@@ -2305,7 +3061,7 @@ export const listIncomingOrders = createServerFn({ method: "GET" }).middleware([
       limit 40`).map((row) => {
 		return {
 			...toOrder(row),
-			customerName: String(row.display_name || "").trim() || "Guest",
+			customerName: String(row.pickup_name || row.display_name || "").trim() || "Guest",
 			customerPhone: String(row.phone || ""),
 			chatUnread: 0,
 			chatThreadId: null
@@ -2360,7 +3116,7 @@ export const loadChatMessages = createServerFn({ method: "POST" }).middleware([a
 	const threadId = String(data.threadId || "");
 	const thread = await sql`select user_id, status from chat_threads where id = ${threadId}`;
 	if (!thread[0]) throw new Error("Chat not found.");
-	const isAdmin = (await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role === "admin";
+	const isAdmin = await profileDeskOn(sql, context.userId);
 	if (!isAdmin && thread[0].user_id !== context.userId) throw new Error("Forbidden");
 	if (!isAdmin && String(thread[0].status) === "solved") return [];
 	if (isAdmin) await sql`update chat_threads set unread_admin = 0 where id = ${threadId}`;
@@ -2423,7 +3179,7 @@ export const sendChatMessage = createServerFn({ method: "POST" }).middleware([au
 	if (!body) throw new Error("Write a message first.");
 	const thread = await sql`select user_id, status from chat_threads where id = ${threadId}`;
 	if (!thread[0]) throw new Error("Chat not found.");
-	const isAdmin = (await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role === "admin";
+	const isAdmin = await profileDeskOn(sql, context.userId);
 	if (!isAdmin && thread[0].user_id !== context.userId) throw new Error("Forbidden");
 	if (!isAdmin) await assertNotBanned(sql, context.userId);
 	if (!isAdmin && String(thread[0].status) === "solved") throw new Error("This chat has concluded. Start a new chat.");

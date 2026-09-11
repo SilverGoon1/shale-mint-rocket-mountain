@@ -36,3 +36,9 @@ export function phoneFromAuthEmail(email: string | null | undefined) {
   const m = email.match(/^(\d{10})@phone\.southend\.pizza$/i);
   return m ? m[1] : "";
 }
+
+/** Synthetic Better Auth emails for phone-number accounts — no real inbox. */
+export function isPhoneAuthEmail(email: string | null | undefined) {
+  if (!email) return false;
+  return /@phone\.southend\.pizza$/i.test(email.trim());
+}

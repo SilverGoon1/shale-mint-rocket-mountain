@@ -6,7 +6,7 @@ export type AdminNavItem = {
   pin?: "start" | "end";
 };
 
-/** Admin destinations. Menu & Shop Details is first. Settings stays last. POS lives in the title bar. */
+/** Admin destinations. Menu & Shop Details is first. Settings stays last. POS lives in the account menu. */
 export const ADMIN_NAV: AdminNavItem[] = [
   { to: "/admin/menu", label: "Menu & Shop Details", pin: "start" },
   { to: "/admin/center", label: "Customer Center", pip: true },

@@ -13,12 +13,13 @@
  * Scope: build-only. No Neon cutover, auth/BETTER_AUTH, card processor, or bot scope changes.
  */
 import { createFileRoute } from "@tanstack/react-router";
+import { lineSummary, payStatusLabel } from "@/lib/ticket-line";
 import { writeBotAudit, requestIp } from "@/lib/bot/audit.server";
 import { agentHasScope, rateLimitBot, verifyBotBearer, type BotAgent } from "@/lib/bot/tokens.server";
 import type { BotScope } from "@/lib/bot/scopes";
 import { getSql, dbSource } from "@/lib/db";
 import { isVercelProduction, PRODUCTION_AUTH_ORIGINS } from "@/lib/prod-guard.server";
-import { staffSecretConfigured } from "@/lib/staff-credential.server";
+import { diagnosticDeskAuthStatus } from "@/lib/staff-credential.server";
 import { CARD_PROCESSOR_LIVE } from "@/lib/shop-types";
 
 const KITCHEN_STATUSES = new Set(["accepted", "preparing", "ready", "out_for_delivery", "completed", "canceled"]);
@@ -83,21 +84,41 @@ async function handle(request: Request) {
       }
       agentId = gate.agent.id;
       const sql = await getSql();
-      const counts = await sql.query<{ n: number; enabled: number }>(
-        `select count(*)::int as n, count(*) filter (where enabled)::int as enabled from bot_agents`,
-      );
-      const totp = await sql.query<{ n: number }>(
-        `select count(*)::int as n from profiles where totp_enabled = true and role = 'admin'`,
-      );
+      let agents = { total: 0, enabled: 0 };
+      let adminTotp = 0;
+      try {
+        const counts = await sql.query<{ n: number; enabled: number }>(
+          `select count(*)::int as n, count(*) filter (where enabled)::int as enabled from bot_agents`,
+        );
+        agents = {
+          total: Math.round(Number(counts[0]?.n) || 0),
+          enabled: Math.round(Number(counts[0]?.enabled) || 0),
+        };
+      } catch {
+        /* bot_agents may not exist yet */
+      }
+      try {
+        const totp = await sql.query<{ n: number }>(
+          `select count(*)::int as n from profiles where totp_enabled = true and role = 'admin'`,
+        );
+        adminTotp = Math.round(Number(totp[0]?.n) || 0);
+      } catch {
+        /* profiles.totp_enabled may not exist yet */
+      }
+      const desk = await diagnosticDeskAuthStatus(sql);
       return reply({
         db: dbSource,
         production: isVercelProduction(),
         neon: dbSource === "neon",
-        staffSecretConfigured: staffSecretConfigured(),
+        staffSecretConfigured: desk.staffSecretConfigured,
+        diagnosticDeskAuth: desk.diagnosticDeskAuth,
+        staffAdminLoginEnabled: desk.staffAdminLoginEnabled,
+        envDeskLoginEnabled: desk.envDeskLoginEnabled,
+        staffDeskLoginEnabled: desk.staffDeskLoginEnabled,
         trustedOrigins: isVercelProduction() ? PRODUCTION_AUTH_ORIGINS : "preview-dynamic",
         cardProcessor: CARD_PROCESSOR_LIVE ? "live" : "disabled",
-        adminTotp: Math.round(Number(totp[0]?.n) || 0),
-        agents: { total: Math.round(Number(counts[0]?.n) || 0), enabled: Math.round(Number(counts[0]?.enabled) || 0) },
+        adminTotp,
+        agents,
       });
     }
 
@@ -149,8 +170,9 @@ async function handle(request: Request) {
       const sql = await getSql();
       const rows = await sql`
         select o.id, o.ticket_no, o.status, o.fulfillment, o.total, o.payment_method,
-               o.created_at, o.scheduled_for, o.notes, o.tip, o.items, o.pickup_name,
-               p.display_name
+               o.created_at, o.scheduled_for, o.notes, o.tip, o.tax, o.subtotal, o.discount,
+               o.delivery_fee, o.items, o.pickup_name,
+               p.display_name, p.phone
         from orders o
         left join profiles p on p.user_id = o.user_id
         order by o.created_at desc
@@ -174,42 +196,63 @@ async function handle(request: Request) {
             const it = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
             const qty = Math.max(1, Math.round(Number(it.qty) || 1));
             itemCount += qty;
-            const name = String(it.name ?? "").trim() || "Item";
-            const size = String(it.size ?? "").trim();
-            bits.push(size ? `${qty}× ${name} · ${size}` : `${qty}× ${name}`);
+            bits.push(lineSummary({
+              qty,
+              name: String(it.name ?? ""),
+              size: String(it.size ?? ""),
+              detail: String(it.detail ?? ""),
+              comment: String(it.comment ?? ""),
+            }));
           }
-          const tipRaw = row.tip;
-          const tip =
-            tipRaw === null || tipRaw === undefined || tipRaw === ""
-              ? null
-              : String(tipRaw);
+          const money = (v: unknown) => {
+            if (v === null || v === undefined || v === "") return null;
+            return String(v);
+          };
+          const tip = money(row.tip);
+          const tax = money(row.tax);
+          const subtotal = money(row.subtotal);
+          const discountRaw = money(row.discount);
+          const deliveryFeeRaw = money(row.delivery_fee);
           const notesRaw = row.notes;
           const notes =
             notesRaw === null || notesRaw === undefined
               ? null
               : String(notesRaw).trim() || null;
+          const pickupName = String(row.pickup_name ?? "").trim() || null;
+          const pickupPhone = String(row.phone ?? "").trim() || null;
           const customerName =
+            pickupName ||
             String(row.display_name ?? "").trim() ||
-            String(row.pickup_name ?? "").trim() ||
             "Guest";
+          const promisedEta = row.scheduled_for
+            ? row.scheduled_for instanceof Date
+              ? row.scheduled_for.toISOString()
+              : String(row.scheduled_for)
+            : null;
+          const paymentMethod = String(row.payment_method ?? "");
+          const status = String(row.status ?? "");
           return {
             id: String(row.id),
             ticketNo: Math.round(Number(row.ticket_no) || 0),
-            status: String(row.status ?? ""),
+            status,
             fulfillment: String(row.fulfillment ?? ""),
             total: String(row.total ?? "0"),
-            paymentMethod: String(row.payment_method ?? ""),
+            paymentMethod,
+            paymentLabel: payStatusLabel(paymentMethod, status),
             createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
-            scheduledFor: row.scheduled_for
-              ? row.scheduled_for instanceof Date
-                ? row.scheduled_for.toISOString()
-                : String(row.scheduled_for)
-              : null,
+            scheduledFor: promisedEta,
+            promisedEta,
             itemCount,
             itemSummary: bits.slice(0, 6).join(", ") + (bits.length > 6 ? "…" : ""),
             customerName,
+            pickupName,
+            pickupPhone,
             notes,
             tip,
+            tax,
+            subtotal,
+            discount: discountRaw && Number(discountRaw) > 0 ? discountRaw : null,
+            deliveryFee: deliveryFeeRaw && Number(deliveryFeeRaw) > 0 ? deliveryFeeRaw : null,
           };
         }),
       });
@@ -244,15 +287,18 @@ async function handle(request: Request) {
       agentId = gate.agent.id;
       const sql = await getSql();
       const row = (
-        await sql.query<{ n: number; collected: string }>(
-          `select count(*)::int as n, coalesce(sum(total), 0)::text as collected
-           from orders where status <> 'canceled'`,
+        await sql.query<{ n: number; collected: string; outstanding: string }>(
+          `select count(*) filter (where status not in ('canceled', 'awaiting_payment'))::int as n,
+                  coalesce(sum(total) filter (where status not in ('canceled', 'awaiting_payment')), 0)::text as collected,
+                  coalesce(sum(total) filter (where status = 'awaiting_payment'), 0)::text as outstanding
+           from orders`,
         )
       )[0];
       return reply({
         processor: CARD_PROCESSOR_LIVE ? "live" : "disabled",
         tickets: Math.round(Number(row?.n) || 0),
         collected: row?.collected ?? "0",
+        outstanding: row?.outstanding ?? "0",
       });
     }
 

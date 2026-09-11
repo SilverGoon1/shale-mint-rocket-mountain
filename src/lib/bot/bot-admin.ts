@@ -38,7 +38,16 @@ function bool(v: unknown) {
 
 async function requireAdmin(userId: string) {
   const sql = await getSql();
-  if ((await sql`select role from profiles where user_id = ${userId}`)[0]?.role !== "admin") {
+  let on = false;
+  try {
+    const row = (await sql`select role, admin_mode, admin_mode_allowed from profiles where user_id = ${userId}`)[0] as
+      | { role?: string; admin_mode?: unknown; admin_mode_allowed?: unknown }
+      | undefined;
+    on = bool(row?.admin_mode) && bool(row?.admin_mode_allowed);
+  } catch {
+    on = (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
+  }
+  if (!on) {
     const err = new Error("Forbidden") as Error & { status?: number };
     err.status = 403;
     throw err;

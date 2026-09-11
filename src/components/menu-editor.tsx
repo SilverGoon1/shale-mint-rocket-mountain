@@ -201,6 +201,65 @@ function Field({
   );
 }
 
+function WingExtraPrices({ cat }: { cat: EditableCategory }) {
+  const patchItem = useMenuStore((s) => s.patchItem);
+  const wing = cat.items.find((it) => /wing/i.test(it.name));
+  if (!wing) return null;
+  const wingId = wing.id;
+  const conds = wing.condiments ?? [];
+
+  function unit(which: "ranch" | "blue") {
+    const hit = conds.find((c) =>
+      which === "ranch" ? /extra ranch/i.test(c.name) || c.id === "wing-extra-ranch" : /extra blue/i.test(c.name) || c.id === "wing-extra-blue",
+    );
+    return hit?.price ?? "1.50";
+  }
+
+  function setUnit(which: "ranch" | "blue", price: string) {
+    const id = which === "ranch" ? "wing-extra-ranch" : "wing-extra-blue";
+    const name = which === "ranch" ? "Extra Ranch" : "Extra Blue cheese";
+    const next = [...conds];
+    const i = next.findIndex((c) => c.id === id || (which === "ranch" ? /extra ranch/i.test(c.name) : /extra blue/i.test(c.name)));
+    const row = {
+      id,
+      name,
+      price,
+      extraPrice: price,
+      maxQty: "6",
+    };
+    if (i >= 0) next[i] = { ...next[i], ...row };
+    else next.push(row);
+    patchItem(cat.id, wingId, { condiments: next });
+  }
+
+  return (
+    <div className="ed-field">
+      <span>Extra dips (per 2 cups)</span>
+      <p className="ed-sub">Guest wing builder uses these live prices. Included Ranch / Blue cheese / None stay free.</p>
+      <div className="two-col">
+        <label className="ed-field">
+          <span>Extra Ranch</span>
+          <input
+            className="ed-input ed-price"
+            inputMode="decimal"
+            value={unit("ranch")}
+            onChange={(e) => setUnit("ranch", e.target.value)}
+          />
+        </label>
+        <label className="ed-field">
+          <span>Extra Blue cheese</span>
+          <input
+            className="ed-input ed-price"
+            inputMode="decimal"
+            value={unit("blue")}
+            onChange={(e) => setUnit("blue", e.target.value)}
+          />
+        </label>
+      </div>
+    </div>
+  );
+}
+
 function CategoryCard({
   cat,
   open,
@@ -251,7 +310,12 @@ function CategoryCard({
       {open ? (
         <div className="ed-cat-body">
           <Field label="Section name" value={cat.name} onChange={(v) => patchCategory(cat.id, { name: v })} />
-          <Field label="Note" value={cat.note ?? ""} onChange={(v) => patchCategory(cat.id, { note: v })} />
+          <Field
+            label="Section description"
+            value={cat.note ?? ""}
+            onChange={(v) => patchCategory(cat.id, { note: v })}
+          />
+          {cat.id === "wings" || cat.items.some((it) => /wing/i.test(it.name)) ? <WingExtraPrices cat={cat} /> : null}
           <label className="ed-field">
             <span>Icon</span>
             <select

@@ -1,9 +1,10 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Link, Navigate, useRouterState } from "@tanstack/react-router";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { isTransientFetchError } from "@/lib/fetch-retry";
 import { claimAdmin, getMe, getTwoFactorStatus } from "@/lib/shop-server";
 import type { ProfileView, TwoFactorStatus } from "@/lib/shop-types";
+import { AccountLoading } from "@/components/pizza-spinner";
 
 function accountLoadMessage(err: unknown) {
   const raw = err instanceof Error ? err.message : "";
@@ -17,30 +18,54 @@ function accountLoadMessage(err: unknown) {
   return raw.trim() || "Could not load your staff account.";
 }
 
+function withTimeout<T>(work: Promise<T>, ms: number) {
+  return new Promise<T>((resolve, reject) => {
+    const t = window.setTimeout(() => reject(new Error("Account is taking too long. Tap Try again.")), ms);
+    work.then(
+      (v) => {
+        window.clearTimeout(t);
+        resolve(v);
+      },
+      (e) => {
+        window.clearTimeout(t);
+        reject(e);
+      },
+    );
+  });
+}
+
+const SKIP_2FA: TwoFactorStatus = {
+  required: false,
+  unlocked: true,
+  enabled: false,
+  enroll: false,
+  locked: false,
+};
+
 async function loadStaffAccount() {
-  let last: unknown;
-  for (let i = 0; i < 4; i += 1) {
-    try {
-      return await Promise.all([getMe(), getTwoFactorStatus()]);
-    } catch (err) {
-      last = err;
-      const msg = err instanceof Error ? err.message : "";
-      const retryable =
-        isTransientFetchError(err) ||
-        /profiles_pkey|duplicate key|unique constraint/i.test(msg);
-      if (!retryable || i === 3) throw err;
-      await new Promise((resolve) => setTimeout(resolve, 220 * (i + 1)));
-    }
+  const profile = await withTimeout(getMe(), 6000);
+  if (!profile.totpEnabled) return [profile, SKIP_2FA] as const;
+  try {
+    const twoFactor = await withTimeout(getTwoFactorStatus(), 2500);
+    return [profile, twoFactor] as const;
+  } catch {
+    return [profile, SKIP_2FA] as const;
   }
-  throw last;
 }
 
 export function SessionGate({
   children,
   needAdmin,
+  fallback,
+  softGuest,
+  onContinueAsGuest,
 }: {
   children: (ctx: { profile: ProfileView; twoFactor: TwoFactorStatus }) => ReactNode;
   needAdmin?: boolean;
+  fallback?: (ctx: { error: string; retry: () => void }) => ReactNode;
+  /** Checkout: on account-load failure, offer Continue as guest instead of trapping mid-review. */
+  softGuest?: boolean;
+  onContinueAsGuest?: () => void;
 }) {
   const { user, isPending } = useCurrentUserState();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
@@ -49,59 +74,98 @@ export function SessionGate({
   const [error, setError] = useState("");
   const [claiming, setClaiming] = useState(false);
   const [retry, setRetry] = useState(0);
+  const [authWaited, setAuthWaited] = useState(false);
+  const userId = user?.id ?? "";
+  const heldAdmin = useRef<ProfileView | null>(null);
 
   useEffect(() => {
-    if (isPending || !user) return;
+    if (!isPending) {
+      setAuthWaited(false);
+      return;
+    }
+    const ms = needAdmin ? 2500 : 8000;
+    const t = window.setTimeout(() => setAuthWaited(true), ms);
+    return () => window.clearTimeout(t);
+  }, [isPending, needAdmin]);
+
+  useEffect(() => {
+    if (isPending || !userId) return;
     let live = true;
     const timeout = window.setTimeout(() => {
       if (!live) return;
+      if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) return;
       setError("Account is taking too long. Tap Try again.");
-    }, 14000);
+    }, 9000);
     void loadStaffAccount()
       .then(([p, t]) => {
         if (!live) return;
         window.clearTimeout(timeout);
+        if (p.adminMode || p.adminModeAllowed) heldAdmin.current = p;
+        setError("");
         setProfile(p);
         setTwoFactor(t);
       })
       .catch((e) => {
         if (!live) return;
         window.clearTimeout(timeout);
+        if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) {
+          setProfile(heldAdmin.current);
+          setError("");
+          return;
+        }
+        setProfile(null);
+        setTwoFactor(null);
         setError(accountLoadMessage(e));
       });
     return () => {
       live = false;
       window.clearTimeout(timeout);
     };
-  }, [isPending, user, retry]);
+  }, [isPending, userId, retry, needAdmin]);
 
-  if (isPending) return <div className="page-skel">Loading account…</div>;
+  if (isPending && !(needAdmin && authWaited && !user)) return <AccountLoading />;
   if (!user) {
-    const next = pathname.startsWith("/") && !pathname.startsWith("//") ? pathname : "/";
+    const next =
+      needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
+        ? "/admin"
+        : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
+          ? pathname
+          : needAdmin
+            ? "/admin"
+            : "/";
     return <Navigate to="/login" search={{ next }} />;
   }
   if (error) {
+    const retry = () => {
+      setError("");
+      setProfile(null);
+      setTwoFactor(null);
+      setRetry((n) => n + 1);
+    };
+    if (fallback) return <>{fallback({ error, retry })}</>;
     return (
       <div className="page-card">
         <h1>Could not load your account</h1>
         <p>{error}</p>
-        <p className="ed-sub">Nothing was lost. Tap Try again to open the shop desk.</p>
-        <button
-          type="button"
-          className="btn-print"
-          onClick={() => {
-            setError("");
-            setProfile(null);
-            setTwoFactor(null);
-            setRetry((n) => n + 1);
-          }}
-        >
-          Try again
-        </button>
+        <p className="ed-sub">
+          {softGuest
+            ? "Nothing was lost. Continue as guest to finish checkout, or try loading the account again."
+            : "Nothing was lost. Tap Try again to open the shop desk."}
+        </p>
+        <div className="confirm-actions">
+          {softGuest && onContinueAsGuest ? (
+            <button type="button" className="btn-print" onClick={onContinueAsGuest}>
+              Continue as guest
+            </button>
+          ) : null}
+          <button type="button" className={softGuest ? "ed-btn" : "btn-print"} onClick={retry}>
+            Try again
+          </button>
+        </div>
       </div>
     );
   }
-  if (!profile || !twoFactor) return <div className="page-skel">Loading account…</div>;
+  if (!profile || !twoFactor) return <AccountLoading />;
   if (profile.banned) {
     return (
       <div className="page-card">
@@ -135,7 +199,7 @@ export function SessionGate({
       </div>
     );
   }
-  if (needAdmin && profile.role !== "admin") {
+  if (needAdmin && !(profile.adminMode && profile.adminModeAllowed) && profile.role !== "admin") {
     if (!profile.adminExists) {
       return (
         <div className="page-card">
