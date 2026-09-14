@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Navigate } from "@tanstack/react-router";
 import { ShopHeader } from "@/components/shop-header";
 import { Storefront } from "@/components/storefront";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { useCartStore } from "@/lib/cart-store";
 import { getMe, getStorefront } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
+import { needsSignupOtp } from "@/lib/phone";
 import type { ProfileView } from "@/lib/shop-types";
 import { needsSignupOtp } from "@/lib/phone";
 import { Navigate } from "@tanstack/react-router";
@@ -70,7 +71,6 @@ function Home() {
   if (profile && needsSignupOtp(profile.email) && !profile.emailVerified) {
     return <Navigate to="/login" search={{ next: "/" }} replace />;
   }
-
   return (
     <div className="shop-shell">
       <ShopHeader profile={profile} onOpenCart={toggleBag} />

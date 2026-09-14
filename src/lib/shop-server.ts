@@ -3217,6 +3217,7 @@ const RECOVER_FAIL = "We could not recover that account. Check the email or phon
 const OTP_TTL_MS = 2 * 60_000;
 const OTP_TTL_SEC = Math.round(OTP_TTL_MS / 1000);
 const SMS_OTP_TTL_MS = 10 * 60_000;
+const SMS_RESEND_MS = 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_HOUR_CAP = 8;
 const TWILIO_VERIFY_SALT = "twilio-verify";
@@ -3490,7 +3491,7 @@ export const sendSignupPhoneCode = createServerFn({ method: "POST" }).validator(
 	);
 	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification texts. Try again in an hour.");
 	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
-	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 2 minutes to send another.");
+	if (last && Date.now() - last < SMS_RESEND_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
 	await sql.query(`update phone_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
 
 	const { smsChannel, startTwilioVerify, sendTwilioMessage } = await import("@/lib/sms/twilio.server");

@@ -7,6 +7,16 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-otp-gate-ttl-contrast",
+    date: "September 14, 2026",
+    title: "Email code lasts 2 minutes; cancel signs you out",
+    added: [
+      "Create account with email: the 6-digit code lasts 2 minutes. Backdrop and X no longer skip you into the shop unverified — Cancel signs you out.",
+      "Home, account, and checkout send an unverified email guest back to the code screen.",
+      "The code card is cream on black so the timer and Send again stay readable.",
+    ],
+  },
+  {
     id: "2026-09-14-admin-friendlyneigh",
     date: "September 14, 2026",
     title: "friendlyneigh is on the desk",

@@ -471,6 +471,8 @@
   border-radius: 999px;
   width: 44px;
   height: 44px;
+  padding: 0;
+  cursor: pointer;
   place-items: center;
   display: grid;
   position: absolute;

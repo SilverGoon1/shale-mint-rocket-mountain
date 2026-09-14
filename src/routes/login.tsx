@@ -22,6 +22,11 @@ import { noteStaffDeskLogin } from "@/lib/shop-server";
 import { BrandMark } from "@/components/brand-mark";
 import { PizzaSpinner } from "@/components/pizza-spinner";
 
+function formatOtpLeft(seconds: number) {
+  if (seconds >= 60) return `${Math.ceil(seconds / 60)} min`;
+  return `${seconds}s`;
+}
+
 function safeNext(raw: unknown) {
   if (typeof raw !== "string") return undefined;
   if (!raw.startsWith("/") || raw.startsWith("//") || raw.startsWith("/login")) return undefined;
@@ -149,7 +154,7 @@ function Login() {
         let masked = phone ? maskPhone(email) : maskEmail(email);
         let previewCode: string | undefined;
         let expiresIn = phone ? 600 : 120;
-        let resendIn = 60;
+        let resendIn = phone ? 60 : 120;
         try {
           const sent = phone
             ? await sendSignupPhoneCode({ data: { email } })
@@ -164,7 +169,7 @@ function Login() {
         } catch (sendErr) {
           if (cancelled) return;
           const msg = sendErr instanceof Error ? sendErr.message : "Could not send a verification code.";
-          if (!/already on the way|wait 60/i.test(msg)) setError(msg);
+          if (!/already on the way|wait 60|wait 2/i.test(msg)) setError(msg);
         }
         if (cancelled) return;
         if (verifyStepRef.current) return;
@@ -227,8 +232,7 @@ function Login() {
   if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error) {
     return (
       <main className="login-page" data-popup="true">
-        {/* No scrim while a session may still need OTP — dismiss must not keep an unverified login */}
-        {!user ? <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" /> : <div className="login-scrim" aria-hidden />}
+        {user ? <div className="login-scrim" aria-hidden /> : <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />}
         <section className="login-card login-dialog" role="status" aria-busy="true" aria-labelledby="login-title">
           <PizzaSpinner size="md" />
           <h1 id="login-title">Loading account</h1>
@@ -280,6 +284,19 @@ function Login() {
     setOtpLeft(sent.expiresIn || 120);
     setOtpExpires(sent.expiresIn || 120);
     return false;
+  }
+
+  async function abandonVerify() {
+    setBusy(true);
+    setError("");
+    try {
+      await dropClientSession();
+    } catch {
+      /* still leave OTP / signed-out path */
+    }
+    setVerifyStep(null);
+    setBusy(false);
+    void navigate({ to: "/", replace: true });
   }
 
   async function submit(e: FormEvent) {
@@ -423,9 +440,11 @@ function Login() {
     }
   }
 
+  const lockDismiss = Boolean(verifyStep) || Boolean(user);
+
   return (
     <main className="login-page" data-popup="true">
-      {verifyStep ? (
+      {lockDismiss ? (
         <div className="login-scrim" aria-hidden />
       ) : (
         <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
@@ -437,14 +456,8 @@ function Login() {
         aria-modal="true"
         aria-labelledby="login-title"
       >
-        {verifyStep ? (
-          <button
-            type="button"
-            className="login-close"
-            aria-label="Cancel and sign out"
-            disabled={busy}
-            onClick={() => void abandonVerify()}
-          >
+        {lockDismiss ? (
+          <button type="button" className="login-close" aria-label="Cancel and sign out" onClick={() => void abandonVerify()}>
             <X size={18} strokeWidth={2.4} aria-hidden />
           </button>
         ) : (
@@ -477,19 +490,15 @@ function Login() {
                 ) : (
                   <p className="ed-sub">
                     {otpExpires > 0
-                      ? `Enter the 6-digit code. ${
-                          otpExpires >= 60
-                            ? `${Math.ceil(otpExpires / 60)} min left.`
-                            : `${otpExpires}s left.`
-                        }`
+                      ? `Enter the 6-digit code. ${formatOtpLeft(otpExpires)} left.`
                       : "That code expired. Send a new one."}
                   </p>
                 )}
                 {verifyStep.previewCode && otpExpires > 0 ? (
                   <p className="ed-sub">
                     {verifyStep.channel === "phone"
-                      ? `This shop preview shows the text here. It expires in ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min` : `${otpExpires}s`}.`
-                      : `This shop preview shows the message here. It expires in ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min` : `${otpExpires}s`}.`}
+                      ? `This shop preview shows the text here. It expires in ${formatOtpLeft(otpExpires)}.`
+                      : `This shop preview shows the message here. It expires in ${formatOtpLeft(otpExpires)}.`}
                   </p>
                 ) : null}
               </div>
@@ -517,14 +526,9 @@ function Login() {
                 disabled={busy || otpLeft > 0}
                 onClick={() => void resendVerify()}
               >
-                {otpLeft > 0 ? `Send again in ${otpLeft}s` : "Send a new code"}
+                {otpLeft > 0 ? `Send again in ${formatOtpLeft(otpLeft)}` : "Send a new code"}
               </button>
-              <button
-                type="button"
-                className="ed-btn ed-btn-quiet"
-                disabled={busy}
-                onClick={() => void abandonVerify()}
-              >
+              <button type="button" className="ed-btn ed-btn-quiet" disabled={busy} onClick={() => void abandonVerify()}>
                 Cancel — sign out
               </button>
             </form>
