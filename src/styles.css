@@ -572,6 +572,63 @@
   text-align: center;
 }
 
+/* OTP / verify step: paper dialog + dark mail slip need explicit ink/cream */
+.login-dialog .ed-sub {
+  color: var(--color-ink);
+  opacity: 0.82;
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.login-dialog .mail-slip {
+  background: var(--color-ink);
+  border-color: var(--color-ink);
+  color: var(--color-cream);
+}
+
+.login-dialog .mail-slip .slip-kind {
+  color: #e8a39a;
+}
+
+.login-dialog .mail-slip strong {
+  color: var(--color-cream);
+}
+
+.login-dialog .mail-slip .ed-sub,
+.login-dialog .mail-slip .otp-code {
+  color: var(--color-cream);
+  opacity: 1;
+}
+
+.login-dialog .ed-field > span {
+  color: var(--color-ink);
+  opacity: 0.72;
+}
+
+.login-dialog .ed-input::placeholder {
+  color: var(--color-muted);
+  opacity: 1;
+}
+
+.login-dialog .ed-btn,
+.login-dialog .ed-btn-quiet {
+  color: var(--color-ink);
+  border-color: var(--color-rule);
+  background: var(--color-cream);
+  width: 100%;
+  justify-content: center;
+}
+
+.login-dialog .ed-btn-quiet {
+  background: transparent;
+}
+
+.login-dialog .ed-btn-quiet:hover:not(:disabled),
+.login-dialog .ed-btn-quiet:focus-visible {
+  border-color: var(--color-ink);
+  color: var(--color-ink);
+}
+
 @media (width >= 640px) {
   .login-page[data-popup="true"] {
     place-items: center;
