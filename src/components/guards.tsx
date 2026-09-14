@@ -4,6 +4,7 @@ import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { isTransientFetchError } from "@/lib/fetch-retry";
 import { claimAdmin, getMe, getTwoFactorStatus } from "@/lib/shop-server";
 import type { ProfileView, TwoFactorStatus } from "@/lib/shop-types";
+import { needsSignupOtp } from "@/lib/phone";
 import { AccountLoading } from "@/components/pizza-spinner";
 
 function accountLoadMessage(err: unknown) {
@@ -185,6 +186,9 @@ export function SessionGate({
     );
   }
   if (!shownProfile || !shownTwoFactor) return <AccountLoading />;
+  if (needsSignupOtp(shownProfile.email) && !shownProfile.emailVerified && pathname !== "/login") {
+    return <Navigate to="/login" search={{ next: pathname || "/" }} replace />;
+  }
   if (shownProfile.banned) {
     return (
       <div className="page-card">

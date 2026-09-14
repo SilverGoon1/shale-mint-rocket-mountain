@@ -7,6 +7,8 @@ import { useCartStore } from "@/lib/cart-store";
 import { getMe, getStorefront } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
 import type { ProfileView } from "@/lib/shop-types";
+import { needsSignupOtp } from "@/lib/phone";
+import { Navigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
   loader: () => retryTransient(() => getStorefront()),
@@ -65,6 +67,10 @@ function Home() {
       /* ignore */
     }
   }, []);
+  if (profile && needsSignupOtp(profile.email) && !profile.emailVerified) {
+    return <Navigate to="/login" search={{ next: "/" }} replace />;
+  }
+
   return (
     <div className="shop-shell">
       <ShopHeader profile={profile} onOpenCart={toggleBag} />

@@ -227,7 +227,8 @@ function Login() {
   if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error) {
     return (
       <main className="login-page" data-popup="true">
-        <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
+        {/* No scrim while a session may still need OTP — dismiss must not keep an unverified login */}
+        {!user ? <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" /> : <div className="login-scrim" aria-hidden />}
         <section className="login-card login-dialog" role="status" aria-busy="true" aria-labelledby="login-title">
           <PizzaSpinner size="md" />
           <h1 id="login-title">Loading account</h1>
@@ -237,6 +238,19 @@ function Login() {
     );
   }
   if (user && !isPending && !busy && !verifyStep && !gatePending && gateChecked && !error) return <Navigate to={closeTo} replace />;
+
+  async function abandonVerify() {
+    setBusy(true);
+    setError("");
+    try {
+      await dropClientSession();
+    } catch {
+      /* still leave OTP / signed-out path */
+    }
+    setVerifyStep(null);
+    setBusy(false);
+    void navigate({ to: "/", replace: true });
+  }
 
   async function beginVerify(email: string) {
     if (needsPhoneOtp(email)) {
@@ -411,7 +425,11 @@ function Login() {
 
   return (
     <main className="login-page" data-popup="true">
-      <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
+      {verifyStep ? (
+        <div className="login-scrim" aria-hidden />
+      ) : (
+        <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
+      )}
       <section
         className="login-card login-dialog"
         data-error={error ? "true" : undefined}
@@ -419,9 +437,21 @@ function Login() {
         aria-modal="true"
         aria-labelledby="login-title"
       >
-        <Link to={closeTo} className="login-close" aria-label="Back to the menu">
-          <X size={18} strokeWidth={2.4} aria-hidden />
-        </Link>
+        {verifyStep ? (
+          <button
+            type="button"
+            className="login-close"
+            aria-label="Cancel and sign out"
+            disabled={busy}
+            onClick={() => void abandonVerify()}
+          >
+            <X size={18} strokeWidth={2.4} aria-hidden />
+          </button>
+        ) : (
+          <Link to={closeTo} className="login-close" aria-label="Back to the menu">
+            <X size={18} strokeWidth={2.4} aria-hidden />
+          </Link>
+        )}
         {showMark ? <BrandMark variant="login" /> : null}
         <p className="shop-brand-kicker">South End Pizza III</p>
         {verifyStep ? (
@@ -486,6 +516,14 @@ function Login() {
                 onClick={() => void resendVerify()}
               >
                 {otpLeft > 0 ? `Send again in ${otpLeft}s` : "Send a new code"}
+              </button>
+              <button
+                type="button"
+                className="ed-btn ed-btn-quiet"
+                disabled={busy}
+                onClick={() => void abandonVerify()}
+              >
+                Cancel — sign out
               </button>
             </form>
           </>
