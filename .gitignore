@@ -4,5 +4,6 @@ node_modules/
 .env
 .env.*
 .vercel/output/
+.vercel/output/**
 .grok/preview.log
 .grok/status
