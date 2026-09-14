@@ -306,7 +306,7 @@ function Login() {
       if (!authEnabled) throw new Error("Sign-in is disabled.");
       await startSocialSignIn(providerId, {
         callbackURL: next || "/",
-        errorCallbackURL: "/login",
+        errorCallbackURL: "/login?error=social",
       });
       void navigate({ to: closeTo, replace: true });
     } catch (err) {
@@ -383,7 +383,7 @@ function Login() {
         ) : (
           <>
             <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
-            <p className="ed-sub">
+            <p className="ed-sub login-lede">
               {next === "/checkout"
                 ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
                 : "Email, the shop username, or a US phone number. Google and X work too."}

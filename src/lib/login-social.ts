@@ -7,14 +7,17 @@ type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: s
 
 export function friendlyAuthError(err: unknown, hint?: { username?: boolean }): string {
   const raw = err instanceof Error ? err.message : "Sign-in failed.";
-  const lower = raw.toLowerCase();
+  const lower = raw.toLowerCase().replace(/_/g, " ");
+  if (lower.includes("redirect") && (lower.includes("uri") || lower.includes("url") || lower.includes("mismatch"))) {
+    return "Google and X could not return to this shop. Try email, or open the published shop link.";
+  }
   if (lower.includes("invalid origin")) {
     return "This shop address is not on the sign-in list. Open the published shop link and try again.";
   }
   if (lower.includes("pop-up") || lower.includes("popup")) {
     return "Allow pop-ups for this shop, then try Google or X again.";
   }
-  if (lower.includes("cancelled") || lower.includes("canceled") || lower.includes("did not finish")) {
+  if (lower.includes("cancelled") || lower.includes("canceled") || lower.includes("did not finish") || lower === "social") {
     return "Sign-in did not finish. Try again.";
   }
   if (lower.includes("invalid") || lower.includes("credential") || lower.includes("unauthorized") || lower.includes("password") || lower.includes("not found") || lower.includes("user")) {
@@ -37,7 +40,7 @@ function pageIsFramed(): boolean {
 }
 
 function waitForPopupToken(popup: Window, origin: string): Promise<string | null> {
-  return new Promise((resolve) => {
+  return new Promise((resolve, reject) => {
     let settled = false;
     let closeTimer: number | undefined;
     const settle = (token: string | null) => {
@@ -46,10 +49,20 @@ function waitForPopupToken(popup: Window, origin: string): Promise<string | null
       cleanup();
       resolve(token);
     };
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      reject(new Error(message));
+    };
     const onMessage = (event: MessageEvent) => {
       if (event.origin !== origin) return;
       const data = event.data as PopupMessage | undefined;
       if (!data || data.source !== "grok-auth-popup") return;
+      if (data.error && !data.token) {
+        fail(data.error);
+        return;
+      }
       settle(data.token ?? null);
     };
     const pollTimer = window.setInterval(() => {

@@ -7,6 +7,16 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-login-center-oauth",
+    date: "September 14, 2026",
+    title: "Sign-in sits in the middle of the screen",
+    added: [
+      "The sign-in card is centered and fits on a phone without scrolling. Google and X sit side by side.",
+      "If Google or X cannot return to this shop, the message says so instead of looking like a bad password.",
+    ],
+  },
+
+  {
     id: "2026-09-13-menu-item-subdropdown",
     date: "September 13, 2026",
     title: "Menu items sit in their own drop-downs",

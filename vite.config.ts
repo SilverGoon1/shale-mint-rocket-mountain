@@ -104,11 +104,21 @@ function authPopupPlugin(): Plugin {
 
           const host = String(
             req.headers["x-forwarded-host"] ?? req.headers.host ?? "localhost:8080",
-          );
-          const proto = String(
-            req.headers["x-forwarded-proto"] ??
-              ((req.socket as { encrypted?: boolean } | undefined)?.encrypted ? "https" : "http"),
-          );
+          )
+            .split(",")[0]
+            .trim();
+          const hostName = host.replace(/:\d+$/, "");
+          const publicHttps =
+            /(^|\.)grok-sandbox\.com$/i.test(hostName) ||
+            /(^|\.)southendpizza\.app$/i.test(hostName) ||
+            /(^|\.)vercel\.app$/i.test(hostName);
+          const forwardedProto = String(req.headers["x-forwarded-proto"] ?? "")
+            .split(",")[0]
+            .trim();
+          const proto = publicHttps
+            ? "https"
+            : forwardedProto ||
+              ((req.socket as { encrypted?: boolean } | undefined)?.encrypted ? "https" : "http");
           const requestHeaders = new Headers();
           for (const [key, value] of Object.entries(req.headers)) {
             if (value === undefined) continue;
@@ -118,9 +128,11 @@ function authPopupPlugin(): Plugin {
               requestHeaders.set(key, value);
             }
           }
-          // Ensure Host is the public preview host so Better Auth's dynamic
-          // baseURL / redirect_uri match the popup origin.
-          if (!requestHeaders.has("host")) requestHeaders.set("host", host);
+          // Public preview/shop hosts must advertise https so Google/X get a
+          // registered redirect URI, not http://localhost.
+          requestHeaders.set("host", host);
+          requestHeaders.set("x-forwarded-host", host);
+          requestHeaders.set("x-forwarded-proto", proto);
 
           const request = new Request(`${proto}://${host}${rawUrl}`, {
             method: "GET",
