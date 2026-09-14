@@ -3214,7 +3214,8 @@ export const deleteOrder = createServerFn({ method: "POST" }).middleware([authMi
 	};
 });
 const RECOVER_FAIL = "We could not recover that account. Check the email or phone, and the name or phone on file.";
-const OTP_TTL_MS = 60_000;
+const OTP_TTL_MS = 2 * 60_000;
+const OTP_TTL_SEC = Math.round(OTP_TTL_MS / 1000);
 const SMS_OTP_TTL_MS = 10 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_HOUR_CAP = 8;
@@ -3281,7 +3282,7 @@ export const sendPasswordResetCode = createServerFn({ method: "POST" }).middlewa
 	);
 	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many reset emails. Try again in an hour.");
 	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
-	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 2 minutes to send another.");
 	await sql.query(`update password_reset_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [context.userId]);
 	const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
 	const salt = randomBytes(16).toString("hex");
@@ -3296,15 +3297,15 @@ export const sendPasswordResetCode = createServerFn({ method: "POST" }).middlewa
 	await sendEmail({
 		to: email,
 		subject: "Your South End Pizza reset code",
-		text: `Your South End Pizza password reset code is ${code}. It expires in 60 seconds. If you did not ask for this, you can ignore this message.`,
+		text: `Your South End Pizza password reset code is ${code}. It expires in 2 minutes. If you did not ask for this, you can ignore this message.`,
 		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your South End Pizza password reset code is:</p>
 <p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
-<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not ask for this, you can ignore this message — your password stays the same.</p>`,
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 2 minutes. If you did not ask for this, you can ignore this message — your password stays the same.</p>`,
 	});
 	return {
 		sent: true as const,
 		email: maskEmail(email),
-		expiresIn: 60,
+		expiresIn: OTP_TTL_SEC,
 		previewCode: dbSource === "pglite" ? code : undefined,
 	};
 });
@@ -3381,7 +3382,7 @@ export const sendSignupEmailCode = createServerFn({ method: "POST" }).validator(
 	);
 	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification emails. Try again in an hour.");
 	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
-	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 2 minutes to send another.");
 	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
 	const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
 	const salt = randomBytes(16).toString("hex");
@@ -3396,17 +3397,17 @@ export const sendSignupEmailCode = createServerFn({ method: "POST" }).validator(
 	await sendEmail({
 		to: email,
 		subject: "Your South End Pizza signup code",
-		text: `Welcome to South End Pizza! Your verification code is ${code}. It expires in 60 seconds.`,
+		text: `Welcome to South End Pizza! Your verification code is ${code}. It expires in 2 minutes.`,
 		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Welcome to South End Pizza — almost ready to order.</p>
 <p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your verification code is:</p>
 <p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
-<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not create an account, you can ignore this message.</p>`,
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 2 minutes. If you did not create an account, you can ignore this message.</p>`,
 	});
 	return {
 		sent: true as const,
 		alreadyVerified: false as const,
 		email: maskEmail(email),
-		expiresIn: 60,
+		expiresIn: OTP_TTL_SEC,
 		previewCode: dbSource === "pglite" ? code : undefined,
 	};
 });
@@ -3489,7 +3490,7 @@ export const sendSignupPhoneCode = createServerFn({ method: "POST" }).validator(
 	);
 	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification texts. Try again in an hour.");
 	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
-	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 2 minutes to send another.");
 	await sql.query(`update phone_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
 
 	const { smsChannel, startTwilioVerify, sendTwilioMessage } = await import("@/lib/sms/twilio.server");

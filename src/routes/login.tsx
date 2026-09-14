@@ -148,7 +148,7 @@ function Login() {
         if ((!phone && !mail) || me.emailVerified) return;
         let masked = phone ? maskPhone(email) : maskEmail(email);
         let previewCode: string | undefined;
-        let expiresIn = phone ? 600 : 60;
+        let expiresIn = phone ? 600 : 120;
         let resendIn = 60;
         try {
           const sent = phone
@@ -160,7 +160,7 @@ function Login() {
           else if ("email" in sent) masked = sent.email;
           previewCode = sent.previewCode;
           expiresIn = sent.expiresIn || expiresIn;
-          resendIn = "resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || 60;
+          resendIn = "resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || (phone ? 60 : 120);
         } catch (sendErr) {
           if (cancelled) return;
           const msg = sendErr instanceof Error ? sendErr.message : "Could not send a verification code.";
@@ -190,8 +190,8 @@ function Login() {
             channel: phone ? "phone" : "email",
           });
           setSignupOtp("");
-          setOtpLeft(60);
-          setOtpExpires(phone ? 600 : 60);
+          setOtpLeft(phone ? 60 : 120);
+          setOtpExpires(phone ? 600 : 120);
         } else {
           setError("Could not confirm your account. Try signing in again.");
         }
@@ -277,8 +277,8 @@ function Login() {
       channel: "email",
     });
     setSignupOtp("");
-    setOtpLeft(sent.expiresIn || 60);
-    setOtpExpires(sent.expiresIn || 60);
+    setOtpLeft(sent.expiresIn || 120);
+    setOtpExpires(sent.expiresIn || 120);
     return false;
   }
 
@@ -398,8 +398,8 @@ function Login() {
         channel: verifyStep.channel,
       });
       setSignupOtp("");
-      setOtpLeft("resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || 60);
-      setOtpExpires(sent.expiresIn || (verifyStep.channel === "phone" ? 600 : 60));
+      setOtpLeft("resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || (verifyStep.channel === "phone" ? 60 : 120));
+      setOtpExpires(sent.expiresIn || (verifyStep.channel === "phone" ? 600 : 120));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send another code.");
     } finally {
@@ -477,9 +477,11 @@ function Login() {
                 ) : (
                   <p className="ed-sub">
                     {otpExpires > 0
-                      ? verifyStep.channel === "phone"
-                        ? `Enter the 6-digit code. ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min left.` : `${otpExpires}s left.`}`
-                        : `Enter the 6-digit code. ${otpExpires}s left.`
+                      ? `Enter the 6-digit code. ${
+                          otpExpires >= 60
+                            ? `${Math.ceil(otpExpires / 60)} min left.`
+                            : `${otpExpires}s left.`
+                        }`
                       : "That code expired. Send a new one."}
                   </p>
                 )}
@@ -487,7 +489,7 @@ function Login() {
                   <p className="ed-sub">
                     {verifyStep.channel === "phone"
                       ? `This shop preview shows the text here. It expires in ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min` : `${otpExpires}s`}.`
-                      : `This shop preview shows the message here. It expires in ${otpExpires}s.`}
+                      : `This shop preview shows the message here. It expires in ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min` : `${otpExpires}s`}.`}
                   </p>
                 ) : null}
               </div>
