@@ -1,4 +1,4 @@
-import { isStaffAdminUsername, STAFF_ADMIN_EMAIL } from "@/lib/staff-admin";
+import { isStaffAdminAccount, isStaffAdminUsername, STAFF_ADMIN_EMAIL } from "@/lib/staff-admin";
 
 export function digitsOnly(value: string) {
   return value.replace(/\D/g, "");
@@ -41,4 +41,23 @@ export function phoneFromAuthEmail(email: string | null | undefined) {
 export function isPhoneAuthEmail(email: string | null | undefined) {
   if (!email) return false;
   return /@phone\.southend\.pizza$/i.test(email.trim());
+}
+
+export function maskEmail(email: string) {
+  const [user, domain] = String(email ?? "")
+    .trim()
+    .toLowerCase()
+    .split("@");
+  if (!domain) return "***";
+  const head = (user || "x").slice(0, 1);
+  return `${head}***@${domain}`;
+}
+
+/** Real guest emails must verify. Phone, desk Admin, and empty-skip callers stay off OTP. */
+export function needsEmailOtp(email: string | null | undefined) {
+  const e = String(email ?? "").trim().toLowerCase();
+  if (!e) return false;
+  if (isPhoneAuthEmail(e)) return false;
+  if (isStaffAdminAccount(undefined, e) || isStaffAdminUsername(e)) return false;
+  return true;
 }

@@ -46,7 +46,7 @@ import {
   PREVIEW_CLIENT_ID,
   PREVIEW_CLIENT_SECRET,
 } from "./preview";
-import { PRODUCTION_AUTH_ORIGINS } from "../prod-guard.server";
+import { PRODUCTION_AUTH_ORIGINS, allowPreviewOAuthFallback } from "../prod-guard.server";
 
 // Kick (and share) PGLite bootstrap as soon as the auth server module loads.
 void ensureDbReady();
@@ -75,12 +75,32 @@ const env = (key: string): string | undefined => {
 // provisions auth; set it to "false" to force auth off everywhere (dev user).
 const authDisabled = env("VITE_AUTH_ENABLED") === "false";
 
-// Broker federation creds: the deployer injects a per-app client when deployed;
-// otherwise fall back to the shared live-preview client, which the broker accepts
-// for any `*.grok-sandbox.com` callback (see `./preview`).
+// Broker federation creds: the deployer injects a per-app client when deployed.
+// Preview falls back to the shared grok_preview client (*.grok-sandbox.com only).
+// Production apex/www/Vercel must NOT use grok_preview — X/Google would get Invalid redirect URI.
 const grokIssuer = env("GROK_AUTH_ISSUER") ?? GROK_ISSUER_DEFAULT;
-const grokClientId = env("GROK_AUTH_CLIENT_ID") ?? PREVIEW_CLIENT_ID;
-const grokClientSecret = env("GROK_AUTH_CLIENT_SECRET") ?? PREVIEW_CLIENT_SECRET;
+const injectedClientId = env("GROK_AUTH_CLIENT_ID");
+const injectedClientSecret = env("GROK_AUTH_CLIENT_SECRET");
+const previewOAuthOk = allowPreviewOAuthFallback();
+const productionBrokerReady = Boolean(
+  injectedClientId && injectedClientId !== PREVIEW_CLIENT_ID && injectedClientSecret,
+);
+const grokClientId = productionBrokerReady
+  ? injectedClientId
+  : previewOAuthOk
+    ? (injectedClientId ?? PREVIEW_CLIENT_ID)
+    : undefined;
+const grokClientSecret = productionBrokerReady
+  ? injectedClientSecret
+  : previewOAuthOk
+    ? (injectedClientSecret ?? PREVIEW_CLIENT_SECRET)
+    : undefined;
+
+if (!previewOAuthOk && !productionBrokerReady) {
+  console.error(
+    "[auth] GROK_AUTH_CLIENT_ID missing or preview on this shop — Google/X disabled. Use email.",
+  );
+}
 
 /** True when federated sign-in is active (real auth is enforced). */
 export const authConfigured =

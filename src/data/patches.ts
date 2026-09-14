@@ -7,6 +7,17 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-email-otp-social",
+    date: "September 14, 2026",
+    title: "Email signup needs a 6-digit code",
+    added: [
+      "Create account with a real email opens the code screen. The message expires in 60 seconds. Phone, desk Admin, Google, and X skip this.",
+      "Refreshing while unverified stays on the code screen. Checkout and Place order wait until the email is verified.",
+      "If Google and X are not set up for this shop, the buttons hide and the page says: Social sign-in isn't configured for this shop — use email.",
+    ],
+  },
+
+  {
     id: "2026-09-14-login-center-oauth",
     date: "September 14, 2026",
     title: "Sign-in sits in the middle of the screen",

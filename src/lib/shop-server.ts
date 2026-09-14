@@ -5,13 +5,13 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
 import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery } from "@/lib/geo";
-import { formatPhone, identifierToEmail, isPhoneAuthEmail, toTenDigitPhone } from "@/lib/phone";
+import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, toTenDigitPhone } from "@/lib/phone";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
 import { isWingsBuild, parseWingQty, sanitizeBuffaloPicks, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
 import { GROUP_BUFFALO, GROUP_PASTA, GROUP_SALAD, GROUP_SAUCE_DIP, hasGroup, isPastaPlatter, parseGroups, pastaBreadFromPicks, pastaBreadPick, pastaDressingFromPicks, pastaDressingPick, pastaShapeFromPicks, pastaShapePick } from "@/lib/modifiers";
 import { sanitizeSaladPicks } from "@/lib/salads";
-import { isVercelProduction } from "@/lib/prod-guard.server";
+import { isVercelProduction, socialSignInConfigured } from "@/lib/prod-guard.server";
 import { seedMenu } from "@/lib/menu-store";
 import { hoursSummary, isOpenNow, nyWallToDate, nyYmd, parseWeeklyHours } from "@/lib/hours";
 import type {
@@ -1428,6 +1428,10 @@ export const getStorefront = createServerFn({ method: "GET" }).handler(async () 
 	return data;
 });
 
+export const getSocialSignIn = createServerFn({ method: "GET" }).handler(async () => {
+	return { configured: socialSignInConfigured() };
+});
+
 export const getShopContact = createServerFn({ method: "GET" }).handler(async () => {
 	const sql = await getSql();
 	await bootShop(sql);
@@ -1828,6 +1832,17 @@ async function assertTwoFactor(sql: Sql, userId: string) {
 	const exp = (await sql`select expires_at from two_factor_unlocks where user_id = ${userId}`)[0]?.expires_at;
 	if (!exp || new Date(String(exp)).getTime() <= Date.now()) throw new Error("Two-factor verification required.");
 }
+
+async function assertEmailVerifiedForOrder(sql: Sql, userId: string) {
+	const rows = await sql.query(`select email, "emailVerified" as verified from "user" where id = $1 limit 1`, [userId]);
+	const email = String(rows[0]?.email ?? "");
+	if (!needsEmailOtp(email)) return;
+	const verified = rows[0]?.verified === true || rows[0]?.verified === "t" || rows[0]?.verified === "true";
+	if (verified) return;
+	const credential = await loadCredentialAccount(sql, userId);
+	if (!credential) return;
+	throw new Error("Verify your email before placing an order. Check your inbox for the 6-digit code.");
+}
 export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: data.query.trim() })).handler(async ({ data }) => {
 	if (!data.query) throw new Error("Enter a street address.");
 	const cells = await zoneCells(await getSql());
@@ -2194,6 +2209,7 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 export const placeOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await assertTwoFactor(sql, context.userId);
+	await assertEmailVerifiedForOrder(sql, context.userId);
 	return writePlacedOrder(sql, context.userId, data);
 });
 

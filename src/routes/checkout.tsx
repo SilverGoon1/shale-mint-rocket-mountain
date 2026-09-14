@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import { Minus, Plus, Trash2 } from "lucide-react";
 import { ShopHeader } from "@/components/shop-header";
 import { SessionGate } from "@/components/guards";
@@ -8,6 +8,7 @@ import { useCartHydrated } from "@/components/cart-hydrate";
 import { AccountLoading } from "@/components/pizza-spinner";
 import { EnableAlertsButton } from "@/components/order-alerts";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
+import { needsEmailOtp } from "@/lib/phone";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
@@ -98,14 +99,18 @@ function CheckoutPage() {
             </main>
           )}
         >
-          {({ profile }) => (
-            <>
-              <ShopHeader profile={profile} />
-              <main className="shop-main" id="main">
-                <CheckoutForm profile={profile} restaurant={data.restaurant} settings={data.settings} onLockGuest={stayGuest} />
-              </main>
-            </>
-          )}
+          {({ profile }) =>
+            needsEmailOtp(profile.email) && !profile.emailVerified ? (
+              <Navigate to="/login" search={{ next: "/checkout" }} replace />
+            ) : (
+              <>
+                <ShopHeader profile={profile} />
+                <main className="shop-main" id="main">
+                  <CheckoutForm profile={profile} restaurant={data.restaurant} settings={data.settings} onLockGuest={stayGuest} />
+                </main>
+              </>
+            )
+          }
         </SessionGate>
       </div>
     );

@@ -4,11 +4,12 @@ import { X } from "lucide-react";
 import { GROK_PROVIDERS, authClient, authEnabled, dropClientSession } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
-import { identifierToEmail, isPhoneAuthEmail } from "@/lib/phone";
+import { identifierToEmail, maskEmail, needsEmailOtp } from "@/lib/phone";
 import { captureReferral, peekReferral } from "@/lib/referral";
 import {
   claimReferral,
   getMe,
+  getSocialSignIn,
   getStorefront,
   sendSignupEmailCode,
   updateProfile,
@@ -67,11 +68,6 @@ function providerMark(label: string) {
   return <GoogleMark />;
 }
 
-function needsEmailOtp(_email: string) {
-  // Time-boxed: email OTP is not the desk gate. Bots sign up with email+password until OTP ships as required.
-  return false;
-}
-
 type VerifyStep = {
   email: string;
   masked: string;
@@ -95,6 +91,8 @@ function Login() {
   const [signupOtp, setSignupOtp] = useState("");
   const [otpLeft, setOtpLeft] = useState(0);
   const [gatePending, setGatePending] = useState(false);
+  const [gateChecked, setGateChecked] = useState(false);
+  const [socialConfigured, setSocialConfigured] = useState<boolean | null>(null);
 
   const closeTo = (next || "/") as "/";
 
@@ -106,43 +104,84 @@ function Login() {
     void getStorefront()
       .then((d) => setShowMark(d.settings.showMark))
       .catch(() => setShowMark(true));
+    void getSocialSignIn()
+      .then((d) => setSocialConfigured(Boolean(d.configured)))
+      .catch(() => setSocialConfigured(false));
   }, []);
 
   // If a credential email session exists but is unverified, force the OTP step
   // (blocks refresh / deep-link skip). Phone + OAuth + desk Admin skip.
   useEffect(() => {
-    if (!user || verifyStep || !needsEmailOtp("")) {
+    if (isPending) return;
+    if (!user) {
       setGatePending(false);
+      setGateChecked(true);
+      return;
+    }
+    if (verifyStep) {
+      setGatePending(false);
+      setGateChecked(true);
       return;
     }
     let cancelled = false;
     setGatePending(true);
+    setGateChecked(false);
     void (async () => {
       try {
         const me = await getMe();
         if (cancelled) return;
-        const email = String(me.email ?? "").trim().toLowerCase();
-        if (!email || !needsEmailOtp(email) || me.emailVerified) return;
-        const sent = await sendSignupEmailCode({ data: { email } });
+        const email = String(me.email || user.primaryEmail || "")
+          .trim()
+          .toLowerCase();
+        if (!email) {
+          setError("Could not confirm your email. Try signing in again.");
+          return;
+        }
+        if (!needsEmailOtp(email) || me.emailVerified) return;
+        let masked = maskEmail(email);
+        let previewCode: string | undefined;
+        let expiresIn = 60;
+        try {
+          const sent = await sendSignupEmailCode({ data: { email } });
+          if (cancelled) return;
+          if (sent.alreadyVerified) return;
+          masked = sent.email;
+          previewCode = sent.previewCode;
+          expiresIn = sent.expiresIn || 60;
+        } catch (sendErr) {
+          if (cancelled) return;
+          const msg = sendErr instanceof Error ? sendErr.message : "Could not send a verification code.";
+          if (!/already on the way|wait 60/i.test(msg)) setError(msg);
+        }
         if (cancelled) return;
-        if (sent.alreadyVerified) return;
         setVerifyStep({
           email,
-          masked: sent.email,
-          previewCode: sent.previewCode,
+          masked,
+          previewCode,
         });
         setSignupOtp("");
-        setOtpLeft(sent.expiresIn || 60);
+        setOtpLeft(expiresIn);
       } catch {
-        /* keep normal navigate; rate-limit / missing user surface on retry */
+        const email = String(user.primaryEmail ?? "")
+          .trim()
+          .toLowerCase();
+        if (email && needsEmailOtp(email)) {
+          setVerifyStep({ email, masked: maskEmail(email) });
+          setSignupOtp("");
+        } else {
+          setError("Could not confirm your email. Try signing in again.");
+        }
       } finally {
-        if (!cancelled) setGatePending(false);
+        if (!cancelled) {
+          setGatePending(false);
+          setGateChecked(true);
+        }
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [user, verifyStep]);
+  }, [user, verifyStep, isPending]);
 
   useEffect(() => {
     if (otpLeft <= 0) return;
@@ -155,7 +194,7 @@ function Login() {
   // Stay on the OTP step even when a session already exists (unverified email).
   // A failed password MUST stay on this form with the error — never hop into
   // a leftover desk session.
-  if ((isPending || gatePending) && !busy && !verifyStep && !error) {
+  if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error) {
     return (
       <main className="login-page" data-popup="true">
         <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />
@@ -167,7 +206,7 @@ function Login() {
       </main>
     );
   }
-  if (user && !busy && !verifyStep && !gatePending && !error) return <Navigate to={closeTo} replace />;
+  if (user && !isPending && !busy && !verifyStep && !gatePending && gateChecked && !error) return <Navigate to={closeTo} replace />;
 
   async function beginEmailVerify(email: string) {
     if (!needsEmailOtp(email)) return true;
@@ -386,7 +425,9 @@ function Login() {
             <p className="ed-sub login-lede">
               {next === "/checkout"
                 ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
-                : "Email, the shop username, or a US phone number. Google and X work too."}
+                : socialConfigured
+                  ? "Email, the shop username, or a US phone number. Google and X work too."
+                  : "Email, the shop username, or a US phone number."}
             </p>
             <div className="seg" role="group" aria-label="Identifier type">
               <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
@@ -469,21 +510,27 @@ function Login() {
                 </Link>
               ) : null}
             </form>
-            <div className="login-split">or continue with</div>
-            <div className="login-socials">
-              {GROK_PROVIDERS.map((p) => (
-                <button
-                  key={p.providerId}
-                  type="button"
-                  className="login-social"
-                  disabled={busy}
-                  onClick={() => void social(p.providerId)}
-                >
-                  {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            {socialConfigured === true ? (
+              <>
+                <div className="login-split">or continue with</div>
+                <div className="login-socials">
+                  {GROK_PROVIDERS.map((p) => (
+                    <button
+                      key={p.providerId}
+                      type="button"
+                      className="login-social"
+                      disabled={busy}
+                      onClick={() => void social(p.providerId)}
+                    >
+                      {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : socialConfigured === false ? (
+              <p className="ed-sub login-social-off">Social sign-in isn't configured for this shop — use email.</p>
+            ) : null}
             {next === "/checkout" ? (
               <Link to="/checkout" className="login-back">
                 Checkout as a guest
