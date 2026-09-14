@@ -160,11 +160,23 @@ var useCartStore = create()(persist((set) => ({
 			qty: qtyAdd
 		}] };
 	}),
-	setQty: (key, qty) => set((s) => ({ lines: qty <= 0 ? s.lines.filter((l) => l.key !== key) : s.lines.map((l) => l.key === key ? {
-		...l,
-		qty
-	} : l) })),
-	remove: (key) => set((s) => ({ lines: s.lines.filter((l) => l.key !== key) })),
+	setQty: (key, qty) => set((s) => {
+		const lines = qty <= 0 ? s.lines.filter((l) => l.key !== key) : s.lines.map((l) => l.key === key ? {
+			...l,
+			qty
+		} : l);
+		return {
+			lines,
+			notes: lines.length ? s.notes : ""
+		};
+	}),
+	remove: (key) => set((s) => {
+		const lines = s.lines.filter((l) => l.key !== key);
+		return {
+			lines,
+			notes: lines.length ? s.notes : ""
+		};
+	}),
 	setNotes: (notes) => set({ notes }),
 	clear: () => set({
 		lines: [],
@@ -182,8 +194,11 @@ var useCartStore = create()(persist((set) => ({
 	}),
 	skipHydration: true,
 	partialize: (s) => ({
-		lines: s.lines,
-		notes: s.notes
+		lines: s.lines.map((l) => ({
+			...l,
+			comment: void 0
+		})),
+		notes: s.lines.length ? s.notes : ""
 	})
 }));
 if (typeof window !== "undefined") useCartStore.persist.rehydrate();
@@ -207,6 +222,7 @@ function cartTotals(lines) {
 var client_exports = /* @__PURE__ */ __exportAll({
 	authClient: () => authClient,
 	authEnabled: () => true,
+	dropClientSession: () => dropClientSession,
 	getBearerToken: () => getBearerToken,
 	signIn: () => signIn,
 	signOut: () => signOut
@@ -382,5 +398,12 @@ async function signOut(redirectTo = "/") {
 		}
 	});
 }
+/** Drop a local session without leaving the page — used after a failed password. */
+async function dropClientSession() {
+	try {
+		await authClient.signOut();
+	} catch {}
+	setBearerToken(null);
+}
 //#endregion
-export { signOut as a, runPreSignInSignOut as c, signIn as i, client_exports as n, cartTotals as o, getBearerToken as r, useCartStore as s, authClient as t };
+export { signIn as a, useCartStore as c, getBearerToken as i, wipeCart as l, client_exports as n, signOut as o, dropClientSession as r, cartTotals as s, authClient as t, runPreSignInSignOut as u };

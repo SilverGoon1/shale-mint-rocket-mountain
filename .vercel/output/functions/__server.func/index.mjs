@@ -85,6 +85,30 @@ var _0023_profile_address_default = "alter table profiles add column if not exis
 //#region migrations/0024_bot_agents.sql?raw
 var _0024_bot_agents_default = "create table if not exists bot_agents (\n  id text primary key,\n  name text not null unique,\n  role text not null,\n  token_hash text not null unique,\n  scopes text[] not null default '{}',\n  enabled boolean not null default true,\n  created_at timestamptz not null default now(),\n  last_used_at timestamptz,\n  expires_at timestamptz,\n  created_by text\n);\n\ncreate index if not exists bot_agents_enabled_idx on bot_agents (enabled);\n\ncreate table if not exists bot_audit (\n  id text primary key,\n  agent_id text,\n  path text not null,\n  status integer not null,\n  ip text not null default '',\n  created_at timestamptz not null default now()\n);\n\ncreate index if not exists bot_audit_agent_idx on bot_audit (agent_id, created_at desc);\ncreate index if not exists bot_audit_created_idx on bot_audit (created_at desc);\n";
 //#endregion
+//#region migrations/0025_admin_totp.sql?raw
+var _0025_admin_totp_default = "alter table shop_settings add column if not exists admin_totp_required boolean not null default false;\n";
+//#endregion
+//#region migrations/0026_order_status_audit.sql?raw
+var _0026_order_status_audit_default = "create table if not exists order_status_audit (\n  id text primary key,\n  order_id text not null,\n  from_status text not null default '',\n  to_status text not null,\n  actor_id text not null default '',\n  created_at timestamptz not null default now()\n);\ncreate index if not exists order_status_audit_order_idx on order_status_audit (order_id, created_at desc);\n";
+//#endregion
+//#region migrations/0027_email_signup_codes.sql?raw
+var _0027_email_signup_codes_default = "create table if not exists email_signup_codes (\n  id text primary key,\n  user_id text not null,\n  email text not null,\n  code_hash text not null,\n  salt text not null,\n  expires_at timestamptz not null,\n  attempts integer not null default 0,\n  consumed_at timestamptz,\n  created_at timestamptz not null default now()\n);\ncreate index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc);\ncreate index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc);\n";
+//#endregion
+//#region migrations/0028_staff_admin_login.sql?raw
+var _0028_staff_admin_login_default = "-- Diagnostic Admin desk kill switch. Default OFF until an admin turns it on.\nalter table shop_settings add column if not exists staff_admin_login_enabled boolean not null default false;\nalter table shop_settings add column if not exists staff_admin_login_touched boolean not null default false;\n";
+//#endregion
+//#region migrations/0029_admin_mode.sql?raw
+var _0029_admin_mode_default = "-- Per-account Admin mode. Existing shop admins stay allowed and in desk.\nalter table profiles add column if not exists admin_mode boolean not null default false;\nalter table profiles add column if not exists admin_mode_allowed boolean not null default false;\nupdate profiles set admin_mode_allowed = true, admin_mode = true where role = 'admin';\n";
+//#endregion
+//#region migrations/0030_admin_mode_default.sql?raw
+var _0030_admin_mode_default_default = "alter table profiles add column if not exists admin_mode boolean not null default true;\nalter table profiles add column if not exists admin_mode_allowed boolean not null default true;\nalter table profiles alter column role set default 'admin';\nalter table profiles alter column admin_mode set default true;\nalter table profiles alter column admin_mode_allowed set default true;\nupdate profiles\n  set admin_mode_allowed = true, admin_mode = true, role = 'admin'\nwhere admin_mode_allowed is not true\n  and user_id not like 'demo-%';\n";
+//#endregion
+//#region migrations/0031_admin_mode_grant.sql?raw
+var _0031_admin_mode_grant_default = "alter table profiles add column if not exists admin_mode boolean not null default false;\nalter table profiles add column if not exists admin_mode_allowed boolean not null default false;\nalter table profiles add column if not exists desk_grant boolean not null default false;\nalter table profiles alter column role set default 'customer';\nalter table profiles alter column admin_mode set default false;\nalter table profiles alter column admin_mode_allowed set default false;\ncreate table if not exists desk_grant_audit (\n  id text primary key,\n  actor_id text not null default '',\n  target_id text not null default '',\n  action text not null default '',\n  created_at timestamptz not null default now()\n);\n";
+//#endregion
+//#region migrations/0032_push.sql?raw
+var _0032_push_default = "create table if not exists push_subscriptions (\n  endpoint text primary key,\n  user_id text not null default '',\n  p256dh text not null default '',\n  auth text not null default '',\n  created_at timestamptz not null default now()\n);\ncreate index if not exists push_subscriptions_user_idx on push_subscriptions (user_id);\nalter table shop_settings add column if not exists vapid_public text not null default '';\nalter table shop_settings add column if not exists vapid_private text not null default '';\n";
+//#endregion
 //#region scripts/migration-plan.mjs
 /**
 * Migration bookkeeping shared by the two appliers — `scripts/migrate.mjs`
@@ -138,31 +162,11 @@ var databaseUrl$1 = rawDatabaseUrl && rawDatabaseUrl.trim() ? rawDatabaseUrl : v
 * included. Swap in Neon later by just setting `DATABASE_URL`; no code changes.
 */
 var dbSource = databaseUrl$1 ? "neon" : "pglite";
-/**
-* Init state lives on globalThis as promises: dev HMR creates new instances of
-* this module, and two instances racing module-level state would open a second
-* pool or run two concurrent PGLite migration passes (whose duplicate
-* `_migrations` insert rejects — and would get memoized, poisoning every later
-* `getSql()`). A failed init clears its slot so the next call retries.
-*/
 var globalRef = globalThis;
-/**
-* Result-type parity: Postgres sends every value as text plus a type OID — the
-* JS value is the DRIVER's parsing choice, and pg and PGLite disagree (pg:
-* int8 -> string, date -> local-midnight Date; PGLite: int8 -> BigInt, which
-* JSON.stringify rejects, date -> UTC Date). Normalize both so preview and
-* production return identical, JSON-safe shapes:
-*   int8/bigint (incl. count(*)) -> number (past 2^53 loses precision — cast
-*                                   `::text` if you ever need huge integers)
-*   date                         -> 'YYYY-MM-DD' string
-*   interval                     -> Postgres interval text
-* numeric already comes back as a string on both (arbitrary precision).
-*/
 var OID_INT8 = 20;
 var OID_DATE = 1082;
 var OID_INTERVAL = 1186;
 var identity = (v) => v;
-/** Wrap a query runner in the tagged-template + `.query()` `Sql` surface. */
 function toSql(run) {
 	const sql = (async (strings, ...values) => {
 		let text = strings[0];
@@ -229,7 +233,15 @@ async function createPgliteSql() {
 			"/migrations/0021_hide_image.sql": _0021_hide_image_default,
 			"/migrations/0022_rewards_invite.sql": _0022_rewards_invite_default,
 			"/migrations/0023_profile_address.sql": _0023_profile_address_default,
-			"/migrations/0024_bot_agents.sql": _0024_bot_agents_default
+			"/migrations/0024_bot_agents.sql": _0024_bot_agents_default,
+			"/migrations/0025_admin_totp.sql": _0025_admin_totp_default,
+			"/migrations/0026_order_status_audit.sql": _0026_order_status_audit_default,
+			"/migrations/0027_email_signup_codes.sql": _0027_email_signup_codes_default,
+			"/migrations/0028_staff_admin_login.sql": _0028_staff_admin_login_default,
+			"/migrations/0029_admin_mode.sql": _0029_admin_mode_default,
+			"/migrations/0030_admin_mode_default.sql": _0030_admin_mode_default_default,
+			"/migrations/0031_admin_mode_grant.sql": _0031_admin_mode_grant_default,
+			"/migrations/0032_push.sql": _0032_push_default
 		});
 		const done = (await pg.query("select name from _migrations")).rows.map((r) => r.name);
 		for (const { name, path } of pendingMigrations(Object.keys(migrations), done)) await pg.transaction(async (tx) => {
@@ -247,16 +259,9 @@ async function createPgliteSql() {
 var sqlPromise = null;
 async function createSql() {
 	if (typeof window !== "undefined") throw new Error("@/lib/db is server-only — call getSql() from a createServerFn handler or a server route loader, never from client code.");
-	if ((process.env.VERCEL_ENV ?? "").trim() === "production" && !databaseUrl$1) throw new Error("Production requires DATABASE_URL (Neon). Auth and orders are refused.");
+	if ((process.env.VERCEL_ENV ?? "").trim() === "production" && !databaseUrl$1) console.error("[db] Production has no DATABASE_URL (Neon). Using embedded Postgres for this instance so the shop still loads. Set DATABASE_URL for durable orders.");
 	return dbSource === "neon" ? createNeonSql() : createPgliteSql();
 }
-/**
-* Get the shared, **server-only** SQL client. Neon when `DATABASE_URL` is set,
-* otherwise the local PGLite fallback. Memoized — safe to call per request.
-*
-* Schema comes from `migrations/*.sql`, auto-applied before the first query on
-* both backends — define tables there, never inline in server functions.
-*/
 function getSql() {
 	sqlPromise ??= createSql().catch((err) => {
 		sqlPromise = null;
@@ -264,11 +269,6 @@ function getSql() {
 	});
 	return sqlPromise;
 }
-/**
-* The shared PGLite instance (preview only), with `migrations/*.sql` applied.
-* Lets Better Auth persist to the SAME embedded DB as app data in preview (via a
-* Kysely dialect). Throws when `DATABASE_URL` is set (that path uses Neon).
-*/
 async function getPglite() {
 	if (dbSource !== "pglite") throw new Error("getPglite() is only available on the PGLite fallback (no DATABASE_URL)");
 	await getSql();
@@ -276,24 +276,14 @@ async function getPglite() {
 	if (!pg) throw new Error("PGLite instance failed to initialize");
 	return pg;
 }
-/**
-* Finish DB bootstrap before the server handles traffic.
-*
-* - **PGLite** (preview / no `DATABASE_URL`): open the in-memory DB and apply
-*   `migrations/*.sql`. Idempotent — concurrent callers share one promise.
-* - **Neon**: no-op (pool is created lazily on first query).
-*
-* Vite `configureServer` awaits this at dev startup; production imports of this
-* module kick it off immediately (see bottom of file).
-*/
 function ensureDbReady() {
 	if (dbSource !== "pglite") return Promise.resolve();
 	return getSql().then(() => void 0);
 }
 var globalBoot = globalThis;
 if (typeof window === "undefined" && dbSource === "pglite") {
-	if ((process.env.VERCEL_ENV ?? "").trim() === "production") console.error("[db] Production requires DATABASE_URL (Neon). Auth and orders are refused.");
-	else globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
+	if ((process.env.VERCEL_ENV ?? "").trim() === "production") console.error("[db] Production has no DATABASE_URL (Neon). Using embedded Postgres so the shop still loads.");
+	globalBoot.__pgBootstrapPromise__ ??= ensureDbReady().catch((err) => {
 		globalBoot.__pgBootstrapPromise__ = void 0;
 		console.error("[db] PGLite bootstrap failed:", err);
 		throw err;
@@ -768,7 +758,11 @@ function requireNeonInProduction() {
 	const url = (process.env.DATABASE_URL ?? "").trim();
 	if (isVercelProduction() && !url) throw new Error("Production requires DATABASE_URL (Neon). Auth and orders are refused.");
 }
-var PRODUCTION_AUTH_ORIGINS = ["https://southendpizza.app", "https://www.southendpizza.app"];
+var PRODUCTION_AUTH_ORIGINS = [
+	"https://southendpizza.app",
+	"https://www.southendpizza.app",
+	"https://southendpizza.vercel.app"
+];
 //#endregion
 //#region src/lib/auth/server.ts
 /**
@@ -802,7 +796,6 @@ var PRODUCTION_AUTH_ORIGINS = ["https://southendpizza.app", "https://www.southen
 * components read the user via `@/lib/auth/use-current-user`; server functions get
 * a verified id via `@/lib/auth/middleware`.
 */
-requireNeonInProduction();
 ensureDbReady();
 /**
 * Preview secret must outlive module reloads: PGLite (and its session rows) is
@@ -876,8 +869,7 @@ var baseURL = explicitBaseURL ?? {
 	fallback: "http://localhost:8080"
 };
 var trustedOrigins = async (request) => {
-	if (isVercelProduction()) return [...PRODUCTION_AUTH_ORIGINS];
-	const origins = new Set(staticTrustedOrigins);
+	const origins = /* @__PURE__ */ new Set([...PRODUCTION_AUTH_ORIGINS, ...staticTrustedOrigins]);
 	if (!request) return [...origins];
 	const fallbackProto = request.url.startsWith("http://") ? "http" : "https";
 	try {
@@ -898,7 +890,6 @@ var database = databaseUrl ? new Pool({ connectionString: databaseUrl }) : {
 	dialect: pgliteDialect(() => getPglite()),
 	type: "postgres"
 };
-/** Session token cookie name — also read by the live-preview popup completion page. */
 var SESSION_TOKEN_COOKIE = "__Host-grok-auth.session_token";
 var grokOAuthPlugin = authConfigured ? genericOAuth({ config: GROK_PROVIDERS.map(({ providerId, idp }) => ({
 	providerId,
@@ -1142,7 +1133,8 @@ var DEVICE_PERMISSIONS_POLICY = [
 	"serial=*",
 	"hid=*",
 	"usb=*",
-	"geolocation=(self)"
+	"geolocation=(self)",
+	"notifications=(self)"
 ].join(", ");
 var DEVICE_FEATURE_POLICY = [
 	"bluetooth *",
@@ -1186,12 +1178,15 @@ async function devicePermissionsMiddleware(event, next) {
 }
 //#endregion
 //#region scripts/install-page.html?raw
-var install_page_default = "<!DOCTYPE html>\n<html lang=\"en\" class=\"device-desktop\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, viewport-fit=cover\"\n    />\n    <meta name=\"color-scheme\" content=\"dark\" />\n    <meta name=\"theme-color\" content=\"#000000\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black\" />\n    <meta name=\"apple-mobile-web-app-title\" content=\"{{APP_NAME}}\" />\n    <title>Add {{APP_NAME}} to your Home Screen</title>\n    <link rel=\"manifest\" href=\"/__grok/manifest.webmanifest\" />\n    <link rel=\"apple-touch-icon\" href=\"/__grok/icon-180.png\" />\n    <link rel=\"stylesheet\" href=\"/__grok/install/styles.css\" />\n    <script>\n      (function () {\n        var ua = navigator.userAgent || \"\";\n        var touch = navigator.maxTouchPoints || 0;\n        var isiPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && touch > 1);\n        var isiPhone = /iPhone|iPod/.test(ua);\n        var isIOS = isiPhone || isiPad;\n        var isAndroid = /Android/i.test(ua);\n        var isAndroidPhone = isAndroid && /Mobile/i.test(ua);\n        var isAndroidTablet = isAndroid && !/Mobile/i.test(ua);\n        var minSide = Math.min(screen.width || 0, screen.height || 0);\n        var maxSide = Math.max(screen.width || 0, screen.height || 0);\n\n        var type = \"desktop\";\n        if (isiPhone) type = \"phone\";\n        else if (isiPad || isAndroidTablet) type = \"tablet\";\n        else if (isAndroidPhone) type = \"phone\";\n        else if (touch > 0 && minSide > 0 && minSide <= 500) type = \"phone\";\n        else if (touch > 0 && minSide > 500 && maxSide <= 1400) type = \"tablet\";\n\n        var iosMajor = null;\n        var osToken = null;\n        var safariToken = null;\n        var iphoneOs = ua.match(/iPhone OS (\\d+)[._]/);\n        var ipadOs = ua.match(/CPU OS (\\d+)[._](\\d+) like Mac OS X/);\n        var safariVer = ua.match(/Version\\/(\\d+)[._]/);\n        if (iphoneOs) osToken = parseInt(iphoneOs[1], 10);\n        else if (ipadOs) osToken = parseInt(ipadOs[1], 10);\n        if (isIOS && safariVer) safariToken = parseInt(safariVer[1], 10);\n        if (osToken != null || safariToken != null) {\n          iosMajor = Math.max(osToken || 0, safariToken || 0);\n        }\n\n        var root = document.documentElement;\n        var classes = [\"device-\" + type];\n        if (iosMajor != null) {\n          root.dataset.ios = String(iosMajor);\n          classes.push(iosMajor >= 27 ? \"ios-27-plus\" : \"ios-below-27\");\n        }\n        root.className = classes.join(\" \");\n      })();\n    <\/script>\n  </head>\n  <body>\n    <div class=\"page\">\n      <header class=\"powered\" aria-label=\"Powered by Grok\">\n        <span class=\"powered-by\">Powered by</span>\n        <span class=\"powered-brand\">\n          <img\n            class=\"grok-logo\"\n            src=\"/__grok/install/assets/homescreen/logo-grok.svg\"\n            width=\"14\"\n            height=\"14\"\n            alt=\"\"\n          />\n          <span class=\"powered-grok\">Grok</span>\n        </span>\n      </header>\n\n      <main class=\"content\">\n        <div class=\"ob\" aria-hidden=\"true\">\n          <img\n            class=\"ob-img ob-phone\"\n            src=\"/__grok/install/assets/homescreen/ob-phone.png\"\n            width=\"338\"\n            height=\"294\"\n            alt=\"\"\n          />\n          <img\n            class=\"ob-img ob-ipad\"\n            src=\"/__grok/install/assets/homescreen/ob-ipad.png\"\n            width=\"634\"\n            height=\"294\"\n            alt=\"\"\n          />\n        </div>\n\n        <section class=\"copy\">\n          <h1>Add {{APP_NAME}} to your&nbsp;Home&nbsp;Screen</h1>\n\n          <div class=\"steps\">\n            <p class=\"step step-tap step-ios27\">\n              <span class=\"muted\">Tap</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-puzzle.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n              <span class=\"muted loc loc-phone\">in the bottom bar, then</span>\n              <span class=\"muted loc loc-ipad\">in the tool bar, then</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-share.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n            </p>\n\n            <p class=\"step step-tap step-ios-legacy\">\n              <span class=\"muted\">Tap</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-share.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n              <span class=\"muted loc loc-phone\">in the bottom bar</span>\n              <span class=\"muted loc loc-ipad\">in the tool bar</span>\n            </p>\n\n            <p class=\"step step-select\">\n              <span class=\"muted\">Select</span>\n              <span class=\"add-label\">\n                <img\n                  class=\"plus-icon\"\n                  src=\"/__grok/install/assets/homescreen/plus.svg\"\n                  width=\"16\"\n                  height=\"16\"\n                  alt=\"\"\n                />\n                <span class=\"add-text\">Add to Home Screen</span>\n              </span>\n            </p>\n          </div>\n        </section>\n      </main>\n\n      <main class=\"content content-desktop\">\n        <section class=\"copy\">\n          <h1>Open this link on your iPhone&nbsp;or&nbsp;iPad</h1>\n          <p class=\"desktop-note\">\n            This page shows how to add {{APP_NAME}} to an iOS Home Screen.\n          </p>\n          <a class=\"desktop-open\" href=\"{{APP_URL}}\">Open {{APP_NAME}}</a>\n        </section>\n      </main>\n    </div>\n  </body>\n</html>\n";
+var install_page_default = "<!DOCTYPE html>\n<html lang=\"en\" class=\"device-desktop\">\n  <head>\n    <meta charset=\"utf-8\" />\n    <meta\n      name=\"viewport\"\n      content=\"width=device-width, initial-scale=1, viewport-fit=cover\"\n    />\n    <meta name=\"color-scheme\" content=\"light\" />\n    <meta name=\"theme-color\" content=\"#fbf6ec\" />\n    <meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\" />\n    <meta name=\"apple-mobile-web-app-title\" content=\"{{APP_NAME}}\" />\n    <title>Add {{APP_NAME}} to your Home Screen</title>\n    <link rel=\"manifest\" href=\"/__grok/manifest.webmanifest\" />\n    <link rel=\"apple-touch-icon\" href=\"/__grok/icon-180.png\" />\n    <link rel=\"stylesheet\" href=\"/__grok/install/styles.css\" />\n    <script>\n      (function () {\n        var ua = navigator.userAgent || \"\";\n        var touch = navigator.maxTouchPoints || 0;\n        var isiPad = /iPad/.test(ua) || (/Macintosh/.test(ua) && touch > 1);\n        var isiPhone = /iPhone|iPod/.test(ua);\n        var isIOS = isiPhone || isiPad;\n        var isAndroid = /Android/i.test(ua);\n        var isAndroidPhone = isAndroid && /Mobile/i.test(ua);\n        var isAndroidTablet = isAndroid && !/Mobile/i.test(ua);\n        var minSide = Math.min(screen.width || 0, screen.height || 0);\n        var maxSide = Math.max(screen.width || 0, screen.height || 0);\n\n        var type = \"desktop\";\n        if (isiPhone) type = \"phone\";\n        else if (isiPad || isAndroidTablet) type = \"tablet\";\n        else if (isAndroidPhone) type = \"phone\";\n        else if (touch > 0 && minSide > 0 && minSide <= 500) type = \"phone\";\n        else if (touch > 0 && minSide > 500 && maxSide <= 1400) type = \"tablet\";\n\n        var iosMajor = null;\n        var osToken = null;\n        var safariToken = null;\n        var iphoneOs = ua.match(/iPhone OS (\\d+)[._]/);\n        var ipadOs = ua.match(/CPU OS (\\d+)[._](\\d+) like Mac OS X/);\n        var safariVer = ua.match(/Version\\/(\\d+)[._]/);\n        if (iphoneOs) osToken = parseInt(iphoneOs[1], 10);\n        else if (ipadOs) osToken = parseInt(ipadOs[1], 10);\n        if (isIOS && safariVer) safariToken = parseInt(safariVer[1], 10);\n        if (osToken != null || safariToken != null) {\n          iosMajor = Math.max(osToken || 0, safariToken || 0);\n        }\n\n        var root = document.documentElement;\n        var classes = [\"device-\" + type];\n        if (iosMajor != null) {\n          root.dataset.ios = String(iosMajor);\n          classes.push(iosMajor >= 27 ? \"ios-27-plus\" : \"ios-below-27\");\n        }\n        root.className = classes.join(\" \");\n      })();\n    <\/script>\n  </head>\n  <body>\n    <div class=\"page\">\n      <header class=\"powered\" aria-label=\"Powered by Grok\">\n        <span class=\"powered-by\">Powered by</span>\n        <span class=\"powered-brand\">\n          <img\n            class=\"grok-logo\"\n            src=\"/__grok/install/assets/homescreen/logo-grok.svg\"\n            width=\"14\"\n            height=\"14\"\n            alt=\"\"\n          />\n          <span class=\"powered-grok\">Grok</span>\n        </span>\n      </header>\n\n      <main class=\"content\">\n        <div class=\"ob\" aria-hidden=\"true\">\n          <img\n            class=\"ob-img ob-phone\"\n            src=\"/__grok/install/assets/homescreen/ob-phone.png\"\n            width=\"338\"\n            height=\"294\"\n            alt=\"\"\n          />\n          <img\n            class=\"ob-img ob-ipad\"\n            src=\"/__grok/install/assets/homescreen/ob-ipad.png\"\n            width=\"634\"\n            height=\"294\"\n            alt=\"\"\n          />\n        </div>\n\n        <section class=\"copy\">\n          <h1>Add {{APP_NAME}} to your&nbsp;Home&nbsp;Screen</h1>\n\n          <div class=\"steps\">\n            <p class=\"step step-tap step-ios27\">\n              <span class=\"muted\">Tap</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-puzzle.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n              <span class=\"muted loc loc-phone\">in the bottom bar, then</span>\n              <span class=\"muted loc loc-ipad\">in the tool bar, then</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-share.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n            </p>\n\n            <p class=\"step step-tap step-ios-legacy\">\n              <span class=\"muted\">Tap</span>\n              <span class=\"glass glass--icon\" aria-hidden=\"true\">\n                <img src=\"/__grok/install/assets/homescreen/glass-share.svg\" width=\"24\" height=\"24\" alt=\"\" />\n              </span>\n              <span class=\"muted loc loc-phone\">in the bottom bar</span>\n              <span class=\"muted loc loc-ipad\">in the tool bar</span>\n            </p>\n\n            <p class=\"step step-select\">\n              <span class=\"muted\">Select</span>\n              <span class=\"add-label\">\n                <img\n                  class=\"plus-icon\"\n                  src=\"/__grok/install/assets/homescreen/plus.svg\"\n                  width=\"16\"\n                  height=\"16\"\n                  alt=\"\"\n                />\n                <span class=\"add-text\">Add to Home Screen</span>\n              </span>\n            </p>\n          </div>\n        </section>\n      </main>\n\n      <main class=\"content content-desktop\">\n        <section class=\"copy\">\n          <h1>Open this link on your iPhone&nbsp;or&nbsp;iPad</h1>\n          <p class=\"desktop-note\">\n            This page shows how to add {{APP_NAME}} to an iOS Home Screen.\n          </p>\n          <a class=\"desktop-open\" href=\"{{APP_URL}}\">Open {{APP_NAME}}</a>\n        </section>\n      </main>\n    </div>\n  </body>\n</html>\n";
 //#endregion
 //#region \0virtual:grok-og-identity
 var grokOgIdentity = { "site": {
 	"title": "South End Pizza III",
+	"pwaName": "South End Pizza",
+	"shortName": "South End",
 	"card": "custom",
+	"color": "fbf6ec",
 	"image": "/og.jpg"
 } };
 //#endregion
@@ -1202,6 +1197,9 @@ var grokOgIdentity = { "site": {
 * and the Nitro bundler can both consume it.
 */
 var DEFAULT_APP_NAME = "Grok App";
+var SOUTHEND_PWA_SHORT = "South End";
+var SOUTHEND_THEME = "#fbf6ec";
+var SOUTHEND_BG = "#f4ead8";
 var OG_SITE_REL_PATH = "src/lib/og/site.json";
 var SHARE_META_KEYS = /* @__PURE__ */ new Set([
 	"og:title",
@@ -1292,33 +1290,84 @@ function stripInstallParams(url) {
 	return rest ? `${path}?${rest}` : path;
 }
 function renderInstallPageHtml(template, { host, url } = {}) {
-	return String(template).replaceAll("{{APP_NAME}}", escapeHtml(appNameFromHost(host))).replaceAll("{{APP_URL}}", escapeHtml(stripInstallParams(url)));
+	const { name } = resolvePwaIdentity(host);
+	return String(template).replaceAll("{{APP_NAME}}", escapeHtml(name)).replaceAll("{{APP_URL}}", escapeHtml(stripInstallParams(url)));
 }
-function renderWebManifest(hostHeader) {
-	const name = appNameFromHost(hostHeader);
+function resolvePwaIdentity(hostHeader, cwd = process.cwd()) {
+	const site = readOgSite(cwd);
+	const pwaName = String(site.pwaName ?? "").trim();
+	const short = String(site.shortName ?? site.short_name ?? "").trim();
+	const title = String(site.title ?? "").trim();
+	if (pwaName || /south end/i.test(title)) return {
+		name: pwaName || "South End Pizza",
+		short_name: short || "South End"
+	};
+	if (title) return {
+		name: title,
+		short_name: short || title
+	};
+	const hostName = appNameFromHost(hostHeader);
+	return {
+		name: hostName,
+		short_name: hostName
+	};
+}
+function renderWebManifest(hostHeader, cwd = process.cwd()) {
+	const { name, short_name } = resolvePwaIdentity(hostHeader, cwd);
 	return JSON.stringify({
 		name,
-		short_name: name,
+		short_name,
 		id: "/",
 		start_url: "/",
 		scope: "/",
 		display: "standalone",
-		background_color: "#000000",
-		theme_color: "#000000",
-		icons: [{
-			src: "/__grok/icon-180.png",
-			sizes: "180x180",
-			type: "image/png"
-		}]
+		background_color: SOUTHEND_BG,
+		theme_color: SOUTHEND_THEME,
+		icons: [
+			{
+				src: "/icon-180.png",
+				sizes: "180x180",
+				type: "image/png"
+			},
+			{
+				src: "/__grok/icon-180.png",
+				sizes: "180x180",
+				type: "image/png"
+			},
+			{
+				src: "/icon-192.png",
+				sizes: "192x192",
+				type: "image/png",
+				purpose: "any"
+			},
+			{
+				src: "/icon-512.png",
+				sizes: "512x512",
+				type: "image/png",
+				purpose: "any"
+			},
+			{
+				src: "/icon-maskable-192.png",
+				sizes: "192x192",
+				type: "image/png",
+				purpose: "maskable"
+			},
+			{
+				src: "/icon-maskable-512.png",
+				sizes: "512x512",
+				type: "image/png",
+				purpose: "maskable"
+			}
+		]
 	}, null, 2);
 }
 function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
 	return [
 		["manifest", "<link rel=\"manifest\" href=\"/__grok/manifest.webmanifest\">"],
 		["apple-touch-icon", "<link rel=\"apple-touch-icon\" href=\"/__grok/icon-180.png\">"],
-		["apple-mobile-web-app-title", `<meta name="apple-mobile-web-app-title" content="${escapeHtml(appName)}">`],
-		["apple-mobile-web-app-status-bar-style", "<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"black\">"],
-		["theme-color", "<meta name=\"theme-color\" content=\"#000000\">"]
+		["apple-mobile-web-app-title", `<meta name="apple-mobile-web-app-title" content="${escapeHtml(/south end/i.test(appName) ? SOUTHEND_PWA_SHORT : appName)}">`],
+		["apple-mobile-web-app-status-bar-style", "<meta name=\"apple-mobile-web-app-status-bar-style\" content=\"default\">"],
+		["theme-color", `<meta name="theme-color" content="${SOUTHEND_THEME}">`]
 	];
 }
 var GROK_EXTENSIONS_SCRIPT_SRC = "https://grok.com/grok-app-builder/extensions.js";
@@ -1595,7 +1644,6 @@ async function grokPwaMiddleware(event, next) {
 	if ((event.req.method ?? "GET").toUpperCase() !== "GET") return next();
 	const path = event.url.pathname;
 	const urlWithQuery = path + event.url.search;
-	if (path === "/auth/popup") return next();
 	if (path === "/__grok/manifest.webmanifest" || path === "/__grok/manifest.json") return new Response(renderWebManifest(requestHost(event)), { headers: {
 		"content-type": "application/manifest+json; charset=utf-8",
 		"cache-control": "no-cache"
@@ -1628,7 +1676,7 @@ var findRouteRules = /* @__PURE__ */ (() => {
 		route: "/**",
 		handler: headers,
 		options: {
-			"Permissions-Policy": "bluetooth=*, serial=*, hid=*, usb=*, geolocation=(self)",
+			"Permissions-Policy": "bluetooth=*, serial=*, hid=*, usb=*, geolocation=(self), notifications=(self)",
 			"Feature-Policy": "bluetooth *; usb *; serial *; hid *; geolocation 'self'"
 		}
 	}];

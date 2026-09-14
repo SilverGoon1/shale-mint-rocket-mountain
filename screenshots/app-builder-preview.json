@@ -7,13 +7,11 @@
       "status": 200,
       "title": "South End Pizza III",
       "hasCanvas": false,
-      "bodyTextLen": 1329,
-      "bodyTextHash": "3958af8af443f83d9215451cfb935bd72d99b3217a6aa7aa7ea8f919eab47706",
-      "bodyTextPrefix": "Skip to content EGG HARBOR TOWNSHIP South End Pizza III Cart Sou",
+      "bodyTextLen": 1816,
+      "bodyTextHash": "11043f005c2c5c530a4f78f3b18438bff631c11a040c02fb4569bb784ff03739",
+      "bodyTextPrefix": "Skip to content EGG HARBOR TOWNSHIP South End Pizza III Loading ",
       "horizontalOverflow": false,
-      "consoleErrors": [
-        "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\n%s%s https://react.dev/link/hydration-mismatch \n\n  ...\n    <CatchBoundary getResetKey={function getResetKey} errorComponent={function AppErrorComponent} ...>\n      <SafeFragment fallback={function fallback}>\n        <MatchInnerImpl match={{id:\"//\",ssr:true, ...}}>\n          <Lazy>\n            <Home>\n              <div className=\"shop-shell\">\n                <ShopHeader>\n                <main className=\"shop-main\" id=\"main\">\n                  <Storefront restaurant={{name:\"Sout...\", ...}} categories={[...]} settings={{...}} profile={null}>\n                    <div className=\"store-layout\">\n                      <div className=\"store-main\">\n                        <section>\n                        <div className=\"cat-search...\" ref={{current:null}} data-search-open={undefined}>\n                          <div className=\"cat-sorter\">\n                            <button>\n                            <nav className=\"cat-rail\" aria-label=\"Menu categ...\" ref={{current:null}}>\n                              <div className=\"cat-search...\" ref={{current:null}}>\n                                <label className=\"cat-search\">\n                                  <Search>\n                                  <input\n                                    value=\"\"\n                                    onChange={function onChange}\n                                    onFocus={function onFocus}\n                                    onKeyDown={function onKeyDown}\n                                    placeholder=\"Search\"\n                                    aria-label=\"Search the menu\"\n                                    autoComplete=\"off\"\n                                    enterKeyHint=\"search\"\n-                                   style={{caret-color:\"transparent\"}}\n                                  >\n                              ...\n                            ...\n                        ...\n"
-      ],
+      "consoleErrors": [],
       "pageErrors": [],
       "screenshot": "/workspace/screenshots/app-builder-preview.png"
     },
@@ -23,13 +21,11 @@
       "status": 200,
       "title": "South End Pizza III",
       "hasCanvas": false,
-      "bodyTextLen": 754,
-      "bodyTextHash": "98f53beeea5bcbd5e0fce632431a4b30a2aed1672cc4248ed7fd82ef7a6cb0b5",
-      "bodyTextPrefix": "Skip to content South End Pizza III Cart South End Pizza III Egg",
+      "bodyTextLen": 940,
+      "bodyTextHash": "925cda5dce911dd4d65a33f71619cfcd13fa9accd3ff47e5236f0d51a892cd5c",
+      "bodyTextPrefix": "Skip to content EGG HARBOR TOWNSHIP South End Pizza III Loading ",
       "horizontalOverflow": false,
-      "consoleErrors": [
-        "A tree hydrated but some attributes of the server rendered HTML didn't match the client properties. This won't be patched up. This can happen if a SSR-ed Client Component used:\n\n- A server/client branch `if (typeof window !== 'undefined')`.\n- Variable input such as `Date.now()` or `Math.random()` which changes each time it's called.\n- Date formatting in a user's locale which doesn't match the server.\n- External changing data without sending a snapshot of it along with the HTML.\n- Invalid HTML tag nesting.\n\nIt can also happen if the client has a browser extension installed which messes with the HTML before React loaded.\n\n%s%s https://react.dev/link/hydration-mismatch \n\n  ...\n    <CatchBoundary getResetKey={function getResetKey} errorComponent={function AppErrorComponent} ...>\n      <SafeFragment fallback={function fallback}>\n        <MatchInnerImpl match={{id:\"//\",ssr:true, ...}}>\n          <Lazy>\n            <Home>\n              <div className=\"shop-shell\">\n                <ShopHeader>\n                <main className=\"shop-main\" id=\"main\">\n                  <Storefront restaurant={{name:\"Sout...\", ...}} categories={[...]} settings={{...}} profile={null}>\n                    <div className=\"store-layout\">\n                      <div className=\"store-main\">\n                        <section>\n                        <div className=\"cat-search...\" ref={{current:null}} data-search-open={undefined}>\n                          <div className=\"cat-sorter\">\n                            <button>\n                            <nav className=\"cat-rail\" aria-label=\"Menu categ...\" ref={{current:null}}>\n                              <div className=\"cat-search...\" ref={{current:null}}>\n                                <label className=\"cat-search\">\n                                  <Search>\n                                  <input\n                                    value=\"\"\n                                    onChange={function onChange}\n                                    onFocus={function onFocus}\n                                    onKeyDown={function onKeyDown}\n                                    placeholder=\"Search\"\n                                    aria-label=\"Search the menu\"\n                                    autoComplete=\"off\"\n                                    enterKeyHint=\"search\"\n-                                   style={{caret-color:\"transparent\"}}\n                                  >\n                              ...\n                            ...\n                        ...\n"
-      ],
+      "consoleErrors": [],
       "pageErrors": [],
       "screenshot": "/workspace/screenshots/app-builder-preview-mobile.png"
     }

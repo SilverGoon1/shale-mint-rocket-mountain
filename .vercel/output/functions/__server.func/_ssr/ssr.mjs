@@ -117,7 +117,7 @@ var HEADERS = { TSS_SHELL: "X-TSS_SHELL" };
 * the dev styles URL for route-scoped CSS collection.
 */
 async function getStartManifest(matchedRoutes) {
-	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-Dz_AyUio.mjs");
+	const { tsrStartManifest } = await import("../_tanstack-start-manifest_v-Dpw7MFU-.mjs");
 	const startManifest = tsrStartManifest();
 	let routes = startManifest.routes;
 	routes[rootRouteId];
@@ -139,223 +139,263 @@ async function getStartManifest(matchedRoutes) {
 var manifest = {
 	"059d860554c5b698041079549470ec22b4209e73acdca3cb55c29f957c243f2d": {
 		functionName: "deleteChatMessage_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"05fde0cd6acff5dcf2d72eba71c33f0f2ec07f553282d9820053733d946d9b44": {
 		functionName: "getAdminInboxCount_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"0a2f400b8bd127862368fe1e673b21e04771f605263fc254089fcf0c082033d3": {
 		functionName: "placeGuestOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"0a897cfe0a29d64ab7d202af39e50380a4a9d5895aca09fde579debd015c7f8e": {
 		functionName: "listCustomers_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"0cbb3f8fb04ccc864244d28d32b0ba5b427b110bba02e4040c08f68c14e8218f": {
+		functionName: "verifySignupEmailCode_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"10acce6179b54e12f73a5d4647ba07642f8e20356336da0c6be77ff55ea010b3": {
+		functionName: "sendSignupEmailCode_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"1206b02a97ef848d3762666fb57bfcf3704c1543c098864a19989d5800595d00": {
 		functionName: "listPosOrders_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"1292c9799768b65cebef00549935712c18ce6666ad2281bab17b1e479776d75a": {
+		functionName: "savePushSubscription_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"16cacd9a1e5e9fd5af48ae2106a6dde505a2f79a0236ac7916ad104aa8f286c5": {
 		functionName: "startChat_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"1a3c9b7a89fdd1bee2670d8deed7aac98907c192c3730703155316bc929700d4": {
 		functionName: "saveWebsite_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"1e2be28c84d39a2f8dd714eaf2c0915488e3a026a32d331c7dc9671881f8f8cc": {
 		functionName: "confirmTotpSetup_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"2545826bb2beb54af1f3131df2c911dfbab5b12a6d5560a433aa7eb2faae5fcc": {
 		functionName: "listMyChats_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"2d8ff8c32c739ea30c596c9be93c051f8af63f3e646a237cdaf387baaf4db109": {
+		functionName: "setDiagnosticDeskAuth_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"332fb1ebcf6f9af1fe043b2d72d5535b336dd8ec06d505e994fe5c368090210f": {
 		functionName: "verifyTotpChallenge_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"353c71c7e2029e27b2fbe3d0fab0134262150feb44f5d5ebb2c43cf4b0b3d072": {
 		functionName: "patchPosOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"35f265b0dc254ad56abb2de18bea5d0b7f85cf232e6710c8bdc4a44122c887c4": {
 		functionName: "getMyRewards_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"38dde3267a1a764c7f466ef4bea18a9385d78f473400b8f205c3c2cbf696fa86": {
 		functionName: "setAccountRole_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"3dd80e995fd1d9776432d1fda1b57a9473d455c2023facce75be6a95b05bce46": {
+		functionName: "listDeskAccounts_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"3e9f6705a03f55c7367d51be98f4352bb380ffbd59c2a91c620ed5e0995217e1": {
 		functionName: "getStorefront_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"40e86a191d140c403d5961677d7ca214977a0646825cd13ec616f2075c5411cd": {
 		functionName: "setChatMuted_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"41df5e809db632736f0dd937a8930d2eab599fe55c0dc7c0a34f9c69d808bed9": {
+		functionName: "setAdminMode_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"45969789c4e158c61e0b50e40516caafc9fc5b0653bc57eaee07e4f33a422d2a": {
 		functionName: "setChatFlagged_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"4c4c9ed72514c36fc6383ad66d96d7b898f5e43d0eb9e10be6c5bb4722c016ce": {
 		functionName: "saveShopSettings_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"514af9501a1d9ca90991f58e55092ab224f1a784b82ab9bf84e9978ed6eb8b0b": {
 		functionName: "checkDeliveryAddress_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"5169a9e63544badbc4dfd2bf82336507444ce69e7c5a75ce33a3ab5c2ceae0b2": {
 		functionName: "saveShopMenu_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"5950193f3d753f32698018454d73b58d7fdc8b5ea2aa14a42de169d1268239ea": {
 		functionName: "updateProfile_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"5c7825cbd144f750341957361628d61341a15aaba9bb6439feaa569f11c1ac5b": {
 		functionName: "revokeBotAgent_createServerFn_handler",
-		importer: () => import("./bot-admin-CTozISQV.mjs")
+		importer: () => import("./bot-admin-BJA-Ko0q.mjs")
 	},
 	"6248d7260d5009f275421e55ec9465053af4597f8bfe14bd0b06b9c6e93a19da": {
 		functionName: "updateOrderStatus_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"6396d6554feb23219f0d0edc1c2d3f445b5608846b9c2441cb1647075fdefb7c": {
 		functionName: "loadChatMessages_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"6606d7dd1b287a5622b580dda972cddfa32fe29c140a3c264ed7ac85934487d8": {
+		functionName: "getVapidPublicKey_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"6837d55db11b3d67c287bb4576e198cdc6886c03c4f3aefb6761743ce705e4d4": {
 		functionName: "adjustCustomerPoints_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"6a74183ea6184c189b407b4f7f6c6591530ad01084b7875f52823102883d1fd0": {
 		functionName: "rotateBotAgent_createServerFn_handler",
-		importer: () => import("./bot-admin-CTozISQV.mjs")
+		importer: () => import("./bot-admin-BJA-Ko0q.mjs")
 	},
 	"6b016f733836672a6d31ce4eb9274ae2116885fa4902e070f749996a870ae0b4": {
 		functionName: "acceptOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"6bf02f45892370365b2c8cbb04e561fec611dfd9655a8195ef4aa88a69100c51": {
 		functionName: "sendPasswordResetCode_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"6c424cbe95654144167219167617293487fb8d1b08f131793d847208e1ba4cd6": {
 		functionName: "getTwoFactorStatus_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"8009c13d49254d840f003eccd64c51d61b988f9d6ecb3bcc3260f2ee3168ecce": {
 		functionName: "deleteOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"83d49b93260f6d39298a38704a43e533c52e8173f971d1b7658e100942ed1f59": {
 		functionName: "disableTotp_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"8a089eb873cc534ed1bd9d17853df74ce61d84735d84efd9f380782afb170b65": {
 		functionName: "getShopContact_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"8a9ee10c2cc5e11b33d6a379a6fe7cf4a988cd15efede561ae22e9e349daef36": {
 		functionName: "listBotAudit_createServerFn_handler",
-		importer: () => import("./bot-admin-CTozISQV.mjs")
+		importer: () => import("./bot-admin-BJA-Ko0q.mjs")
+	},
+	"8d1bde54979812134301d30d042eedde67795a906a73a07200d4d2d0755ae7b8": {
+		functionName: "setMyAvatar_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"8ed47f0f95f0fd928a3867a8c22d06ca683a53003e27db38d73944bbc9a39dce": {
 		functionName: "startAdminChat_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"971dc20631d85431ea74c37c1f767a8debc4b72023eec6f55358703f7ae1901a": {
 		functionName: "getAdminShop_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"99ed12c9cb6c46129f1642a8a2ea8fb4c72927ba9df92e71483c74ed499d0197": {
 		functionName: "listBotAgents_createServerFn_handler",
-		importer: () => import("./bot-admin-CTozISQV.mjs")
+		importer: () => import("./bot-admin-BJA-Ko0q.mjs")
 	},
 	"9e06269a2e64058352abf36b0cfc7655a8a6306a8839b04afdc0d165b71c6f36": {
 		functionName: "listAllOrders_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"9eb173db2134b93997d461c05fceda01690b6da2b7537a41e4ea5438d70d85a2": {
 		functionName: "listAdminChats_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"9f27df72f953f9d4e92d96f699ffbaf92e96cf24b310983028f31c929e30807e": {
 		functionName: "recoverPassword_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"a86830613005e0efa96728ff8ce8959214bbe7d3fe2f213278a25da1d6b01a4d": {
 		functionName: "placeOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"ade4cc41613a0c0e3c9b762dc14583ca785c29b757b7ad3b078b41f408d3ec11": {
+		functionName: "noteStaffDeskLogin_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"b3d77c9a4c735ff404dcbea870571db354d68ce4b34aaf3e32d03711ed9e38eb": {
 		functionName: "changeMyPassword_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"b45f21af2f82f67c84429e9c82fcb3b8465d1c2fd2be129b05264fb9a42a1bed": {
 		functionName: "attachChatOrder_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"b8e22a13b662d091aee128cd6d1ebc8b222a99837996e65e40a07853632f42c3": {
 		functionName: "getMe_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
+	},
+	"d0dbfb8f7fec0da286f178c1b21f1d7b1beb672b0dcc5b5ae63f5dbb0ef836c1": {
+		functionName: "setDeskAllowed_createServerFn_handler",
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"d2aa6a345d9a7d270555a60411f1eecd71fd2f6fbaebbb2b8a7247869dd7ccc8": {
 		functionName: "setChatResolution_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"d6bfaa233bebc5dd2452671a1e44780d44ad5df8ef6cbe19c7c3fae308917ef2": {
 		functionName: "saveDeliveryZone_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"d854d44aa3f204c2b7c3d5f67d750a3fa01982988a33161dbb9d24c6bdaadd0d": {
 		functionName: "listIncomingOrders_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"dbe07ebe34ad90c5a9260ce8b92ff36457d481dceb7063bc94b3db86cc5fd6a4": {
 		functionName: "claimAdmin_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"dee3ffe6ae118327bb704934e7000b191fe224fd07848feda62eef2560bdcbdb": {
 		functionName: "deleteChatThread_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"e138e878a2579f8d295b471784401f1aaddc311e5cca601678c47aea1161e908": {
 		functionName: "listMyOrders_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"e9ae1e079d8cdff7ebb28cfebfa94d061b7fc89a70b7cd3ad83b31134e9474e0": {
 		functionName: "sendChatMessage_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"ea5541caa0922774ffddac354148aa7de14aecf03f9d3741c45354d76566380d": {
 		functionName: "createBotAgent_createServerFn_handler",
-		importer: () => import("./bot-admin-CTozISQV.mjs")
+		importer: () => import("./bot-admin-BJA-Ko0q.mjs")
 	},
 	"ea5a208e042a5ef3f7b152ae95c22c2f0ba0342f20a2389ade5195516af08ced": {
 		functionName: "setAccountBanned_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"ee424e5f66bbce729edb2eeb2a8b55c2a072faf7605f611f83417dc6916ce827": {
 		functionName: "setChatStaffNote_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"f1ac3b56f9066fa0f3a79304184a4317fb3e4b8b00a6839d09769c0a779f7553": {
 		functionName: "getAdminInsights_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"f682853d56d112a3f4a0dcca864fb97e72e162535352f0d152f01bac1db1493e": {
 		functionName: "claimReferral_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	},
 	"f90ffd0cb3e44665a49d9e85dd34112ffbee3d9fafa02dc50fed6603db2cdb0c": {
 		functionName: "startTotpSetup_createServerFn_handler",
-		importer: () => import("./shop-server-DinQ0xT7.mjs")
+		importer: () => import("./shop-server-DyhYM8Cx.mjs")
 	}
 };
 async function getServerFnById(id, access) {
@@ -1625,7 +1665,7 @@ var getBaseManifest = getProdBaseManifest;
 var createEarlyHintsForRequest = createEarlyHintsCollector;
 async function loadEntries() {
 	const [routerEntry, startEntry, pluginAdapters] = await Promise.all([
-		import("./router-Df2FptVQ.mjs").then((n) => n.t),
+		import("./router-CVXJoRJe.mjs").then((n) => n.t),
 		import("./start-5Z2QO8AU.mjs"),
 		import("./empty-plugin-adapters-D9UWiqvJ.mjs")
 	]);

@@ -8,9 +8,9 @@ import { n as persist, r as create, t as createJSONStorage } from "../_libs/zust
 import { $ as ChevronLeft, A as MessageCircle, B as Flag, C as Plus, D as Paintbrush, E as PenLine, F as Layers, G as Copy, H as Eraser, I as ImagePlus, J as CircleHelp, K as CookingPot, L as Headset, M as MapPin, N as LogOut, O as Monitor, P as Link2, Q as ChevronRight, R as Ham, S as Printer, T as Phone, U as Drumstick, V as FlagOff, W as CupSoda, X as CircleAlert, Y as CircleCheck, Z as ChevronUp, _ as Scroll, a as Utensils, at as Ban, b as RotateCcw, c as TriangleAlert, d as Soup, et as ChevronDown, f as Snowflake, g as Search, h as Share, i as Volume2, it as Beef, j as Menu, k as Minus, l as Trash2, m as ShoppingBag, n as Wheat, nt as Bluetooth, o as UtensilsCrossed, ot as ArrowUp, p as Smartphone, q as Clock, r as VolumeX, rt as Bell, s as UserRound, t as X, tt as CakeSlice, u as Star, v as Sandwich, w as Pizza, x as RefreshCw, y as Salad, z as Flame } from "../_libs/lucide-react.mjs";
 import { a as Bar, i as CartesianGrid, n as YAxis, o as ResponsiveContainer, r as XAxis, s as Tooltip, t as BarChart } from "../_libs/recharts+[...].mjs";
 import "../_libs/leaflet.mjs";
-import { a as signOut, c as runPreSignInSignOut, i as signIn, o as cartTotals, r as getBearerToken, s as useCartStore, t as authClient } from "./client.mjs";
-import { a as BOT_PRESETS, c as scopesForRole, i as verifyBotBearer, n as rateLimitBot, o as isBotRole, s as scopesForPreset, t as agentHasScope } from "./tokens.server.mjs";
-import { a as isStaffAdminAccount, i as STAFF_ADMIN_NAME, o as isStaffAdminUsername, r as STAFF_ADMIN_EMAIL, t as staffSecretConfigured } from "./staff-credential.server.mjs";
+import { a as signIn, c as useCartStore, i as getBearerToken, l as wipeCart, o as signOut, r as dropClientSession, s as cartTotals, t as authClient, u as runPreSignInSignOut } from "./client.mjs";
+import { a as BOT_PRESETS, c as isBotRole, i as verifyBotBearer, l as scopesForPreset, n as rateLimitBot, o as BOT_ROLES, s as BOT_ROLE_LABELS, t as agentHasScope, u as scopesForRole } from "./tokens.server.mjs";
+import { a as isStaffAdminAccount, i as STAFF_ADMIN_NAME, o as isStaffAdminUsername, r as STAFF_ADMIN_EMAIL, t as diagnosticDeskAuthStatus } from "./staff-credential.server.mjs";
 import { createHash, createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 //#region src/lib/fetch-retry.ts
 var import_react = /* @__PURE__ */ __toESM(require_react(), 1);
@@ -403,7 +403,7 @@ function PreviewHostBridge() {
 //#endregion
 //#region src/lib/admin-nav.ts
 var import_react_dom = /* @__PURE__ */ __toESM(require_react_dom(), 1);
-/** Admin destinations. Menu & Shop Details is first. Settings stays last. POS lives in the title bar. */
+/** Admin destinations. Menu & Shop Details is first. Settings stays last. POS lives in the account menu. */
 var ADMIN_NAV = [
 	{
 		to: "/admin/menu",
@@ -1276,7 +1276,7 @@ var MENU = [
 	{
 		id: "wings",
 		name: "Wings",
-		note: "Tossed in your choice of sauce.",
+		note: "Tossed in Hot, Mild, Dry, or BBQ. Includes 2 Ranch, 2 Blue cheese, or none. Extra dips priced per 2 cups.",
 		kind: "split",
 		items: [{
 			name: "Fresh Wings",
@@ -1285,7 +1285,7 @@ var MENU = [
 				label: "10 pc",
 				price: "14.00"
 			}],
-			condiments: extras(["Ranch", "0.75"], ["Blue cheese", "0.75"], ["Celery", "0"], ["Extra sauce", "0.75"])
+			condiments: extras(["Extra Ranch", "1.50"], ["Extra Blue cheese", "1.50"])
 		}, {
 			name: "Chicken Nuggets with Fries",
 			description: "Breaded & fried chicken strips. Served with fries",
@@ -1946,6 +1946,11 @@ function identifierToEmail(raw) {
 		phone: void 0
 	};
 }
+/** Synthetic Better Auth emails for phone-number accounts — no real inbox. */
+function isPhoneAuthEmail(email) {
+	if (!email) return false;
+	return /@phone\.southend\.pizza$/i.test(email.trim());
+}
 //#endregion
 //#region src/lib/totp.ts
 var ALPH = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
@@ -1997,7 +2002,7 @@ function verifyTotp(secret, code) {
 	return false;
 }
 function totpUri(secret, account) {
-	return `otpauth://totp/${encodeURIComponent(`South End Pizza:${account}`)}?secret=${secret}&issuer=South%20End%20Pizza&digits=6&period=30`;
+	return `otpauth://totp/${encodeURIComponent(`SEP:${account}`)}?secret=${secret}&issuer=SEP&digits=6&period=30`;
 }
 //#endregion
 //#region src/lib/shop-types.ts
@@ -2222,6 +2227,9 @@ function newPrinter(init) {
 		name: init?.name || "Receipt printer",
 		bluetoothId: init?.bluetoothId || "",
 		bluetoothName: init?.bluetoothName || "",
+		lanHost: init?.lanHost || "",
+		lanPort: init?.lanPort === 8043 ? 8043 : 8008,
+		lanProtocol: init?.lanProtocol === "https" ? "https" : "http",
 		enabled: init?.enabled ?? true,
 		copies: init?.copies ?? 1,
 		customerCopy: init?.customerCopy ?? true,
@@ -2244,6 +2252,9 @@ function parsePrinters(raw) {
 			name: String(r.name || "Receipt printer"),
 			bluetoothId: String(r.bluetoothId || ""),
 			bluetoothName: String(r.bluetoothName || ""),
+			lanHost: String(r.lanHost || "").trim(),
+			lanPort: Number(r.lanPort) === 8043 ? 8043 : 8008,
+			lanProtocol: r.lanProtocol === "https" || Number(r.lanPort) === 8043 ? "https" : "http",
 			enabled: r.enabled !== false,
 			copies: Math.max(1, Math.round(moneyNumber(r.copies) || 1)),
 			customerCopy: r.customerCopy !== false,
@@ -2335,6 +2346,137 @@ function condimentDetail(picks) {
 }
 function mergeItemDetail(...parts) {
 	return parts.map((p) => String(p ?? "").trim()).filter(Boolean).join(" · ");
+}
+//#endregion
+//#region src/lib/wings.ts
+var WING_SAUCES = [
+	"Hot",
+	"Mild",
+	"Dry",
+	"BBQ"
+];
+var WING_INCLUDED_DIPS = [
+	{
+		id: "ranch",
+		label: "2 Ranch"
+	},
+	{
+		id: "blue",
+		label: "2 Blue cheese"
+	},
+	{
+		id: "none",
+		label: "None"
+	}
+];
+var WING_EXTRA_PRICE = 1.5;
+function isWingsBuild(cat, item) {
+	if (cat.id === "wings" && /wing/i.test(item.name)) return true;
+	return /fresh wings|chicken wings/i.test(item.name);
+}
+function extraDipUnitPrice(condiments, which) {
+	const n = moneyNumber((condiments ?? []).find((c) => {
+		const id = String(c.id ?? "").toLowerCase();
+		const name = String(c.name ?? "");
+		if (which === "ranch") return id === "wing-extra-ranch" || /extra ranch/i.test(name);
+		return id === "wing-extra-blue" || /extra blue/i.test(name);
+	})?.price);
+	return n > 0 ? n : WING_EXTRA_PRICE;
+}
+function extraDipCharge(cups, unit = WING_EXTRA_PRICE) {
+	const n = Math.max(0, Math.round(Number(cups) || 0));
+	const sets = Math.floor(n / 2);
+	return Math.round(sets * unit * 100) / 100;
+}
+function snapExtraCups(n) {
+	const raw = Math.max(0, Math.min(6, Math.round(Number(n) || 0)));
+	return Math.floor(raw / 2) * 2;
+}
+function snapWingQty(n) {
+	const raw = Math.max(10, Math.min(50, Math.round(Number(n) || 10)));
+	return Math.round(raw / 10) * 10;
+}
+function parseWingQty(label) {
+	const m = String(label ?? "").match(/(\d+)\s*pc/i);
+	if (!m) return 0;
+	return snapWingQty(Number(m[1]));
+}
+function wingQtyMultiplier(qty) {
+	return snapWingQty(qty) / 10;
+}
+function wingBuildReady(sauce, dip) {
+	return WING_SAUCES.includes(sauce) && WING_INCLUDED_DIPS.some((d) => d.id === dip);
+}
+function wingBuildPicks(input) {
+	const extraRanch = snapExtraCups(input.extraRanch);
+	const extraBlue = snapExtraCups(input.extraBlue);
+	const ranchUnit = input.ranchUnit && input.ranchUnit > 0 ? input.ranchUnit : WING_EXTRA_PRICE;
+	const blueUnit = input.blueUnit && input.blueUnit > 0 ? input.blueUnit : WING_EXTRA_PRICE;
+	const condiments = [{
+		id: `wing-sauce-${input.sauce.toLowerCase()}`,
+		name: input.sauce,
+		qty: 1,
+		charge: 0
+	}];
+	const dipRow = WING_INCLUDED_DIPS.find((d) => d.id === input.dip);
+	if (dipRow) condiments.push({
+		id: `wing-dip-${dipRow.id}`,
+		name: dipRow.label,
+		qty: 1,
+		charge: 0
+	});
+	if (extraRanch > 0) condiments.push({
+		id: "wing-extra-ranch",
+		name: "Extra Ranch",
+		qty: extraRanch,
+		charge: extraDipCharge(extraRanch, ranchUnit)
+	});
+	if (extraBlue > 0) condiments.push({
+		id: "wing-extra-blue",
+		name: "Extra Blue cheese",
+		qty: extraBlue,
+		charge: extraDipCharge(extraBlue, blueUnit)
+	});
+	const extras = extraDipCharge(extraRanch, ranchUnit) + extraDipCharge(extraBlue, blueUnit);
+	return {
+		condiments,
+		detail: mergeItemDetail(input.sauce, dipRow?.label, extraRanch > 0 ? `Extra Ranch ×${extraRanch}` : "", extraBlue > 0 ? `Extra Blue cheese ×${extraBlue}` : ""),
+		extras
+	};
+}
+function sanitizeWingPicks(raw, condiments) {
+	const list = Array.isArray(raw) ? raw : [];
+	let sauce = "";
+	let dip = "";
+	let extraRanch = 0;
+	let extraBlue = 0;
+	for (const row of list) {
+		const rec = row && typeof row === "object" ? row : {};
+		const id = String(rec.id ?? "").toLowerCase();
+		const name = String(rec.name ?? "").trim();
+		const qty = Math.max(0, Math.round(Number(rec.qty) || 0));
+		const sauceHit = WING_SAUCES.find((s) => id === `wing-sauce-${s.toLowerCase()}` || name.toLowerCase() === s.toLowerCase());
+		if (sauceHit) {
+			sauce = sauceHit;
+			continue;
+		}
+		const dipHit = WING_INCLUDED_DIPS.find((d) => id === `wing-dip-${d.id}` || name.toLowerCase() === d.label.toLowerCase());
+		if (dipHit) {
+			dip = dipHit.id;
+			continue;
+		}
+		if (id === "wing-extra-ranch" || /extra ranch/i.test(name)) extraRanch = snapExtraCups(qty || extraRanch);
+		if (id === "wing-extra-blue" || /extra blue/i.test(name)) extraBlue = snapExtraCups(qty || extraBlue);
+	}
+	if (!wingBuildReady(sauce, dip)) return null;
+	return wingBuildPicks({
+		sauce,
+		dip,
+		extraRanch,
+		extraBlue,
+		ranchUnit: extraDipUnitPrice(condiments, "ranch"),
+		blueUnit: extraDipUnitPrice(condiments, "blue")
+	});
 }
 //#endregion
 //#region src/lib/menu-store.ts
@@ -3130,6 +3272,35 @@ async function backfillSeedCondiments(sql) {
 	}
 	bustStorefrontCache();
 }
+async function ensureWingExtraCondiments(sql) {
+	const rows = await sql.query(`select id, condiments from menu_items where lower(name) like '%wing%'`);
+	for (const row of rows) {
+		const list = sanitizeCondiments(row.condiments);
+		let changed = false;
+		if (!list.some((c) => c.id === "wing-extra-ranch" || /extra ranch/i.test(c.name))) {
+			list.push({
+				id: "wing-extra-ranch",
+				name: "Extra Ranch",
+				price: "1.50",
+				extraPrice: "1.50",
+				maxQty: "6"
+			});
+			changed = true;
+		}
+		if (!list.some((c) => c.id === "wing-extra-blue" || /extra blue/i.test(c.name))) {
+			list.push({
+				id: "wing-extra-blue",
+				name: "Extra Blue cheese",
+				price: "1.50",
+				extraPrice: "1.50",
+				maxQty: "6"
+			});
+			changed = true;
+		}
+		if (!changed) continue;
+		await sql.query(`update menu_items set condiments = $1::jsonb where id = $2`, [JSON.stringify(list), String(row.id)]);
+	}
+}
 async function seedDemoSalesIfEmpty(sql) {
 	if (dbSource !== "pglite") return;
 	if ((await sql`select id from orders limit 1`).length) return;
@@ -3509,6 +3680,41 @@ async function ensureSettingsSchema(sql) {
 	return shopBoot.__southendSchema__;
 }
 async function applySettingsSchema(sql) {
+	await sql.query(`create table if not exists order_status_audit (
+    id text primary key,
+    order_id text not null,
+    from_status text not null default '',
+    to_status text not null,
+    actor_id text not null default '',
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists order_status_audit_order_idx on order_status_audit (order_id, created_at desc)`);
+	await sql.query(`create table if not exists email_signup_codes (
+    id text primary key,
+    user_id text not null,
+    email text not null,
+    code_hash text not null,
+    salt text not null,
+    expires_at timestamptz not null,
+    attempts integer not null default 0,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc)`);
+	await sql.query(`create index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc)`);
+	const { ensureStaffAdminLoginColumns } = await import("./staff-credential.server.mjs").then((n) => n.n);
+	try {
+		await ensureStaffAdminLoginColumns(sql);
+	} catch {}
+	try {
+		await ensureAdminModeColumns(sql);
+	} catch {}
+	try {
+		await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
+	} catch {}
+	try {
+		await ensurePushSchema(sql);
+	} catch {}
 	const cols = await sql.query(`select table_name, column_name from information_schema.columns
      where (table_name = 'shop_settings' and column_name = 'invitee_bonus')
         or (table_name = 'profiles' and column_name = 'address_line')`);
@@ -3603,6 +3809,14 @@ async function applySettingsSchema(sql) {
 	await sql.query(`alter table shop_settings add column if not exists card_text_color text not null default 'ink'`);
 	await sql.query(`alter table menu_items add column if not exists condiments jsonb not null default '[]'::jsonb`);
 	await sql.query(`alter table shop_settings add column if not exists guest_card_required boolean not null default false`);
+	await sql.query(`alter table shop_settings add column if not exists admin_totp_required boolean not null default false`);
+	await sql.query(`create table if not exists staff_desk_audit (
+    id text primary key,
+    user_id text not null default '',
+    kind text not null,
+    diagnostic boolean not null default false,
+    created_at timestamptz not null default now()
+  )`);
 	await sql.query(`alter table shop_settings add column if not exists card_desc_color text not null default 'muted'`);
 	await sql.query(`alter table shop_settings add column if not exists card_price_color text not null default 'ink'`);
 	await sql.query(`alter table shop_settings add column if not exists card_size text not null default 'md'`);
@@ -3627,6 +3841,69 @@ async function applySettingsSchema(sql) {
   )`);
 	await sql.query(`create index if not exists rewards_ledger_user_idx on rewards_ledger (user_id, created_at desc)`);
 }
+function isMissingAdminModeColumn(err) {
+	const msg = err instanceof Error ? err.message : String(err);
+	return /admin_mode|desk_grant/i.test(msg);
+}
+async function applyAdminModeColumns(sql) {
+	for (const stmt of [
+		`alter table profiles add column if not exists admin_mode boolean not null default false`,
+		`alter table profiles add column if not exists admin_mode_allowed boolean not null default false`,
+		`alter table profiles add column if not exists desk_grant boolean not null default false`
+	]) try {
+		await sql.query(stmt);
+	} catch {}
+	for (const stmt of [
+		`alter table profiles alter column role set default 'customer'`,
+		`alter table profiles alter column admin_mode set default false`,
+		`alter table profiles alter column admin_mode_allowed set default false`
+	]) try {
+		await sql.query(stmt);
+	} catch {}
+	try {
+		await sql.query(`update profiles set admin_mode_allowed = true, admin_mode = true, desk_grant = true where role = 'admin' and admin_mode_allowed is not true`);
+	} catch {}
+	try {
+		await sql.query(`create table if not exists desk_grant_audit (
+      id text primary key,
+      actor_id text not null default '',
+      target_id text not null default '',
+      action text not null default '',
+      created_at timestamptz not null default now()
+    )`);
+	} catch {}
+}
+async function ensureAdminModeColumns(sql) {
+	if (!shopBoot.__adminModeCols__) shopBoot.__adminModeCols__ = applyAdminModeColumns(sql).catch((err) => {
+		shopBoot.__adminModeCols__ = void 0;
+		throw err;
+	});
+	return shopBoot.__adminModeCols__;
+}
+async function applyPushSchema(sql) {
+	await sql.query(`create table if not exists push_subscriptions (
+    endpoint text primary key,
+    user_id text not null default '',
+    p256dh text not null default '',
+    auth text not null default '',
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists push_subscriptions_user_idx on push_subscriptions (user_id)`);
+	try {
+		await sql.query(`alter table shop_settings add column if not exists vapid_public text not null default ''`);
+		await sql.query(`alter table shop_settings add column if not exists vapid_private text not null default ''`);
+	} catch {}
+}
+async function ensurePushSchema(sql) {
+	if (!shopBoot.__pushSchema__) shopBoot.__pushSchema__ = applyPushSchema(sql).catch((err) => {
+		shopBoot.__pushSchema__ = void 0;
+		throw err;
+	});
+	return shopBoot.__pushSchema__;
+}
+function deskOnFrom(row) {
+	return bool$1(row?.admin_mode) && bool$1(row?.admin_mode_allowed);
+}
 async function ensureTicketNumbers(sql) {
 	await sql.query(`
     with mx as (select coalesce(max(ticket_no), 0) as m from orders),
@@ -3641,6 +3918,7 @@ async function ensureTicketNumbers(sql) {
 async function runShopPatches(sql) {
 	await seedIfEmpty(sql);
 	await backfillSeedCondiments(sql);
+	await ensureWingExtraCondiments(sql);
 	await seedDemoSalesIfEmpty(sql);
 	if ((await sql.query(`select 1 from orders where ticket_no is null limit 1`)).length) await ensureTicketNumbers(sql);
 	if (!(await sql.query(`select 1 from rewards_ledger limit 1`)).length) await backfillRewardsLedger(sql);
@@ -3706,7 +3984,8 @@ function publicSettings(row, hasZones) {
 		vacationMessage: String(row.vacation_message ?? ""),
 		vacationUntil: String(row.vacation_until ?? ""),
 		paymentPlaceholder: String(row.payment_placeholder ?? ""),
-		guestCardRequired: bool$1(row.guest_card_required),
+		guestCardRequired: false,
+		adminTotpRequired: bool$1(row.admin_totp_required),
 		pointsPerDollar: num(row.points_per_dollar) || 1,
 		redeemRate: Math.max(1, Math.round(num(row.redeem_rate) || 100)),
 		welcomeBonus: Math.round(num(row.welcome_bonus)),
@@ -3859,27 +4138,39 @@ async function ensureStaffAdmin(sql) {
 	const { applyStaffCredential, applyStaffTotpFromEnv } = await import("./staff-credential.server.mjs").then((n) => n.n);
 	const userId = await applyStaffCredential(sql);
 	await ensureProfile(sql, userId, STAFF_ADMIN_NAME);
-	await sql`update profiles set role = 'admin', display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	await ensureAdminModeColumns(sql);
+	try {
+		await sql`update profiles set admin_mode_allowed = true, display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await sql`update profiles set display_name = ${STAFF_ADMIN_NAME} where user_id = ${userId}`;
+	}
 	await applyStaffTotpFromEnv(sql, userId);
 }
 async function ensureProfile(sql, userId, displayName) {
-	const inflight = profileLocks.get(userId);
-	if (inflight) {
-		await inflight;
+	for (let spin = 0; spin < 4; spin += 1) {
+		const inflight = profileLocks.get(userId);
+		if (inflight) {
+			await inflight.catch(() => void 0);
+			if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
+			continue;
+		}
+		const run = ensureProfileRow(sql, userId, displayName).finally(() => {
+			profileLocks.delete(userId);
+		});
+		profileLocks.set(userId, run);
+		await run;
 		return;
 	}
-	const run = ensureProfileRow(sql, userId, displayName).finally(() => {
-		profileLocks.delete(userId);
-	});
-	profileLocks.set(userId, run);
-	await run;
+	await ensureProfileRow(sql, userId, displayName);
 }
 async function ensureProfileRow(sql, userId, displayName) {
-	if ((await sql`select user_id from profiles where user_id = ${userId}`).length) return;
+	if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
 	const settings = await loadSettingsRow(sql);
 	const bonus = Math.round(num(settings.welcome_bonus));
 	for (let i = 0; i < 6; i++) try {
-		if (!(await sql.query(`insert into profiles (user_id, display_name, points, referral_code) values ($1,$2,$3,$4)
+		if (!(await sql.query(`insert into profiles (user_id, role, display_name, points, referral_code, admin_mode, admin_mode_allowed, desk_grant)
+         values ($1,'customer',$2,$3,$4,false,false,false)
          on conflict (user_id) do nothing
          returning user_id`, [
 			userId,
@@ -3891,15 +4182,65 @@ async function ensureProfileRow(sql, userId, displayName) {
 		return;
 	} catch (err) {
 		const msg = err instanceof Error ? err.message : String(err ?? "");
-		if (/profiles_pkey/i.test(msg)) return;
+		if (/profiles_pkey|duplicate key|unique constraint/i.test(msg)) {
+			if ((await sql`select user_id from profiles where user_id = ${userId} limit 1`).length) return;
+			continue;
+		}
+		if (isMissingAdminModeColumn(err)) {
+			await ensureAdminModeColumns(sql);
+			continue;
+		}
 		if (i === 5) throw err;
 	}
 }
 async function requireAdmin$1(sql, userId) {
-	if ((await sql`select role from profiles where user_id = ${userId}`)[0]?.role !== "admin") {
+	let on = false;
+	try {
+		const row = (await sql`select role, admin_mode, admin_mode_allowed from profiles where user_id = ${userId}`)[0];
+		if (row && "admin_mode" in row) on = deskOnFrom(row);
+		else on = row?.role === "admin";
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		on = (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
+	}
+	if (!on) {
 		const err = /* @__PURE__ */ new Error("Forbidden");
 		err.status = 403;
 		throw err;
+	}
+}
+async function actorCanGrantDesk(sql, userId) {
+	let row;
+	try {
+		row = (await sql`select p.role, p.admin_mode, p.admin_mode_allowed, p.desk_grant, p.display_name, u.email, u.name as user_name
+        from profiles p
+        left join "user" u on u.id = p.user_id
+        where p.user_id = ${userId}`)[0];
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		row = (await sql`select role, display_name from profiles where user_id = ${userId}`)[0];
+	}
+	if (!row) return false;
+	if (row && "admin_mode" in row && !deskOnFrom(row)) return false;
+	if (!("admin_mode" in row) && row.role !== "admin") return false;
+	if (silverAccountMatch(String(row.email ?? ""), String(row.user_name ?? ""), String(row.display_name ?? ""))) return true;
+	return bool$1(row.desk_grant);
+}
+async function requireDeskGrant(sql, userId) {
+	await requireAdmin$1(sql, userId);
+	if (await actorCanGrantDesk(sql, userId)) return;
+	const err = /* @__PURE__ */ new Error("Only the shop owner can grant Admin mode.");
+	err.status = 403;
+	throw err;
+}
+async function profileDeskOn(sql, userId) {
+	try {
+		const row = (await sql`select admin_mode, admin_mode_allowed, role from profiles where user_id = ${userId}`)[0];
+		if (row && "admin_mode" in row) return deskOnFrom(row);
+		return row?.role === "admin";
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		return (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
 	}
 }
 function silverAccountMatch(email, name, displayName) {
@@ -3913,25 +4254,6 @@ function silverAccountMatch(email, name, displayName) {
 	if (handles.has(local)) return true;
 	if (labels.some((n) => handles.has(n))) return true;
 	return `${email} ${name} ${displayName}`.toLowerCase().includes("silvergoon");
-}
-async function grantSilverAdmin(sql, userId) {
-	const rows = userId ? await sql`
-        select p.user_id, p.role, p.display_name, u.email, u.name as user_name
-        from profiles p
-        left join "user" u on u.id = p.user_id
-        where p.user_id = ${userId}` : await sql`
-        select p.user_id, p.role, p.display_name, u.email, u.name as user_name
-        from profiles p
-        left join "user" u on u.id = p.user_id`;
-	for (const row of rows) {
-		const id = String(row.user_id ?? "");
-		const email = String(row.email ?? "");
-		const name = String(row.user_name ?? "");
-		const displayName = String(row.display_name ?? "");
-		if (!id || String(row.role) === "admin") continue;
-		if (!silverAccountMatch(email, name, displayName)) continue;
-		await sql`update profiles set role = 'admin' where user_id = ${id}`;
-	}
 }
 async function assertNotBanned(sql, userId) {
 	if (bool$1((await sql`select banned from profiles where user_id = ${userId}`)[0]?.banned)) throw new Error("This account has been restricted. Call the shop if you need help.");
@@ -3998,6 +4320,33 @@ function toOrder(row) {
 		scheduledFor: row.scheduled_for instanceof Date ? row.scheduled_for.toISOString() : row.scheduled_for ? String(row.scheduled_for) : null
 	};
 }
+var orderAuditReady = false;
+async function writeOrderStatusAudit(sql, input) {
+	if (input.fromStatus === input.toStatus) return;
+	try {
+		if (!orderAuditReady) {
+			await sql.query(`create table if not exists order_status_audit (
+        id text primary key,
+        order_id text not null,
+        from_status text not null default '',
+        to_status text not null,
+        actor_id text not null default '',
+        created_at timestamptz not null default now()
+      )`);
+			await sql.query(`create index if not exists order_status_audit_order_idx on order_status_audit (order_id, created_at desc)`);
+			orderAuditReady = true;
+		}
+		await sql.query(`insert into order_status_audit (id, order_id, from_status, to_status, actor_id) values ($1,$2,$3,$4,$5)`, [
+			`osa-${randomBytes(8).toString("hex")}`,
+			input.orderId,
+			input.fromStatus,
+			input.toStatus,
+			input.actorId
+		]);
+	} catch (err) {
+		console.error("[southend] order status audit", err);
+	}
+}
 var storefrontCache = null;
 var STOREFRONT_TTL_MS = 2500;
 function bustStorefrontCache() {
@@ -4038,30 +4387,50 @@ var getShopContact = createServerFn({ method: "GET" }).handler(async () => {
 });
 var getMe = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
-	await ensureSettingsSchema(sql);
-	await ensureProfile(sql, context.userId);
-	await grantSilverAdmin(sql, context.userId);
-	let profile = [];
+	let p;
 	try {
-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip from profiles where user_id = ${context.userId}`;
+		p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant, avatar_url from profiles where user_id = ${context.userId} limit 1`)[0];
 	} catch {
-		await ensureSettingsSchema(sql);
-		profile = await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId}`;
+		try {
+			p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant from profiles where user_id = ${context.userId} limit 1`)[0];
+		} catch {
+			try {
+				p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId} limit 1`)[0];
+			} catch {
+				p = void 0;
+			}
+		}
 	}
-	const admins = await sql`select count(*)::int as n from profiles where role = 'admin'`;
-	const unread = await sql`
-      select coalesce(sum(unread_customer), 0)::int as n from chat_threads where user_id = ${context.userId} and status <> 'solved'`;
-	const p = profile[0];
-	const isAdmin = p?.role === "admin";
+	if (!p) try {
+		await sql.query(`insert into profiles (user_id, role, display_name, points) values ($1,'customer','',0) on conflict (user_id) do nothing`, [context.userId]);
+		p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code from profiles where user_id = ${context.userId} limit 1`)[0];
+	} catch {
+		p = {
+			role: "customer",
+			points: 0
+		};
+	}
+	let userRow;
+	try {
+		userRow = (await sql.query(`select email, name, "emailVerified" as verified from "user" where id = $1 limit 1`, [context.userId]))[0];
+	} catch {
+		userRow = void 0;
+	}
+	const hasModeCol = Boolean(p && "admin_mode" in p);
+	const silver = silverAccountMatch(String(userRow?.email ?? ""), String(userRow?.name ?? ""), String(p?.display_name ?? ""));
+	const adminModeAllowed = hasModeCol ? bool$1(p?.admin_mode_allowed) || silver : p?.role === "admin" || silver;
+	const adminMode = hasModeCol ? bool$1(p?.admin_mode) && adminModeAllowed : Boolean(p?.role === "admin" || silver);
+	const deskGrant = hasModeCol ? bool$1(p?.desk_grant) || silver : Boolean(p?.role === "admin" || silver);
+	if (silver && hasModeCol && (!bool$1(p?.admin_mode_allowed) || !bool$1(p?.desk_grant))) sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${context.userId}`.catch(() => void 0);
+	let unreadChats = 0;
 	let adminInbox = 0;
-	if (isAdmin) adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
-	const userRow = (await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0];
-	const referralCode = await ensureReferralCode(sql, context.userId);
-	const inviteCount = Math.round(num((await sql`select count(*)::int as n from profiles where referred_by = ${context.userId}`)[0]?.n));
-	const orderCount = Math.round(num((await sql`select count(*)::int as n from orders where user_id = ${context.userId}`)[0]?.n));
+	try {
+		unreadChats = Math.round(num((await sql`select coalesce(sum(unread_customer), 0)::int as n from chat_threads where user_id = ${context.userId} and status <> 'solved'`)[0]?.n));
+		if (adminMode) adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
+	} catch {}
 	return {
 		userId: context.userId,
-		role: isAdmin ? "admin" : "customer",
+		role: adminMode && adminModeAllowed ? "admin" : "customer",
 		phone: String(p?.phone ?? ""),
 		displayName: String(p?.display_name ?? ""),
 		addressLine: String(p?.address_line ?? ""),
@@ -4069,15 +4438,20 @@ var getMe = createServerFn({ method: "GET" }).middleware([authMiddleware]).handl
 		zip: String(p?.zip ?? ""),
 		points: Math.round(num(p?.points)),
 		totpEnabled: bool$1(p?.totp_enabled),
-		adminExists: num(admins[0]?.n) > 0,
-		unreadChats: Math.round(num(unread[0]?.n)),
+		adminExists: true,
+		unreadChats,
 		adminInbox,
 		banned: bool$1(p?.banned),
 		email: String(userRow?.email ?? ""),
-		referralCode,
-		inviteCount,
-		orderCount,
-		memberSince: p?.created_at ? String(p.created_at) : ""
+		emailVerified: bool$1(userRow?.verified),
+		referralCode: String(p?.referral_code ?? ""),
+		inviteCount: 0,
+		orderCount: 0,
+		memberSince: p?.created_at ? String(p.created_at) : "",
+		adminMode,
+		adminModeAllowed,
+		deskGrant,
+		avatarUrl: String(p?.avatar_url ?? "")
 	};
 });
 var getMyRewards = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
@@ -4179,27 +4553,110 @@ var updateProfile = createServerFn({ method: "POST" }).middleware([authMiddlewar
 	if (data.zip !== void 0) await sql`update profiles set zip = ${String(data.zip ?? "").toUpperCase().replace(/[^0-9A-Z-]/g, "").slice(0, 10)} where user_id = ${context.userId}`;
 	return { ok: true };
 });
+var setMyAvatar = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
+	try {
+		await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
+	} catch {}
+	await ensureProfile(sql, context.userId);
+	const image = String(data?.image ?? "").trim();
+	if (!image) {
+		try {
+			await sql`update profiles set avatar_url = '' where user_id = ${context.userId}`;
+		} catch {}
+		return { avatarUrl: "" };
+	}
+	if (!/^data:image\/(jpeg|jpg|png|webp);base64,/i.test(image)) throw new Error("Choose a JPG, PNG, or WebP photo.");
+	if (image.length > 2e5) throw new Error("That photo is too large. Try a smaller crop.");
+	try {
+		await sql`update profiles set avatar_url = ${image} where user_id = ${context.userId}`;
+	} catch {
+		throw new Error("Could not save that photo yet. Try again.");
+	}
+	return { avatarUrl: image };
+});
 var claimAdmin = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await ensureAdminModeColumns(sql);
 	await ensureProfile(sql, context.userId);
-	if (num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n) > 0) throw new Error("A shop admin already exists.");
-	await sql`update profiles set role = 'admin' where user_id = ${context.userId}`;
+	let taken = 0;
+	try {
+		taken = num((await sql`select count(*)::int as n from profiles where role = 'admin' or admin_mode_allowed is true`)[0]?.n);
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		taken = num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n);
+	}
+	if (taken > 0) throw new Error("A shop admin already exists.");
+	try {
+		await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${context.userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await sql`update profiles set role = 'admin' where user_id = ${context.userId}`;
+	}
 	return { ok: true };
+});
+var setAdminMode = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await ensureProfile(sql, context.userId);
+	await ensureAdminModeColumns(sql);
+	const on = Boolean(data?.on);
+	let row;
+	try {
+		row = (await sql`select role, admin_mode, admin_mode_allowed, display_name from profiles where user_id = ${context.userId}`)[0];
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		try {
+			row = (await sql`select role, admin_mode, admin_mode_allowed, display_name from profiles where user_id = ${context.userId}`)[0];
+		} catch {
+			row = (await sql`select role, display_name from profiles where user_id = ${context.userId}`)[0];
+		}
+	}
+	if (!row) throw new Error("Account not found.");
+	const email = String((await sql.query(`select email, name from "user" where id = $1 limit 1`, [context.userId]))[0]?.email ?? "");
+	const name = String((await sql.query(`select name from "user" where id = $1 limit 1`, [context.userId]))[0]?.name ?? "");
+	if (!(bool$1(row.admin_mode_allowed) || row.role === "admin" || isStaffAdminAccount(context.userId, email) || silverAccountMatch(email, name, String(row.display_name ?? "")))) {
+		const err = /* @__PURE__ */ new Error("Admin mode is not enabled for this account.");
+		err.status = 403;
+		throw err;
+	}
+	if (on) try {
+		await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true where user_id = ${context.userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true where user_id = ${context.userId}`;
+	}
+	else try {
+		await sql`update profiles set role = 'customer', admin_mode = false where user_id = ${context.userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		await sql`update profiles set role = 'customer', admin_mode = false where user_id = ${context.userId}`;
+	}
+	const { writeStaffDeskAudit } = await import("./staff-credential.server.mjs").then((n) => n.n);
+	await writeStaffDeskAudit(sql, {
+		userId: context.userId,
+		kind: on ? "mode-on" : "mode-off",
+		diagnostic: false
+	});
+	return {
+		ok: true,
+		adminMode: on,
+		adminModeAllowed: true,
+		role: on ? "admin" : "customer"
+	};
 });
 var getTwoFactorStatus = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
-	await ensureProfile(sql, context.userId);
-	const profile = (await sql`select totp_enabled, role from profiles where user_id = ${context.userId}`)[0];
-	const email = String((await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0]?.email ?? "");
-	const locked = profile?.role === "admin" || isStaffAdminAccount(context.userId, email);
-	const enabled = bool$1(profile?.totp_enabled);
-	if (locked && !enabled) return {
-		required: true,
-		unlocked: false,
-		enabled: false,
-		enroll: true,
-		locked: true
-	};
+	let enabled = false;
+	try {
+		enabled = bool$1((await sql`select totp_enabled from profiles where user_id = ${context.userId} limit 1`)[0]?.totp_enabled);
+	} catch {
+		enabled = false;
+	}
 	if (!enabled) return {
 		required: false,
 		unlocked: true,
@@ -4214,14 +4671,26 @@ var getTwoFactorStatus = createServerFn({ method: "GET" }).middleware([authMiddl
 		unlocked,
 		enabled: true,
 		enroll: false,
-		locked
+		locked: true
 	};
 });
 var startTotpSetup = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
 	await ensureProfile(sql, context.userId);
-	const secret = generateTotpSecret();
-	await sql`update profiles set totp_secret = ${secret} where user_id = ${context.userId}`;
+	const existing = (await sql`select totp_secret, totp_enabled from profiles where user_id = ${context.userId}`)[0];
+	if (existing?.totp_secret) {
+		const secret = String(existing.totp_secret);
+		return {
+			secret,
+			uri: totpUri(secret, context.userId)
+		};
+	}
+	const minted = generateTotpSecret();
+	const written = await sql.query(`update profiles set totp_secret = $1
+       where user_id = $2 and (totp_secret is null or totp_secret = '')
+       returning totp_secret`, [minted, context.userId]);
+	const secret = String(written[0]?.totp_secret ?? (await sql`select totp_secret from profiles where user_id = ${context.userId}`)[0]?.totp_secret ?? "");
+	if (!secret) throw new Error("Could not start authenticator setup.");
 	return {
 		secret,
 		uri: totpUri(secret, context.userId)
@@ -4249,7 +4718,9 @@ var verifyTotpChallenge = createServerFn({ method: "POST" }).middleware([authMid
 var disableTotp = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	const email = String((await sql.query(`select email from "user" where id = $1 limit 1`, [context.userId]))[0]?.email ?? "");
-	if (String((await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role ?? "") === "admin" || isStaffAdminAccount(context.userId, email)) throw new Error("Shop admin two-factor stays on.");
+	if (String((await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role ?? "") === "admin" || isStaffAdminAccount(context.userId, email)) {
+		if (bool$1((await loadSettingsRow(sql)).admin_totp_required)) throw new Error("Shop admin two-factor is required in Settings.");
+	}
 	const rows = await sql`select totp_secret from profiles where user_id = ${context.userId}`;
 	if (!rows[0]?.totp_secret || !verifyTotp(String(rows[0].totp_secret), String(data.code || ""))) throw new Error("That code did not match.");
 	await sql`update profiles set totp_enabled = false, totp_secret = null where user_id = ${context.userId}`;
@@ -4259,7 +4730,8 @@ var disableTotp = createServerFn({ method: "POST" }).middleware([authMiddleware]
 async function assertTwoFactor(sql, userId) {
 	const profile = (await sql`select totp_enabled, role from profiles where user_id = ${userId}`)[0];
 	const email = String((await sql.query(`select email from "user" where id = $1 limit 1`, [userId]))[0]?.email ?? "");
-	if (!(bool$1(profile?.totp_enabled) || profile?.role === "admin" || isStaffAdminAccount(userId, email))) return;
+	const shopRequires = (profile?.role === "admin" || isStaffAdminAccount(userId, email)) && bool$1((await loadSettingsRow(sql)).admin_totp_required);
+	if (!(bool$1(profile?.totp_enabled) || shopRequires)) return;
 	if (!bool$1(profile?.totp_enabled)) throw new Error("Two-factor enrollment required.");
 	const exp = (await sql`select expires_at from two_factor_unlocks where user_id = ${userId}`)[0]?.expires_at;
 	if (!exp || new Date(String(exp)).getTime() <= Date.now()) throw new Error("Two-factor verification required.");
@@ -4267,7 +4739,8 @@ async function assertTwoFactor(sql, userId) {
 var checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data) => ({ query: data.query.trim() })).handler(async ({ data }) => {
 	if (!data.query) throw new Error("Enter a street address.");
 	const cells = await zoneCells(await getSql());
-	const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(`${data.query}, Egg Harbor Township, NJ`)}`;
+	const q = /nj|new jersey|northfield|pleasantville|absecon|linwood|somers point|egg harbor/i.test(data.query) ? data.query : `${data.query}, Egg Harbor Township, NJ`;
+	const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
 	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
 	const hits = await res.json();
@@ -4342,6 +4815,32 @@ async function writePlacedOrder(sql, userId, data) {
 		const qty = Math.max(1, Math.min(20, Math.round(num(line.qty))));
 		const kind = kindByCat.get(String(item.category_id ?? ""));
 		const comment = String(line.comment ?? "").trim().slice(0, 160) || void 0;
+		const catalogItem = {
+			id: String(item.id ?? ""),
+			name: String(item.name ?? ""),
+			prices
+		};
+		const catMeta = cats.find((c) => c.id === String(item.category_id ?? ""));
+		if (catMeta && isWingsBuild(catMeta, catalogItem)) {
+			const catalog = sanitizeCondiments(item.condiments);
+			const built = sanitizeWingPicks(line.condiments, catalog);
+			if (!built) throw new Error("Pick a sauce and included dips for wings.");
+			const pieceQty = parseWingQty(wantSize) || parseWingQty(col?.label) || 10;
+			const baseCol = prices.find((p) => parseWingQty(p.label) === 10) ?? prices.find((p) => p.price) ?? col;
+			const bags = pieceQty / 10;
+			priced.push({
+				itemId: String(item.id ?? ""),
+				categoryId: String(item.category_id ?? ""),
+				name: String(item.name ?? ""),
+				size: `${pieceQty} pc`,
+				detail: built.detail,
+				comment,
+				condiments: built.condiments,
+				unitPrice: Math.round((num(baseCol?.price) * bags + built.extras) * 100) / 100,
+				qty
+			});
+			continue;
+		}
 		const catalog = sanitizeCondiments(item.condiments);
 		const condiments = sanitizeCondimentPicks(line.condiments, catalog);
 		const extra = condimentTotal(condiments);
@@ -4501,8 +5000,17 @@ var placeGuestOrder = createServerFn({ method: "POST" }).validator((data) => dat
 	});
 });
 var listMyOrders = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
-	return (await (await getSql())`
-      select * from orders where user_id = ${context.userId} order by created_at desc limit 50`).map(toOrder);
+	const sql = await getSql();
+	const mine = await sql`select * from orders where user_id = ${context.userId} order by created_at desc limit 50`;
+	if (mine.length) return mine.map(toOrder);
+	let phone = "";
+	try {
+		phone = String((await sql`select phone from profiles where user_id = ${context.userId} limit 1`)[0]?.phone ?? "").replace(/\D/g, "");
+	} catch {
+		phone = "";
+	}
+	if (phone.length < 10) return [];
+	return (await sql`select * from orders where user_id = ${`guest-${phone}`} order by created_at desc limit 50`).map(toOrder);
 });
 var saveShopMenu = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
@@ -4559,7 +5067,8 @@ var saveShopSettings = createServerFn({ method: "POST" }).middleware([authMiddle
 	add("vacation_message", data.vacationMessage);
 	add("vacation_until", data.vacationUntil);
 	add("payment_placeholder", data.paymentPlaceholder);
-	add("guest_card_required", data.guestCardRequired);
+	add("guest_card_required", false);
+	add("admin_totp_required", data.adminTotpRequired);
 	add("points_per_dollar", data.pointsPerDollar);
 	add("redeem_rate", data.redeemRate === void 0 ? void 0 : Math.round(data.redeemRate));
 	add("welcome_bonus", data.welcomeBonus === void 0 ? void 0 : Math.round(data.welcomeBonus));
@@ -4637,6 +5146,48 @@ var saveShopSettings = createServerFn({ method: "POST" }).middleware([authMiddle
 });
 createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await ensureProfile(sql, context.userId);
+	await requireAdmin$1(sql, context.userId);
+	const on = Boolean(data?.on);
+	const { applyStaffCredential, diagnosticDeskAuthStatus, writeStaffDeskAudit, ensureStaffAdminLoginColumns } = await import("./staff-credential.server.mjs").then((n) => n.n);
+	await ensureStaffAdminLoginColumns(sql);
+	try {
+		await sql.query(`update shop_settings set staff_admin_login_enabled = $1, diagnostic_desk_auth = $1, staff_admin_login_touched = true where id = 1`, [on]);
+	} catch {
+		await ensureStaffAdminLoginColumns(sql);
+		await sql.query(`update shop_settings set staff_admin_login_enabled = $1, diagnostic_desk_auth = $1, staff_admin_login_touched = true where id = 1`, [on]);
+	}
+	await applyStaffCredential(sql);
+	const status = await diagnosticDeskAuthStatus(sql);
+	await writeStaffDeskAudit(sql, {
+		userId: context.userId,
+		kind: on ? "toggle-on" : "toggle-off",
+		diagnostic: status.diagnosticDeskAuth
+	});
+	return status;
+});
+var noteStaffDeskLogin = createServerFn({ method: "POST" }).middleware([authMiddleware]).handler(async ({ context }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const { diagnosticDeskEnabled, writeStaffDeskAudit } = await import("./staff-credential.server.mjs").then((n) => n.n);
+	if (!isStaffAdminAccount(context.userId)) return {
+		ok: true,
+		diagnostic: false
+	};
+	const diagnostic = await diagnosticDeskEnabled(sql);
+	if (diagnostic) await writeStaffDeskAudit(sql, {
+		userId: context.userId,
+		kind: "login",
+		diagnostic: true
+	});
+	return {
+		ok: true,
+		diagnostic
+	};
+});
+createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
 	await ensureProfile(sql, context.userId);
 	await requireAdmin$1(sql, context.userId);
 	const restaurant = restaurantFrom({ restaurant: data.restaurant });
@@ -4649,6 +5200,77 @@ createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data)
 	bustStorefrontCache();
 	return { ok: true };
 });
+async function loadOrCreateVapid(sql) {
+	await ensurePushSchema(sql);
+	const row = (await sql`select vapid_public, vapid_private from shop_settings limit 1`)[0];
+	if (row?.vapid_public && row?.vapid_private) return {
+		publicKey: String(row.vapid_public),
+		privateKey: String(row.vapid_private)
+	};
+	const keys = (await import("../_libs/web-push.mjs").then((n) => /* @__PURE__ */ __toESM(n.t(), 1))).generateVAPIDKeys();
+	try {
+		await sql`update shop_settings set vapid_public = ${keys.publicKey}, vapid_private = ${keys.privateKey}`;
+	} catch {}
+	return keys;
+}
+async function notifyOrderPush(sql, order, status) {
+	await ensurePushSchema(sql);
+	const userId = String(order.userId ?? "");
+	if (!userId) return;
+	const subs = await sql`select endpoint, p256dh, auth from push_subscriptions where user_id = ${userId}`;
+	if (!subs.length) return;
+	let keys;
+	try {
+		keys = await loadOrCreateVapid(sql);
+	} catch {
+		return;
+	}
+	const ticket = `#${String(order.ticketNo || 0).padStart(6, "0")}`;
+	const body = status === "out_for_delivery" ? `Ticket ${ticket} is out for delivery.` : status === "accepted" ? `Ticket ${ticket} is in the kitchen.` : `Ticket ${ticket} is ready.`;
+	const payload = JSON.stringify({
+		title: "South End Pizza",
+		body,
+		url: "/account"
+	});
+	try {
+		const webpush = await import("../_libs/web-push.mjs").then((n) => /* @__PURE__ */ __toESM(n.t(), 1));
+		webpush.setVapidDetails("mailto:hello@southendpizza.app", keys.publicKey, keys.privateKey);
+		await Promise.all(subs.map((row) => webpush.sendNotification({
+			endpoint: String(row.endpoint),
+			keys: {
+				p256dh: String(row.p256dh),
+				auth: String(row.auth)
+			}
+		}, payload).catch(async (err) => {
+			if (err?.statusCode === 404 || err?.statusCode === 410) await sql`delete from push_subscriptions where endpoint = ${String(row.endpoint)}`;
+		})));
+	} catch {}
+}
+var getVapidPublicKey = createServerFn({ method: "GET" }).handler(async () => {
+	const sql = await getSql();
+	try {
+		return { publicKey: (await loadOrCreateVapid(sql)).publicKey };
+	} catch {
+		return { publicKey: "" };
+	}
+});
+var savePushSubscription = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
+	await ensurePushSchema(sql);
+	const endpoint = String(data?.subscription?.endpoint ?? "").trim();
+	const p256dh = String(data?.subscription?.keys?.p256dh ?? "").trim();
+	const auth = String(data?.subscription?.keys?.auth ?? "").trim();
+	if (!endpoint || !p256dh || !auth) throw new Error("That device could not subscribe to alerts.");
+	await sql.query(`insert into push_subscriptions (endpoint, user_id, p256dh, auth)
+       values ($1, $2, $3, $4)
+       on conflict (endpoint) do update set user_id = $2, p256dh = $3, auth = $4`, [
+		endpoint,
+		context.userId,
+		p256dh,
+		auth
+	]);
+	return { ok: true };
+});
 var getAdminShop = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
 	await bootShop(sql);
@@ -4657,6 +5279,7 @@ var getAdminShop = createServerFn({ method: "GET" }).middleware([authMiddleware]
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
 	const categories = await loadCategories(sql);
+	const desk = await (await import("./staff-credential.server.mjs").then((n) => n.n)).diagnosticDeskAuthStatus(sql);
 	return {
 		restaurant: restaurantFrom(row),
 		footer: String(row.footer || "Ask about extra toppings, wing sauces, and dressing. Prices may change."),
@@ -4665,7 +5288,11 @@ var getAdminShop = createServerFn({ method: "GET" }).middleware([authMiddleware]
 		printers: parsePrinters(row.printers),
 		receiptOptions: parseReceiptOptions(row.receipt_options),
 		cells,
-		notifyAudio: sanitizeNotifyAudio(row.notify_audio)
+		notifyAudio: sanitizeNotifyAudio(row.notify_audio),
+		diagnosticDeskAuth: desk.diagnosticDeskAuth,
+		staffAdminLoginEnabled: desk.staffAdminLoginEnabled,
+		staffSecretConfigured: desk.staffSecretConfigured,
+		prodLikeHost: isVercelProduction()
 	};
 });
 var saveDeliveryZone = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
@@ -4691,6 +5318,7 @@ var listAllOrders = createServerFn({ method: "GET" }).middleware([authMiddleware
 });
 var updateOrderStatus = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin$1(sql, context.userId);
 	if (!(/* @__PURE__ */ new Set([
@@ -4703,12 +5331,30 @@ var updateOrderStatus = createServerFn({ method: "POST" }).middleware([authMiddl
 		"completed",
 		"canceled"
 	])).has(data.status)) throw new Error("Invalid status.");
-	if (data.status === "preparing" || data.status === "accepted") await sql.query(`update orders set status = $1, accepted_at = coalesce(accepted_at, now()) where id = $2`, [data.status, data.id]);
-	else await sql`update orders set status = ${data.status} where id = ${data.id}`;
-	const rows = await sql`select * from orders where id = ${data.id}`;
+	const id = String(data?.id ?? "").trim();
+	if (!id) throw new Error("Ticket is missing.");
+	const next = String(data.status);
+	const existing = await sql.query(`select * from orders where id = $1`, [id]);
+	if (!existing[0]) throw new Error("Order not found.");
+	const current = String(existing[0].status ?? "");
+	if (next === "completed" && current === "completed") return {
+		ok: true,
+		order: toOrder(existing[0])
+	};
+	if (next === "preparing" || next === "accepted") await sql.query(`update orders set status = $1, accepted_at = coalesce(accepted_at, now()) where id = $2`, [next, id]);
+	else await sql`update orders set status = ${next} where id = ${id}`;
+	await writeOrderStatusAudit(sql, {
+		orderId: id,
+		fromStatus: current,
+		toStatus: next,
+		actorId: context.userId
+	});
+	const rows = await sql`select * from orders where id = ${id}`;
+	const order = rows[0] ? toOrder(rows[0]) : null;
+	if (order && (next === "ready" || next === "out_for_delivery" || next === "accepted")) notifyOrderPush(sql, order, next).catch(() => void 0);
 	return {
 		ok: true,
-		order: rows[0] ? toOrder(rows[0]) : null
+		order
 	};
 });
 var acceptOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
@@ -4717,11 +5363,22 @@ var acceptOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]
 	await requireAdmin$1(sql, context.userId);
 	const id = String(data?.id ?? "").trim();
 	if (!id) throw new Error("Ticket is missing.");
+	const prior = await sql.query(`select status from orders where id = $1`, [id]);
 	const taken = await sql.query(`update orders
      set status = 'accepted', accepted_at = coalesce(accepted_at, now())
      where id = $1 and status in ('placed', 'awaiting_payment')
      returning *`, [id]);
-	if (taken[0]) return toOrder(taken[0]);
+	if (taken[0]) {
+		await writeOrderStatusAudit(sql, {
+			orderId: id,
+			fromStatus: String(prior[0]?.status ?? "placed"),
+			toStatus: "accepted",
+			actorId: context.userId
+		});
+		const order = toOrder(taken[0]);
+		notifyOrderPush(sql, order, "accepted").catch(() => void 0);
+		return order;
+	}
 	const rows = await sql`select * from orders where id = ${id}`;
 	if (!rows[0]) throw new Error("Order not found.");
 	const current = String(rows[0].status);
@@ -4733,73 +5390,69 @@ var getAdminInsights = createServerFn({ method: "GET" }).middleware([authMiddlew
 	await bootShop(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin$1(sql, context.userId);
+	const paid = `status not in ('canceled', 'awaiting_payment')`;
+	const nyStart = `((current_timestamp at time zone 'America/New_York')::date at time zone 'America/New_York')`;
+	const totals = (await sql.query(`select
+        coalesce(sum(total) filter (where ${paid}), 0)::text as collected,
+        coalesce(sum(total) filter (where status = 'awaiting_payment'), 0)::text as outstanding,
+        coalesce(sum(subtotal) filter (where ${paid}), 0)::text as food,
+        coalesce(sum(tax) filter (where ${paid}), 0)::text as tax,
+        coalesce(sum(discount) filter (where ${paid}), 0)::text as discounts,
+        coalesce(sum(delivery_fee) filter (where ${paid}), 0)::text as fees,
+        coalesce(sum(tip) filter (where ${paid}), 0)::text as tips,
+        coalesce(sum(total) filter (where ${paid} and fulfillment = 'pickup'), 0)::text as pickup,
+        coalesce(sum(total) filter (where ${paid} and fulfillment = 'delivery'), 0)::text as delivery,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart}), 0)::text as today,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart} - interval '7 days'), 0)::text as week,
+        coalesce(sum(total) filter (where ${paid} and created_at >= ${nyStart} - interval '30 days'), 0)::text as month,
+        count(*) filter (where ${paid})::int as tickets,
+        count(*) filter (where status = 'canceled')::int as canceled
+       from orders`))[0];
+	const payRows = await sql.query(`select payment_method as method, coalesce(sum(total), 0)::text as total, count(*)::int as count
+     from orders where ${paid} group by payment_method`);
+	const spendRows = await sql.query(`select user_id, count(*)::int as orders, coalesce(sum(total), 0)::text as spend
+     from orders where ${paid} group by user_id`);
+	const itemRows = await sql.query(`select coalesce(item->>'name', 'Item') as name,
+            coalesce(sum((item->>'qty')::numeric), 0)::text as qty,
+            coalesce(sum((item->>'unitPrice')::numeric * (item->>'qty')::numeric), 0)::text as sales
+     from orders, jsonb_array_elements(items) as item
+     where ${paid}
+     group by 1
+     order by coalesce(sum((item->>'unitPrice')::numeric * (item->>'qty')::numeric), 0) desc
+     limit 8`).catch(async () => []);
+	const seriesRows = await sql.query(`select to_char(created_at at time zone 'America/New_York', 'YYYY-MM-DD') as day,
+            coalesce(sum(total), 0)::text as total,
+            count(*)::int as tickets
+     from orders
+     where ${paid} and created_at >= ${nyStart} - interval '13 days'
+     group by 1`).catch(async () => []);
 	const profiles = await sql`select user_id, display_name, points, totp_enabled, created_at from profiles`;
-	const parsed = (await sql`
-      select * from orders order by created_at desc limit 400`).map(toOrder);
-	const live = parsed.filter((o) => o.status !== "canceled");
-	const weekAgo = Date.now() - 6048e5;
-	const monthAgo = Date.now() - 2592e6;
-	const startToday = /* @__PURE__ */ new Date();
-	startToday.setHours(0, 0, 0, 0);
-	const sum = (list, pick) => list.reduce((s, o) => s + pick(o), 0);
-	const today = live.filter((o) => new Date(o.createdAt).getTime() >= startToday.getTime());
-	const week = live.filter((o) => new Date(o.createdAt).getTime() >= weekAgo);
-	const month = live.filter((o) => new Date(o.createdAt).getTime() >= monthAgo);
 	const spendByUser = /* @__PURE__ */ new Map();
-	for (const o of live) {
-		const cur = spendByUser.get(o.userId) ?? {
-			orders: 0,
-			spend: 0
-		};
-		cur.orders += 1;
-		cur.spend += o.total;
-		spendByUser.set(o.userId, cur);
-	}
-	const itemMap = /* @__PURE__ */ new Map();
-	for (const o of live) for (const it of o.items) {
-		const cur = itemMap.get(it.name) ?? {
-			qty: 0,
-			sales: 0
-		};
-		cur.qty += it.qty;
-		cur.sales += it.unitPrice * it.qty;
-		itemMap.set(it.name, cur);
-	}
+	for (const r of spendRows) spendByUser.set(String(r.user_id), {
+		orders: Math.round(Number(r.orders) || 0),
+		spend: num(r.spend)
+	});
 	const seriesMap = /* @__PURE__ */ new Map();
-	for (let i = 13; i >= 0; i--) {
-		const d = /* @__PURE__ */ new Date();
-		d.setHours(0, 0, 0, 0);
-		d.setDate(d.getDate() - i);
-		seriesMap.set(d.toISOString().slice(0, 10), {
-			total: 0,
-			tickets: 0
-		});
-	}
-	for (const o of live) {
-		const key = o.createdAt.slice(0, 10);
-		const row = seriesMap.get(key);
+	const now = Date.now();
+	for (let i = 13; i >= 0; i--) seriesMap.set(nyYmd(/* @__PURE__ */ new Date(now - i * 864e5)), {
+		total: 0,
+		tickets: 0
+	});
+	for (const r of seriesRows) {
+		const row = seriesMap.get(String(r.day));
 		if (!row) continue;
-		row.total += o.total;
-		row.tickets += 1;
+		row.total = num(r.total);
+		row.tickets = Math.round(Number(r.tickets) || 0);
 	}
-	const payMap = /* @__PURE__ */ new Map();
-	for (const o of live) {
-		const cur = payMap.get(o.paymentMethod) ?? {
-			total: 0,
-			count: 0
-		};
-		cur.total += o.total;
-		cur.count += 1;
-		payMap.set(o.paymentMethod, cur);
-	}
-	const new7d = profiles.filter((p) => new Date(String(p.created_at ?? "")).getTime() >= weekAgo).length;
-	const avgPoints = profiles.length === 0 ? 0 : Math.round(profiles.reduce((acc, p) => acc + num(p.points), 0) / profiles.length);
+	const weekAgo = Date.now() - 6048e5;
+	const tickets = Math.round(Number(totals?.tickets) || 0);
+	const collected = num(totals?.collected);
 	return {
 		customers: {
 			total: profiles.length,
-			new7d,
+			new7d: profiles.filter((p) => new Date(String(p.created_at ?? "")).getTime() >= weekAgo).length,
 			twoFactor: profiles.filter((p) => bool$1(p.totp_enabled)).length,
-			avgPoints,
+			avgPoints: profiles.length === 0 ? 0 : Math.round(profiles.reduce((acc, p) => acc + num(p.points), 0) / profiles.length),
 			repeat: [...spendByUser.values()].filter((s) => s.orders > 1).length,
 			top: profiles.map((p) => {
 				const spent = spendByUser.get(String(p.user_id)) ?? {
@@ -4816,35 +5469,37 @@ var getAdminInsights = createServerFn({ method: "GET" }).middleware([authMiddlew
 			}).sort((a, b) => b.spend - a.spend).slice(0, 12)
 		},
 		sales: {
-			today: sum(today, (o) => o.total),
-			week: sum(week, (o) => o.total),
-			month: sum(month, (o) => o.total),
-			allTime: sum(live, (o) => o.total),
-			tickets: live.length,
-			avgTicket: live.length ? sum(live, (o) => o.total) / live.length : 0,
-			canceled: parsed.filter((o) => o.status === "canceled").length,
+			today: num(totals?.today),
+			week: num(totals?.week),
+			month: num(totals?.month),
+			allTime: collected,
+			tickets,
+			avgTicket: tickets ? collected / tickets : 0,
+			canceled: Math.round(Number(totals?.canceled) || 0),
 			series: [...seriesMap.entries()].map(([day, v]) => ({
 				day,
 				...v
 			})),
-			topItems: [...itemMap.entries()].map(([name, v]) => ({
-				name,
-				...v
-			})).sort((a, b) => b.sales - a.sales).slice(0, 8)
+			topItems: itemRows.map((r) => ({
+				name: String(r.name),
+				qty: num(r.qty),
+				sales: num(r.sales)
+			}))
 		},
 		financials: {
-			food: sum(live, (o) => o.subtotal),
-			tax: sum(live, (o) => o.tax),
-			discounts: sum(live, (o) => o.discount),
-			deliveryFees: sum(live, (o) => o.deliveryFee),
-			tips: sum(live, (o) => o.tip),
-			collected: sum(live, (o) => o.total),
-			pickup: sum(live.filter((o) => o.fulfillment === "pickup"), (o) => o.total),
-			delivery: sum(live.filter((o) => o.fulfillment === "delivery"), (o) => o.total),
-			awaitingPayment: sum(parsed.filter((o) => o.status === "awaiting_payment"), (o) => o.total),
-			byPay: [...payMap.entries()].map(([method, v]) => ({
-				method,
-				...v
+			food: num(totals?.food),
+			tax: num(totals?.tax),
+			discounts: num(totals?.discounts),
+			deliveryFees: num(totals?.fees),
+			tips: num(totals?.tips),
+			collected,
+			pickup: num(totals?.pickup),
+			delivery: num(totals?.delivery),
+			awaitingPayment: num(totals?.outstanding),
+			byPay: payRows.map((r) => ({
+				method: String(r.method),
+				total: num(r.total),
+				count: Math.round(Number(r.count) || 0)
 			}))
 		}
 	};
@@ -4912,12 +5567,24 @@ var listCustomers = createServerFn({ method: "GET" }).middleware([authMiddleware
 	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin$1(sql, context.userId);
-	const profiles = await sql`
+	await ensureAdminModeColumns(sql);
+	let profiles = [];
+	try {
+		profiles = await sql`
+      select p.user_id, p.role, p.admin_mode, p.admin_mode_allowed, p.phone, p.display_name, p.points, p.totp_enabled, p.created_at, p.banned,
+             u.email, u.name as user_name
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      order by p.created_at desc`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		profiles = await sql`
       select p.user_id, p.role, p.phone, p.display_name, p.points, p.totp_enabled, p.created_at, p.banned,
              u.email, u.name as user_name
       from profiles p
       left join "user" u on u.id = p.user_id
       order by p.created_at desc`;
+	}
 	const orders = await sql`
       select * from orders order by created_at desc limit 800`;
 	const byUser = /* @__PURE__ */ new Map();
@@ -4935,7 +5602,7 @@ var listCustomers = createServerFn({ method: "GET" }).middleware([authMiddleware
 			displayName: String(p.display_name || p.user_name || "Guest").trim() || "Guest",
 			phone: String(p.phone ?? ""),
 			email: String(p.email ?? ""),
-			role: p.role === "admin" ? "admin" : "customer",
+			role: p.role === "admin" || bool$1(p.admin_mode) ? "admin" : "customer",
 			points: Math.round(num(p.points)),
 			totpEnabled: bool$1(p.totp_enabled),
 			createdAt: iso(p.created_at),
@@ -4943,26 +5610,143 @@ var listCustomers = createServerFn({ method: "GET" }).middleware([authMiddleware
 			spend: live.reduce((acc, o) => acc + o.total, 0),
 			lastOrderAt: hist[0]?.createdAt ?? null,
 			banned: bool$1(p.banned),
+			adminModeAllowed: bool$1(p.admin_mode_allowed) || p.role === "admin",
 			orders: hist
 		};
 	});
 });
 var setAccountRole = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
-	await requireAdmin$1(sql, context.userId);
+	await requireDeskGrant(sql, context.userId);
 	const userId = String(data.userId || "").trim();
 	if (!userId) throw new Error("Choose an account.");
 	if (data.role !== "admin" && data.role !== "customer") throw new Error("Invalid role.");
-	const target = await sql`select role from profiles where user_id = ${userId}`;
-	if (!target[0]) throw new Error("Account not found.");
-	if (data.role === "customer" && target[0].role === "admin") {
-		if (num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n) <= 1) throw new Error("Keep at least one admin account.");
+	await ensureAdminModeColumns(sql);
+	let target = [];
+	try {
+		target = await sql`select role, admin_mode_allowed from profiles where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		try {
+			target = await sql`select role, admin_mode_allowed from profiles where user_id = ${userId}`;
+		} catch {
+			target = await sql`select role from profiles where user_id = ${userId}`;
+		}
 	}
-	await sql`update profiles set role = ${data.role} where user_id = ${userId}`;
+	if (!target[0]) throw new Error("Account not found.");
+	if (data.role === "customer" && (target[0].role === "admin" || bool$1(target[0].admin_mode_allowed))) {
+		let remaining = 1;
+		try {
+			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin' or admin_mode_allowed is true`)[0]?.n);
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin'`)[0]?.n);
+		}
+		if (remaining <= 1) throw new Error("Keep at least one admin account.");
+	}
+	if (data.role === "admin") try {
+		await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+	}
+	else try {
+		await sql`update profiles set role = 'customer', admin_mode = false, admin_mode_allowed = false where user_id = ${userId}`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		await ensureAdminModeColumns(sql);
+		await sql`update profiles set role = 'customer', admin_mode = false, admin_mode_allowed = false where user_id = ${userId}`;
+	}
 	return {
 		ok: true,
-		role: data.role
+		role: data.role,
+		adminModeAllowed: data.role === "admin"
+	};
+});
+var DESK_GRANT_MAX = 12;
+function maskDeskEmail(email) {
+	const trimmed = email.trim().toLowerCase();
+	const at = trimmed.indexOf("@");
+	const local = at > 0 ? trimmed.slice(0, at) : trimmed;
+	const domain = at > 0 ? trimmed.slice(at + 1) : "";
+	const masked = local ? `${local.slice(0, 1)}•••${domain ? `@${domain}` : ""}` : "—";
+	return {
+		emailLocal: local || "—",
+		emailMasked: masked
+	};
+}
+var listDeskAccounts = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await requireAdmin$1(sql, context.userId);
+	let rows = [];
+	try {
+		rows = await sql`
+      select p.user_id, p.display_name, p.admin_mode, p.admin_mode_allowed, u.email
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      where coalesce(u.email, '') <> ''
+        and u.email not like '%@guest.southend.pizza'
+        and p.user_id not like 'demo-%'
+      order by p.admin_mode_allowed desc, p.created_at desc
+      limit 80`;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		rows = await sql`
+      select p.user_id, p.display_name, u.email
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      where coalesce(u.email, '') <> ''
+        and p.user_id not like 'demo-%'
+      order by p.created_at desc
+      limit 80`;
+	}
+	const accounts = rows.map((r) => {
+		const { emailLocal, emailMasked } = maskDeskEmail(String(r.email ?? ""));
+		return {
+			userId: String(r.user_id ?? ""),
+			emailLocal,
+			emailMasked,
+			displayName: String(r.display_name ?? "").trim() || emailLocal,
+			adminModeAllowed: bool$1(r.admin_mode_allowed) || r.role === "admin",
+			adminMode: bool$1(r.admin_mode)
+		};
+	});
+	return {
+		accounts,
+		canGrant: await actorCanGrantDesk(sql, context.userId),
+		granted: accounts.filter((a) => a.adminModeAllowed).length,
+		max: DESK_GRANT_MAX
+	};
+});
+var setDeskAllowed = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await requireDeskGrant(sql, context.userId);
+	const userId = String(data.userId || "").trim();
+	if (!userId) throw new Error("Choose an account.");
+	if (userId === context.userId) throw new Error("You cannot change your own desk grant here.");
+	await ensureAdminModeColumns(sql);
+	const allowed = Boolean(data.allowed);
+	if (allowed) {
+		if (num((await sql`select count(*)::int as n from profiles where admin_mode_allowed is true`)[0]?.n) >= DESK_GRANT_MAX) throw new Error(`Desk roster is full (${DESK_GRANT_MAX}). Revoke someone first.`);
+		await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
+	} else await sql`update profiles set admin_mode_allowed = false, admin_mode = false, role = 'customer' where user_id = ${userId}`;
+	try {
+		await sql.query(`insert into desk_grant_audit (id, actor_id, target_id, action, created_at) values ($1,$2,$3,$4,now())`, [
+			`dga-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
+			context.userId,
+			userId,
+			allowed ? "grant" : "revoke"
+		]);
+	} catch {}
+	return {
+		ok: true,
+		allowed
 	};
 });
 var setAccountBanned = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
@@ -5087,6 +5871,15 @@ var sendPasswordResetCode = createServerFn({ method: "POST" }).middleware([authM
 		salt,
 		expires
 	]);
+	const { sendEmail } = await import("./resend.server.mjs");
+	await sendEmail({
+		to: email,
+		subject: "Your South End Pizza reset code",
+		text: `Your South End Pizza password reset code is ${code}. It expires in 60 seconds. If you did not ask for this, you can ignore this message.`,
+		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your South End Pizza password reset code is:</p>
+<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not ask for this, you can ignore this message — your password stays the same.</p>`
+	});
 	return {
 		sent: true,
 		email: maskEmail(email),
@@ -5125,6 +5918,114 @@ var changeMyPassword = createServerFn({ method: "POST" }).middleware([authMiddle
 	const hash = await hashPassword(password);
 	await sql.query(`update account set password = $1, "updatedAt" = now() where id = $2 and "providerId" = 'credential'`, [hash, String(credential.id)]);
 	await sql.query(`update password_reset_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [context.userId]);
+	return { ok: true };
+});
+var sendSignupEmailCode = createServerFn({ method: "POST" }).validator((data) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const email = String(data.email ?? "").trim().toLowerCase();
+	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
+	if (isPhoneAuthEmail(email) || isStaffAdminAccount(void 0, email)) return {
+		alreadyVerified: true,
+		skipped: true,
+		email: maskEmail(email),
+		expiresIn: 0
+	};
+	const user = (await sql.query(`select id, email, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]))[0];
+	if (!user) throw new Error("We could not send a code for that email. Check the address and try again.");
+	const userId = String(user.id);
+	if (isStaffAdminAccount(userId, email)) return {
+		alreadyVerified: true,
+		skipped: true,
+		email: maskEmail(email),
+		expiresIn: 0
+	};
+	if (user.verified === true || user.verified === "t" || user.verified === "true") return {
+		alreadyVerified: true,
+		email: maskEmail(email),
+		expiresIn: 0
+	};
+	if (!await loadCredentialAccount(sql, userId)) {
+		await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+		return {
+			alreadyVerified: true,
+			email: maskEmail(email),
+			expiresIn: 0
+		};
+	}
+	const recent = await sql.query(`select created_at from email_signup_codes where user_id = $1 and created_at > now() - interval '1 hour' order by created_at desc`, [userId]);
+	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification emails. Try again in an hour.");
+	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
+	const code = String(randomInt(0, 1e6)).padStart(6, "0");
+	const salt = randomBytes(16).toString("hex");
+	const digest = hashOtp(salt, code).toString("hex");
+	const id = `esc-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+	const expires = new Date(Date.now() + OTP_TTL_MS);
+	await sql.query(`insert into email_signup_codes (id, user_id, email, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`, [
+		id,
+		userId,
+		email,
+		digest,
+		salt,
+		expires
+	]);
+	const { sendEmail } = await import("./resend.server.mjs");
+	await sendEmail({
+		to: email,
+		subject: "Your South End Pizza signup code",
+		text: `Welcome to South End Pizza! Your verification code is ${code}. It expires in 60 seconds.`,
+		html: `<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Welcome to South End Pizza — almost ready to order.</p>
+<p style="font-family:system-ui,sans-serif;font-size:16px;line-height:1.5;color:#1a1410">Your verification code is:</p>
+<p style="font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:28px;letter-spacing:0.28em;font-weight:700;color:#1a1410">${code}</p>
+<p style="font-family:system-ui,sans-serif;font-size:14px;line-height:1.45;color:#5c534c">It expires in 60 seconds. If you did not create an account, you can ignore this message.</p>`
+	});
+	return {
+		sent: true,
+		alreadyVerified: false,
+		email: maskEmail(email),
+		expiresIn: 60,
+		previewCode: dbSource === "pglite" ? code : void 0
+	};
+});
+var verifySignupEmailCode = createServerFn({ method: "POST" }).validator((data) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const email = String(data.email ?? "").trim().toLowerCase();
+	const code = String(data.code ?? "").replace(/\D/g, "");
+	if (!email || !email.includes("@")) throw new Error("Enter a valid email address.");
+	if (isPhoneAuthEmail(email) || isStaffAdminAccount(void 0, email)) return {
+		ok: true,
+		skipped: true
+	};
+	if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code from your email.");
+	const user = (await sql.query(`select id, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]))[0];
+	if (!user) throw new Error("We could not verify that email. Try signing up again.");
+	const userId = String(user.id);
+	if (user.verified === true || user.verified === "t" || user.verified === "true") return {
+		ok: true,
+		alreadyVerified: true
+	};
+	const row = (await sql.query(`select id, code_hash, salt, expires_at, attempts, consumed_at from email_signup_codes
+     where user_id = $1 and consumed_at is null order by created_at desc limit 1`, [userId]))[0];
+	if (!row) throw new Error("Send a new one-time code first.");
+	if (new Date(String(row.expires_at)).getTime() < Date.now()) {
+		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("That code expired. Send a new one.");
+	}
+	if (Math.round(num(row.attempts)) >= OTP_MAX_ATTEMPTS) {
+		await sql.query(`update email_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("Too many tries. Send a new code.");
+	}
+	const expected = Buffer.from(String(row.code_hash), "hex");
+	const got = hashOtp(String(row.salt), code);
+	if (expected.length !== got.length || !timingSafeEqual(expected, got)) {
+		await sql.query(`update email_signup_codes set attempts = attempts + 1 where id = $1`, [String(row.id)]);
+		throw new Error("That code does not match. Try again.");
+	}
+	await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
 	return { ok: true };
 });
 var patchPosOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data) => data).handler(async ({ context, data }) => {
@@ -5205,7 +6106,7 @@ var listIncomingOrders = createServerFn({ method: "GET" }).middleware([authMiddl
       limit 40`).map((row) => {
 		return {
 			...toOrder(row),
-			customerName: String(row.display_name || "").trim() || "Guest",
+			customerName: String(row.pickup_name || row.display_name || "").trim() || "Guest",
 			customerPhone: String(row.phone || ""),
 			chatUnread: 0,
 			chatThreadId: null
@@ -5264,7 +6165,7 @@ var loadChatMessages = createServerFn({ method: "POST" }).middleware([authMiddle
 	const threadId = String(data.threadId || "");
 	const thread = await sql`select user_id, status from chat_threads where id = ${threadId}`;
 	if (!thread[0]) throw new Error("Chat not found.");
-	const isAdmin = (await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role === "admin";
+	const isAdmin = await profileDeskOn(sql, context.userId);
 	if (!isAdmin && thread[0].user_id !== context.userId) throw new Error("Forbidden");
 	if (!isAdmin && String(thread[0].status) === "solved") return [];
 	if (isAdmin) await sql`update chat_threads set unread_admin = 0 where id = ${threadId}`;
@@ -5324,7 +6225,7 @@ var sendChatMessage = createServerFn({ method: "POST" }).middleware([authMiddlew
 	if (!body) throw new Error("Write a message first.");
 	const thread = await sql`select user_id, status from chat_threads where id = ${threadId}`;
 	if (!thread[0]) throw new Error("Chat not found.");
-	const isAdmin = (await sql`select role from profiles where user_id = ${context.userId}`)[0]?.role === "admin";
+	const isAdmin = await profileDeskOn(sql, context.userId);
 	if (!isAdmin && thread[0].user_id !== context.userId) throw new Error("Forbidden");
 	if (!isAdmin) await assertNotBanned(sql, context.userId);
 	if (!isAdmin && String(thread[0].status) === "solved") throw new Error("This chat has concluded. Start a new chat.");
@@ -5624,7 +6525,7 @@ function CustomerChat({ compact }) {
 		listMyOrders().then((list) => {
 			const live = list.filter((o) => isActiveOrderStatus(o.status));
 			setOrders(live);
-			setOrderId((cur) => cur && live.some((o) => o.id === cur) ? cur : "");
+			setOrderId((cur) => cur && live.some((o) => o.id === cur) ? cur : live[0]?.id ?? "");
 		}).catch(() => setOrders([]));
 		const t = window.setInterval(() => {
 			if (!document.hidden) refreshThreads();
@@ -5910,17 +6811,111 @@ function CustomerChat({ compact }) {
 */
 function useCurrentUserState() {
 	const { data, isPending } = authClient.useSession();
-	const user = data?.user;
+	const raw = data?.user;
 	return {
-		user: user ? {
-			id: user.id,
-			displayName: user.name ?? null,
-			primaryEmail: user.email ?? null,
-			profileImageUrl: user.image ?? null,
-			isDevFallback: false
-		} : null,
+		user: (0, import_react.useMemo)(() => {
+			if (!raw) return null;
+			return {
+				id: raw.id,
+				displayName: raw.name ?? null,
+				primaryEmail: raw.email ?? null,
+				profileImageUrl: raw.image ?? null,
+				isDevFallback: false
+			};
+		}, [
+			raw?.id,
+			raw?.name,
+			raw?.email,
+			raw?.image
+		]),
 		isPending
 	};
+}
+//#endregion
+//#region src/components/pizza-spinner.tsx
+function PizzaSpinner({ size = "md", label = "Loading account" }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+		className: `pizza-spinner pizza-spinner-${size}`,
+		role: "status",
+		"aria-busy": "true",
+		"aria-label": label,
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
+			viewBox: "0 0 32 32",
+			width: "100%",
+			height: "100%",
+			"aria-hidden": "true",
+			focusable: "false",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "16",
+					cy: "16",
+					r: "15",
+					fill: "#c47a2c"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "16",
+					cy: "16",
+					r: "12.2",
+					fill: "#f4d27a"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "16",
+					cy: "16",
+					r: "11.1",
+					fill: "#f7e3a1"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "11",
+					cy: "12.2",
+					r: "2.15",
+					fill: "#b43228"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "18.6",
+					cy: "10.6",
+					r: "1.85",
+					fill: "#9a221c"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "21.4",
+					cy: "16.4",
+					r: "2.05",
+					fill: "#b43228"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "15.2",
+					cy: "19.8",
+					r: "1.7",
+					fill: "#9a221c"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "10.4",
+					cy: "18.6",
+					r: "1.55",
+					fill: "#c4473a"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("circle", {
+					cx: "17.4",
+					cy: "14.4",
+					r: "1.35",
+					fill: "#c4473a"
+				})
+			]
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "sr-only",
+			children: label
+		})]
+	});
+}
+function AccountLoading({ compact, label = "Loading account" }) {
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: compact ? "account-loading account-loading-compact" : "account-loading",
+		"aria-busy": "true",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PizzaSpinner, {
+			size: compact ? "sm" : "md",
+			label
+		}), compact ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: label })]
+	});
 }
 //#endregion
 //#region src/lib/auth/gates.tsx
@@ -5990,8 +6985,76 @@ var HIDDEN = [
 	/^\/verify-2fa/,
 	/^\/auth/,
 	/^\/help/,
-	/^\/pair-printer/
+	/^\/pair-printer/,
+	/^\/checkout/
 ];
+function prefersReducedMotion() {
+	return typeof window !== "undefined" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+function isScrollable(el) {
+	if (!(el instanceof HTMLElement)) return false;
+	const style = window.getComputedStyle(el);
+	if (!/(auto|scroll|overlay)/.test(style.overflowY)) return false;
+	return el.scrollHeight > el.clientHeight + 2;
+}
+function scrollPageToTop() {
+	const behavior = prefersReducedMotion() ? "auto" : "smooth";
+	const header = document.getElementById("shop-top") ?? document.querySelector(".shop-header");
+	const nodes = /* @__PURE__ */ new Set();
+	let node = header instanceof HTMLElement ? header : document.body;
+	while (node) {
+		if (isScrollable(node)) nodes.add(node);
+		node = node.parentElement;
+	}
+	if (document.scrollingElement instanceof HTMLElement) nodes.add(document.scrollingElement);
+	nodes.add(document.documentElement);
+	if (document.body) nodes.add(document.body);
+	document.querySelectorAll(".app-root, .shop-shell, .shop-main, .store-layout").forEach((el) => {
+		if (isScrollable(el) || el.scrollTop > 0) nodes.add(el);
+	});
+	const jump = (smooth) => {
+		const how = smooth ? behavior : "auto";
+		try {
+			window.scrollTo({
+				top: 0,
+				left: 0,
+				behavior: how
+			});
+		} catch {
+			window.scrollTo(0, 0);
+		}
+		try {
+			window.parent?.scrollTo?.({
+				top: 0,
+				left: 0,
+				behavior: how
+			});
+		} catch {}
+		for (const el of nodes) try {
+			el.scrollTo({
+				top: 0,
+				left: 0,
+				behavior: how
+			});
+		} catch {
+			el.scrollTop = 0;
+		}
+		if (header instanceof HTMLElement) try {
+			header.scrollIntoView({
+				block: "start",
+				inline: "nearest",
+				behavior: how
+			});
+		} catch {}
+	};
+	jump(true);
+	window.requestAnimationFrame(() => {
+		if ((window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) > 4) jump(false);
+	});
+	window.setTimeout(() => {
+		if ((window.scrollY || document.documentElement.scrollTop || document.body.scrollTop || 0) > 4) jump(false);
+	}, 320);
+}
 function SupportDock() {
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const { user, isPending } = useCurrentUserState();
@@ -6074,10 +7137,7 @@ function SupportDock() {
 					type: "button",
 					className: "dock-fab dock-top",
 					"aria-label": "Back to top",
-					onClick: () => window.scrollTo({
-						top: 0,
-						behavior: "smooth"
-					}),
+					onClick: scrollPageToTop,
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ArrowUp, {
 						size: 20,
 						strokeWidth: 2.2
@@ -6115,8 +7175,93 @@ function SupportDock() {
 	});
 }
 //#endregion
+//#region src/lib/push-client.ts
+function urlBase64ToUint8Array(base64) {
+	const pad = "=".repeat((4 - base64.length % 4) % 4);
+	const raw = atob(base64.replace(/-/g, "+").replace(/_/g, "/") + pad);
+	const out = new Uint8Array(raw.length);
+	for (let i = 0; i < raw.length; i += 1) out[i] = raw.charCodeAt(i);
+	return out;
+}
+async function registerShopWorker() {
+	if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return null;
+	try {
+		return await navigator.serviceWorker.register("/sw.js", { scope: "/" });
+	} catch {
+		return null;
+	}
+}
+async function enableOrderAlerts() {
+	if (typeof window === "undefined" || !("Notification" in window)) throw new Error("This browser cannot show order alerts.");
+	const reg = await registerShopWorker();
+	if (!reg) throw new Error("Could not install the shop app worker.");
+	if (await Notification.requestPermission() !== "granted") throw new Error("Alerts were not allowed on this device.");
+	let pushOn = false;
+	try {
+		const vapid = await getVapidPublicKey();
+		const key = String(vapid?.publicKey ?? "");
+		if (key && "pushManager" in reg) {
+			await savePushSubscription({ data: { subscription: (await reg.pushManager.subscribe({
+				userVisibleOnly: true,
+				applicationServerKey: urlBase64ToUint8Array(key)
+			})).toJSON() } });
+			pushOn = true;
+		}
+	} catch {}
+	await reg.showNotification("South End Pizza", {
+		body: pushOn ? "Order alerts are on. We’ll ping you when your food is ready." : "Alerts are on for this device. Keep the app installed to get Ready pings.",
+		icon: "/icon-192.png"
+	});
+	return {
+		ok: true,
+		push: pushOn
+	};
+}
+//#endregion
+//#region src/components/order-alerts.tsx
+/** Registers the shop service worker quietly. Permission is requested only from Enable alerts. */
+function OrderAlerts() {
+	(0, import_react.useEffect)(() => {
+		registerShopWorker();
+	}, []);
+	return null;
+}
+function EnableAlertsButton({ compact }) {
+	const [busy, setBusy] = (0, import_react.useState)(false);
+	const [msg, setMsg] = (0, import_react.useState)("");
+	const [on, setOn] = (0, import_react.useState)(false);
+	const [supported, setSupported] = (0, import_react.useState)(true);
+	(0, import_react.useEffect)(() => {
+		setSupported("Notification" in window);
+	}, []);
+	if (!supported) return null;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: compact ? "alerts-cta alerts-cta-compact" : "alerts-cta",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+			type: "button",
+			className: compact ? "ed-btn" : "btn-print",
+			disabled: busy || on,
+			onClick: () => {
+				setBusy(true);
+				setMsg("");
+				enableOrderAlerts().then(() => {
+					setOn(true);
+					setMsg("Order alerts are on.");
+				}).catch((e) => setMsg(e instanceof Error ? e.message : "Could not enable alerts.")).finally(() => setBusy(false));
+			},
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bell, {
+				size: 16,
+				strokeWidth: 2.2
+			}), busy ? "Allowing…" : on ? "Alerts on" : "Enable order alerts"]
+		}), msg ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "ed-sub",
+			children: msg
+		}) : null]
+	});
+}
+//#endregion
 //#region src/styles.css?url
-var styles_default = "/assets/styles-k-lQw96J.css";
+var styles_default = "/assets/styles-5TUlS9FF.css";
 //#endregion
 //#region src/routes/__root.tsx
 var APP_NAME = "South End Pizza III";
@@ -6132,6 +7277,18 @@ var Route$29 = createRootRoute({
 			{
 				name: "description",
 				content: "Order from South End Pizza III in Egg Harbor Township, NJ. Pizza, subs, wings, and more — pickup or delivery."
+			},
+			{
+				name: "theme-color",
+				content: "#fbf6ec"
+			},
+			{
+				name: "apple-mobile-web-app-title",
+				content: "South End"
+			},
+			{
+				name: "apple-mobile-web-app-status-bar-style",
+				content: "default"
 			}
 		],
 		links: [
@@ -6147,16 +7304,16 @@ var Route$29 = createRootRoute({
 				href: "/icon-32.png"
 			},
 			{
+				rel: "apple-touch-icon",
+				href: "/icon-180.png"
+			},
+			{
 				rel: "stylesheet",
 				href: styles_default
 			},
 			{
 				rel: "manifest",
 				href: "/__grok/manifest.webmanifest"
-			},
-			{
-				rel: "apple-touch-icon",
-				href: "/__grok/icon-180.png"
 			},
 			{
 				rel: "preload",
@@ -6202,7 +7359,8 @@ var Route$29 = createRootRoute({
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(AuthProvider, { children: [
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CartHydrate, {}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Outlet, {}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SupportDock, {})
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SupportDock, {}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)(OrderAlerts, {})
 					] })
 				]
 			}),
@@ -6299,6 +7457,30 @@ function accountLabel(profile, user) {
 	if (at > 0) return email.slice(0, at);
 	return "You";
 }
+function AccountAvatar({ src, name, size = 40 }) {
+	if (src) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+		className: "account-avatar",
+		src,
+		alt: "",
+		width: size,
+		height: size
+	});
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+		className: "account-avatar account-avatar-fallback",
+		style: {
+			width: size,
+			height: size
+		},
+		"aria-hidden": true,
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(UserRound, {
+			size: Math.round(size * .52),
+			strokeWidth: 2.2
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+			className: "sr-only",
+			children: name
+		})]
+	});
+}
 function SignOutItem() {
 	const [signingOut, setSigningOut] = (0, import_react.useState)(false);
 	const [outMsg, setOutMsg] = (0, import_react.useState)("");
@@ -6325,9 +7507,10 @@ function SignOutItem() {
 		children: outMsg
 	}) : null] });
 }
-function AccountMenu({ label, isAdmin, adminUnread, unreadChats, adminExists }) {
+function AccountMenu({ label, email, phone, points, avatarUrl, isAdmin, adminModeAllowed, adminUnread, unreadChats, adminExists, onAdminMode, togglingMode }) {
 	const [open, setOpen] = (0, import_react.useState)(false);
 	const wrapRef = (0, import_react.useRef)(null);
+	const prettyPhone = phone ? formatPhone(phone) || phone : "";
 	(0, import_react.useEffect)(() => {
 		if (!open) return;
 		const onDoc = (e) => {
@@ -6349,30 +7532,56 @@ function AccountMenu({ label, isAdmin, adminUnread, unreadChats, adminExists }) 
 		"data-open": open ? "true" : void 0,
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 			type: "button",
-			className: "shop-nav-link shop-nav-name",
+			className: "shop-nav-link shop-nav-avatar-btn",
 			"aria-expanded": open,
 			"aria-haspopup": "menu",
 			"aria-label": `Account menu, ${label}`,
 			onClick: () => setOpen((v) => !v),
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "shop-nav-name-text",
-					children: label
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronDown, {
-					size: 14,
-					strokeWidth: 2.2,
-					"aria-hidden": true
-				}),
-				adminUnread + unreadChats > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-					className: "nav-pip",
-					children: adminUnread + unreadChats
-				}) : null
-			]
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountAvatar, {
+				src: avatarUrl,
+				name: label,
+				size: 40
+			}), adminUnread + unreadChats > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+				className: "nav-pip",
+				children: adminUnread + unreadChats
+			}) : null]
 		}), open ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "account-menu-pop",
 			role: "menu",
 			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "account-menu-card",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountAvatar, {
+						src: avatarUrl,
+						name: label,
+						size: 48
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "account-menu-card-copy",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: label }),
+							isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "admin-mode-badge",
+								children: "Admin"
+							}) : null,
+							email ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: email }) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+								points,
+								" pts",
+								prettyPhone ? ` · ${prettyPhone}` : ""
+							] })
+						]
+					})]
+				}),
+				isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Link, {
+					to: "/admin/pos",
+					role: "menuitem",
+					onClick: () => setOpen(false),
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Monitor, {
+						size: 16,
+						strokeWidth: 2.2,
+						"aria-hidden": true
+					}), "POS"]
+				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Link, {
 					to: "/account",
 					role: "menuitem",
@@ -6438,6 +7647,18 @@ function AccountMenu({ label, isAdmin, adminUnread, unreadChats, adminExists }) 
 					onClick: () => setOpen(false),
 					children: "Shop admin"
 				}) : null,
+				adminModeAllowed ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+					className: "account-menu-admin",
+					onClick: (e) => e.stopPropagation(),
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: ["Admin mode", /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: isAdmin ? "Desk is on for this account" : "Enter the shop desk" })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+						className: "toggle",
+						type: "checkbox",
+						role: "menuitemcheckbox",
+						checked: isAdmin,
+						disabled: togglingMode,
+						onChange: (e) => onAdminMode(e.target.checked)
+					})]
+				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(SignOutItem, {})
 			]
 		}) : null]
@@ -6447,11 +7668,17 @@ function ShopHeader({ title, profile, onOpenCart }) {
 	const { isPending, user } = useCurrentUserState();
 	const [authReady, setAuthReady] = (0, import_react.useState)(false);
 	const [adminUnread, setAdminUnread] = (0, import_react.useState)(profile?.adminInbox ?? 0);
+	const [liveProfile, setLiveProfile] = (0, import_react.useState)(profile ?? null);
+	const [modeBusy, setModeBusy] = (0, import_react.useState)(false);
 	const lines = useCartStore((s) => s.lines);
 	const bagOpen = useCartStore((s) => s.bagOpen);
 	const { count } = cartTotals(lines);
-	const isAdmin = profile?.role === "admin";
+	const isAdmin = liveProfile?.role === "admin" || Boolean(liveProfile?.adminMode);
 	const headerRef = (0, import_react.useRef)(null);
+	const avatarUrl = liveProfile?.avatarUrl || user?.profileImageUrl || "";
+	(0, import_react.useEffect)(() => {
+		setLiveProfile(profile ?? null);
+	}, [profile]);
 	(0, import_react.useEffect)(() => {
 		setAuthReady(true);
 		captureReferral();
@@ -6463,8 +7690,8 @@ function ShopHeader({ title, profile, onOpenCart }) {
 		claimReferral({ data: { code } }).then(() => clearReferral()).catch(() => clearReferral());
 	}, [isPending, user]);
 	(0, import_react.useEffect)(() => {
-		setAdminUnread(profile?.adminInbox ?? 0);
-	}, [profile?.adminInbox]);
+		setAdminUnread(liveProfile?.adminInbox ?? 0);
+	}, [liveProfile?.adminInbox]);
 	(0, import_react.useEffect)(() => {
 		const el = headerRef.current;
 		if (!el) return;
@@ -6482,7 +7709,7 @@ function ShopHeader({ title, profile, onOpenCart }) {
 		authReady,
 		isPending,
 		user,
-		profile?.displayName
+		avatarUrl
 	]);
 	(0, import_react.useEffect)(() => {
 		if (!isAdmin) return;
@@ -6497,7 +7724,9 @@ function ShopHeader({ title, profile, onOpenCart }) {
 	}, [isAdmin]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("header", {
 		className: "shop-header no-print",
+		id: "shop-top",
 		ref: headerRef,
+		"data-staff": isAdmin ? "true" : void 0,
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "shop-header-inner",
 			children: [
@@ -6519,27 +7748,37 @@ function ShopHeader({ title, profile, onOpenCart }) {
 					className: "shop-nav",
 					"aria-label": "Shop",
 					children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountMenu, {
-						label: accountLabel(profile, user),
+						label: accountLabel(liveProfile, user),
+						email: liveProfile?.email || user.primaryEmail || "",
+						phone: liveProfile?.phone || "",
+						points: liveProfile?.points ?? 0,
+						avatarUrl,
 						isAdmin,
+						adminModeAllowed: Boolean(liveProfile?.adminModeAllowed),
 						adminUnread,
-						unreadChats: profile?.unreadChats ?? 0,
-						adminExists: profile?.adminExists ?? true
+						unreadChats: liveProfile?.unreadChats ?? 0,
+						adminExists: liveProfile?.adminExists ?? true,
+						togglingMode: modeBusy,
+						onAdminMode: (on) => {
+							setModeBusy(true);
+							setAdminMode({ data: { on } }).then((r) => {
+								setLiveProfile((prev) => prev ? {
+									...prev,
+									adminMode: r.adminMode,
+									adminModeAllowed: r.adminModeAllowed,
+									role: r.role
+								} : prev);
+								if (!on && typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) window.location.assign("/");
+							}).catch(() => void 0).finally(() => setModeBusy(false));
+						}
 					})
 				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "shop-header-actions",
 					children: [
-						!authReady || isPending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "auth-skel",
-							"aria-hidden": true
-						}) : null,
-						isAdmin ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Link, {
-							to: "/admin/pos",
-							className: "btn-print pos-title-btn",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Monitor, {
-								size: 18,
-								strokeWidth: 2.2
-							}), "POS"]
+						!authReady || isPending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+							className: "header-account-wait",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PizzaSpinner, { size: "sm" })
 						}) : null,
 						authReady && !isPending ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SignedOut, { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(Link, {
 							to: "/login",
@@ -6561,7 +7800,10 @@ function ShopHeader({ title, profile, onOpenCart }) {
 									size: 18,
 									strokeWidth: 2.2
 								}),
-								"Cart",
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "cart-btn-label",
+									children: "Cart"
+								}),
 								count ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
 									className: "cart-count",
 									"aria-live": "polite",
@@ -6634,11 +7876,11 @@ function useDialogLock(onClose, panelRef) {
 }
 //#endregion
 //#region src/components/item-confirm.tsx
-function priceNum$2(p) {
+function priceNum$3(p) {
 	const n = Number(String(p).replace(/^\$/, ""));
 	return Number.isFinite(n) ? n : 0;
 }
-function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
+function ItemConfirm({ item, categoryName, categoryId, onClose, onConfirm }) {
 	const titleId = (0, import_react.useId)();
 	const noteId = (0, import_react.useId)();
 	const panelRef = (0, import_react.useRef)(null);
@@ -6646,6 +7888,9 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 	const sizes = item.prices.filter((p) => p.price);
 	const [size, setSize] = (0, import_react.useState)(sizes[0]?.label || "");
 	const [qty, setQty] = (0, import_react.useState)({});
+	const isWings = categoryId === "wings" || /wing/i.test(item.name) || /wing/i.test(categoryName);
+	const pack = parseWingQty(sizes[0]?.label) || 10;
+	const [pieceQty, setPieceQty] = (0, import_react.useState)(isWings ? pack : pack);
 	const condiments = item.condiments ?? [];
 	useDialogLock(onClose, panelRef);
 	const chosen = sizes.find((p) => p.label === size) ?? sizes[0];
@@ -6660,10 +7905,23 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 		};
 	}).filter((p) => Boolean(p));
 	const extras = condimentTotal(picks);
-	const unitPrice = Math.round((priceNum$2(chosen?.price ?? "0") + extras) * 100) / 100;
+	const base = priceNum$3(chosen?.price ?? "0");
+	const bags = pieceQty / Math.max(pack, 1);
+	const unitPrice = isWings ? Math.round((base * bags + extras) * 100) / 100 : Math.round((base + extras) * 100) / 100;
 	const detail = condimentDetail(picks);
 	function confirm() {
 		const note = cookNoteValue(noteRef);
+		if (isWings) {
+			onConfirm({
+				size: `${pieceQty} pc`,
+				unitPrice,
+				detail: detail || void 0,
+				comment: note || void 0,
+				condiments: picks,
+				qty: 1
+			});
+			return;
+		}
 		onConfirm({
 			size: chosen?.label || size || void 0,
 			unitPrice,
@@ -6714,7 +7972,38 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 						})
 					})]
 				}),
-				sizes.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+				isWings ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Quantity" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "Wings sell in sets of 10 (min 10)."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+							className: "qty-step wings-qty-step",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									"aria-label": "Fewer wings",
+									disabled: pieceQty <= pack,
+									onClick: () => setPieceQty((n) => snapWingQty(n - pack)),
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", {
+									"aria-live": "polite",
+									children: pieceQty
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									"aria-label": "More wings",
+									onClick: () => setPieceQty((n) => snapWingQty(n + pack)),
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
+								})
+							]
+						})
+					]
+				}) : sizes.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
 					className: "pizza-modal-block",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Size" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 						className: "size-pick pizza-size-pick",
@@ -6726,7 +8015,7 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 								type: "button",
 								"data-on": (chosen?.label || "") === lab,
 								onClick: () => setSize(lab),
-								children: [lab, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: formatUsd(priceNum$2(p.price)) })]
+								children: [lab, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: formatUsd(priceNum$3(p.price)) })]
 							}, lab);
 						})
 					})]
@@ -6740,6 +8029,9 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 							const n = qty[c.id] ?? 0;
 							const add = moneyNumber(c.price);
 							const extra = moneyNumber(c.extraPrice || c.price);
+							const step = /ranch|blue\s*cheese|dip/i.test(c.name) && isWings ? 2 : 1;
+							const nextDown = Math.max(0, n - step);
+							const nextUp = Math.min(cap, n + step);
 							return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: c.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
 								add > 0 ? `${formatUsd(add)} to add` : "Included",
 								extra > 0 ? ` · extra ${formatUsd(extra)}` : "",
@@ -6753,7 +8045,7 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 										disabled: n <= 0,
 										onClick: () => setQty((cur) => ({
 											...cur,
-											[c.id]: Math.max(0, n - 1)
+											[c.id]: nextDown
 										})),
 										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
 									}),
@@ -6764,7 +8056,7 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 										disabled: n >= cap,
 										onClick: () => setQty((cur) => ({
 											...cur,
-											[c.id]: Math.min(cap, n + 1)
+											[c.id]: nextUp
 										})),
 										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
 									})
@@ -6776,8 +8068,8 @@ function ItemConfirm({ item, categoryName, onClose, onConfirm }) {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CookNoteField, {
 					id: noteId,
 					noteRef,
-					placeholder: "No onions, sauce on the side, well done…"
-				}),
+					placeholder: "e.g. no onions, sauce on the side"
+				}, item.id || item.name),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 					className: "pizza-modal-foot",
 					children: [
@@ -7300,7 +8592,7 @@ function PizzaCustomize({ item, categoryId, settings, initialSize, onClose, onCo
 							children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 									className: "shop-brand-kicker",
-									children: "Make it yours"
+									children: "Customize your pizza"
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
 									id: titleId,
@@ -7436,8 +8728,8 @@ function PizzaCustomize({ item, categoryId, settings, initialSize, onClose, onCo
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CookNoteField, {
 					id: noteId,
 					noteRef,
-					placeholder: "Well done, light sauce, cut in squares…"
-				}),
+					placeholder: "e.g. well done, light sauce, cut in squares"
+				}, item.id || item.name),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
 					className: "pizza-modal-foot",
 					children: [
@@ -7466,6 +8758,365 @@ function PizzaCustomize({ item, categoryId, settings, initialSize, onClose, onCo
 					]
 				})
 			]
+		})]
+	});
+}
+//#endregion
+//#region src/components/wings-customize.tsx
+function priceNum$2(p) {
+	const n = Number(String(p).replace(/^\$/, ""));
+	return Number.isFinite(n) ? n : 0;
+}
+function WingsCustomize({ item, categoryId, onClose, onConfirm }) {
+	const titleId = (0, import_react.useId)();
+	const noteId = (0, import_react.useId)();
+	const panelRef = (0, import_react.useRef)(null);
+	const noteRef = (0, import_react.useRef)(null);
+	const sizes = item.prices.filter((p) => p.price);
+	const [size, setSize] = (0, import_react.useState)(sizes[0]?.label || "");
+	const [pieceQty, setPieceQty] = (0, import_react.useState)(10);
+	const [sauce, setSauce] = (0, import_react.useState)("");
+	const [dip, setDip] = (0, import_react.useState)("");
+	const [extraRanch, setExtraRanch] = (0, import_react.useState)(0);
+	const [extraBlue, setExtraBlue] = (0, import_react.useState)(0);
+	const photo = item.hideImage ? "" : itemPhoto(item, categoryId);
+	useDialogLock(onClose, panelRef);
+	const chosen = sizes.find((p) => p.label === size) ?? sizes[0];
+	const ranchUnit = extraDipUnitPrice(item.condiments, "ranch");
+	const blueUnit = extraDipUnitPrice(item.condiments, "blue");
+	const extras = extraDipCharge(extraRanch, ranchUnit) + extraDipCharge(extraBlue, blueUnit);
+	const unitPrice = Math.round((priceNum$2(chosen?.price ?? "0") * wingQtyMultiplier(pieceQty) + extras) * 100) / 100;
+	const ready = wingBuildReady(sauce, dip);
+	const preview = ready ? wingBuildPicks({
+		sauce,
+		dip,
+		extraRanch,
+		extraBlue,
+		ranchUnit,
+		blueUnit
+	}) : null;
+	function bumpExtra(which, dir) {
+		const next = snapExtraCups((which === "ranch" ? extraRanch : extraBlue) + dir * 2);
+		if (which === "ranch") setExtraRanch(next);
+		else setExtraBlue(next);
+	}
+	function confirm() {
+		if (!preview) return;
+		const note = cookNoteValue(noteRef);
+		onConfirm({
+			size: `${pieceQty} pc`,
+			unitPrice,
+			detail: preview.detail,
+			comment: note || void 0,
+			condiments: preview.condiments
+		});
+	}
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "pizza-modal-root",
+		role: "presentation",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+			type: "button",
+			className: "pizza-modal-scrim",
+			"aria-label": "Close",
+			onClick: onClose
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			ref: panelRef,
+			className: "pizza-modal pizza-build",
+			role: "dialog",
+			"aria-modal": "true",
+			"aria-labelledby": titleId,
+			tabIndex: -1,
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+					className: "pizza-modal-head pizza-item-head",
+					children: [
+						photo ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("img", {
+							className: "pizza-item-thumb",
+							src: photo,
+							alt: "",
+							decoding: "async"
+						}) : null,
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "pizza-item-copy",
+							children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "shop-brand-kicker",
+									children: "Make it yours"
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+									id: titleId,
+									children: item.name
+								}),
+								item.description ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "pizza-item-desc",
+									children: item.description
+								}) : null
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "ed-icon-btn",
+							"aria-label": "Close",
+							onClick: onClose,
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, {
+								size: 16,
+								strokeWidth: 2.2
+							})
+						})
+					]
+				}),
+				sizes.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Size" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "size-pick pizza-size-pick",
+						role: "group",
+						"aria-label": "Size",
+						children: sizes.map((p) => {
+							const lab = p.label || "Regular";
+							return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+								type: "button",
+								"data-on": (chosen?.label || "") === lab,
+								onClick: () => setSize(lab),
+								children: [lab, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: formatUsd(priceNum$2(p.price)) })]
+							}, lab);
+						})
+					})]
+				}) : null,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block pizza-block-tight",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Pieces" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "ed-sub",
+							children: [
+								"Sold in tens. Minimum ",
+								10,
+								"."
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+							className: "condiment-list",
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("strong", { children: [pieceQty, " pc"] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
+								formatUsd(priceNum$2(chosen?.price ?? "0")),
+								" per ",
+								10
+							] })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "qty-step",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": "Fewer wings",
+										disabled: pieceQty <= 10,
+										onClick: () => setPieceQty((n) => snapWingQty(n - 10)),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: pieceQty }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": "More wings",
+										disabled: pieceQty >= 50,
+										onClick: () => setPieceQty((n) => snapWingQty(n + 10)),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
+									})
+								]
+							})] })
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Sauce" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "Required. Pick one."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "size-pick pizza-size-pick",
+							role: "radiogroup",
+							"aria-label": "Wing sauce",
+							children: WING_SAUCES.map((s) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								"data-on": sauce === s,
+								onClick: () => setSauce(s),
+								children: s
+							}, s))
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Included dips" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "Required. Two cups, or none."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+							className: "size-pick pizza-size-pick",
+							role: "radiogroup",
+							"aria-label": "Included dips",
+							children: WING_INCLUDED_DIPS.map((d) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								"data-on": dip === d.id,
+								onClick: () => setDip(d.id),
+								children: d.label
+							}, d.id))
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+					className: "pizza-modal-block pizza-block-tight",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Extra dips" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+							className: "ed-sub",
+							children: [
+								"Optional. Sold in sets of ",
+								2,
+								"."
+							]
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+							className: "condiment-list",
+							children: [[
+								"ranch",
+								"Extra Ranch",
+								extraRanch,
+								ranchUnit
+							], [
+								"blue",
+								"Extra Blue cheese",
+								extraBlue,
+								blueUnit
+							]].map(([id, label, n, unit]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: label }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
+								formatUsd(unit),
+								" per ",
+								2,
+								" cups · up to ",
+								6
+							] })] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+								className: "qty-step",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": `Fewer ${label}`,
+										disabled: n <= 0,
+										onClick: () => bumpExtra(id, -1),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: n }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": `More ${label}`,
+										disabled: n >= 6,
+										onClick: () => bumpExtra(id, 1),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
+									})
+								]
+							})] }, id))
+						})
+					]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(CookNoteField, {
+					id: noteId,
+					noteRef,
+					placeholder: "e.g. extra crispy, sauce on the side"
+				}, item.id || item.name),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("footer", {
+					className: "pizza-modal-foot",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "pizza-modal-total",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "This order" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: formatUsd(unitPrice) })]
+						}),
+						preview ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: preview.detail
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "Pick a sauce and included dips to add this to your bag."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "pizza-modal-actions",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "ed-btn",
+								onClick: onClose,
+								children: "Cancel"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "btn-print",
+								disabled: !ready,
+								onClick: confirm,
+								children: "Add to bag"
+							})]
+						})
+					]
+				})
+			]
+		})]
+	});
+}
+//#endregion
+//#region src/components/stale-cart.tsx
+var ACK = "southend-cart-ack";
+function alreadyAcked() {
+	try {
+		return sessionStorage.getItem(ACK) === "1";
+	} catch {
+		return true;
+	}
+}
+function ack() {
+	try {
+		sessionStorage.setItem(ACK, "1");
+	} catch {}
+}
+function StaleCartPrompt() {
+	const hydrated = useCartHydrated();
+	const lines = useCartStore((s) => s.lines);
+	const [ask, setAsk] = (0, import_react.useState)(false);
+	(0, import_react.useEffect)(() => {
+		if (!hydrated) return;
+		if (alreadyAcked()) return;
+		if (useCartStore.getState().lines.length > 0) {
+			setAsk(true);
+			return;
+		}
+		ack();
+	}, [hydrated]);
+	if (!ask || !lines.length) return null;
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "stale-cart",
+		role: "dialog",
+		"aria-labelledby": "stale-cart-title",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", {
+			id: "stale-cart-title",
+			children: "Resume your order?"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+			className: "ed-sub",
+			children: "You still have items in your bag from last time."
+		})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "stale-cart-actions",
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: "btn-ghost",
+				onClick: () => {
+					ack();
+					setAsk(false);
+				},
+				children: "Resume order"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+				type: "button",
+				className: "ed-btn ed-btn-quiet",
+				onClick: () => {
+					wipeCart();
+					ack();
+					setAsk(false);
+				},
+				children: "Start fresh"
+			})]
 		})]
 	});
 }
@@ -7732,7 +9383,7 @@ function CartPop({ count, subtotal, vacationOn, onClose }) {
 						className: "ed-input ed-area",
 						rows: 3,
 						maxLength: 500,
-						placeholder: "Extra napkins, no onions, gate code…",
+						placeholder: "e.g. extra napkins, gate code",
 						value: notes,
 						onChange: (e) => setNotes(e.target.value),
 						suppressHydrationWarning: true
@@ -7768,34 +9419,93 @@ function Storefront({ restaurant, categories, settings }) {
 	const [active, setActive] = (0, import_react.useState)(categories[0]?.id ?? "");
 	const [custom, setCustom] = (0, import_react.useState)(null);
 	const [confirm, setConfirm] = (0, import_react.useState)(null);
+	const [wings, setWings] = (0, import_react.useState)(null);
 	const [query, setQuery] = (0, import_react.useState)("");
 	const [searchOpen, setSearchOpen] = (0, import_react.useState)(false);
 	const [hitId, setHitId] = (0, import_react.useState)("");
 	const railRef = (0, import_react.useRef)(null);
 	const searchWrapRef = (0, import_react.useRef)(null);
 	const searchSlotRef = (0, import_react.useRef)(null);
+	const searchInputRef = (0, import_react.useRef)(null);
 	const add = useCartStore((s) => s.add);
 	const bagOpen = useCartStore((s) => s.bagOpen);
 	const closeBag = useCartStore((s) => s.closeBag);
 	const lines = useCartStore((s) => s.lines);
 	const { count, subtotal } = cartTotals(lines);
-	const visible = (0, import_react.useMemo)(() => categories.find((c) => c.id === active) ?? categories[0], [categories, active]);
 	const suggestions = (0, import_react.useMemo)(() => rankMenu(categories, query), [categories, query]);
 	const pickupAt = `${restaurant.address}, ${restaurant.city}`;
-	function pickCategory(id) {
-		setActive(id);
-		window.setTimeout(() => {
-			(railRef.current?.querySelector(`[data-cat="${id}"]`))?.scrollIntoView({
-				behavior: "smooth",
-				inline: "center",
-				block: "nearest"
+	const spyLock = (0, import_react.useRef)(false);
+	const spyGen = (0, import_react.useRef)(0);
+	function railBehavior() {
+		if (typeof window === "undefined") return "smooth";
+		return window.matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth";
+	}
+	function centerActivePill(id, smooth = false) {
+		const rail = railRef.current;
+		if (!rail) return;
+		const btn = rail.querySelector(`[data-cat="${CSS.escape(id)}"]`);
+		if (!btn) return;
+		const railRect = rail.getBoundingClientRect();
+		const btnRect = btn.getBoundingClientRect();
+		const sticky = rail.querySelector(".cat-search-slot");
+		const leftPad = sticky ? sticky.getBoundingClientRect().width : 0;
+		const target = railRect.left + leftPad + Math.max(1, railRect.width - leftPad) / 2;
+		const current = btnRect.left + btnRect.width / 2;
+		const left = Math.max(0, rail.scrollLeft + (current - target));
+		const behavior = smooth && railBehavior() === "smooth" ? "smooth" : "auto";
+		try {
+			rail.scrollTo({
+				left,
+				behavior
 			});
+		} catch {
+			rail.scrollLeft = left;
+		}
+	}
+	function pulseArrow(btn) {
+		btn.classList.remove("is-pulse");
+		btn.offsetWidth;
+		btn.classList.add("is-pulse");
+		window.setTimeout(() => btn.classList.remove("is-pulse"), 220);
+	}
+	function pickCategory(id) {
+		const stacked = spyLock.current;
+		setActive(id);
+		const gen = ++spyGen.current;
+		spyLock.current = true;
+		centerActivePill(id, !stacked);
+		window.setTimeout(() => {
+			if (gen !== spyGen.current) return;
+			const panel = document.getElementById(`menu-${id}`);
 			const wrap = document.querySelector(".cat-search-wrap");
-			const panel = document.getElementById("menu");
-			if (!wrap || !panel) return;
-			if (wrap.getBoundingClientRect().top > 2) return;
-			const y = window.scrollY + panel.getBoundingClientRect().top - wrap.getBoundingClientRect().height;
-			window.scrollTo({ top: Math.max(0, y) });
+			if (!panel) {
+				spyLock.current = false;
+				return;
+			}
+			const offset = wrap instanceof HTMLElement ? wrap.getBoundingClientRect().height + 10 : 88;
+			const y = window.scrollY + panel.getBoundingClientRect().top - offset;
+			const how = stacked || railBehavior() === "auto" ? "auto" : "smooth";
+			try {
+				window.scrollTo({
+					top: Math.max(0, y),
+					behavior: how
+				});
+			} catch {
+				window.scrollTo(0, Math.max(0, y));
+			}
+			const unlock = () => {
+				if (gen !== spyGen.current) return;
+				spyLock.current = false;
+			};
+			const onEnd = () => {
+				window.removeEventListener("scrollend", onEnd);
+				unlock();
+			};
+			window.addEventListener("scrollend", onEnd);
+			window.setTimeout(() => {
+				window.removeEventListener("scrollend", onEnd);
+				unlock();
+			}, 1100);
 		}, 10);
 	}
 	function openItem(cat, item) {
@@ -7804,6 +9514,13 @@ function Storefront({ restaurant, categories, settings }) {
 				cat,
 				item,
 				size: item.prices[0]?.label || ""
+			});
+			return;
+		}
+		if (isWingsBuild(cat, item)) {
+			setWings({
+				cat,
+				item
 			});
 			return;
 		}
@@ -7823,7 +9540,8 @@ function Storefront({ restaurant, categories, settings }) {
 		setHitId(hit.item.id ?? hit.item.name);
 		setSearchOpen(false);
 		setQuery("");
-		openItem(hit.cat, hit.item);
+		pickCategory(hit.cat.id);
+		window.setTimeout(() => openItem(hit.cat, hit.item), 80);
 	}
 	(0, import_react.useEffect)(() => {
 		if (!bagOpen) return;
@@ -7851,15 +9569,77 @@ function Storefront({ restaurant, categories, settings }) {
 		return () => document.removeEventListener("pointerdown", onDown);
 	}, [searchOpen]);
 	(0, import_react.useEffect)(() => {
+		if (searchOpen && query.trim()) return;
+		const sections = Array.from(document.querySelectorAll(".cat-panel[data-cat]"));
+		if (!sections.length) return;
+		let tick = null;
+		const spyLine = () => {
+			const wrap = document.querySelector(".cat-search-wrap");
+			return wrap instanceof HTMLElement ? wrap.getBoundingClientRect().bottom + 10 : 96;
+		};
+		const pickVisible = () => {
+			if (spyLock.current) return;
+			const line = spyLine();
+			let crossed = null;
+			for (const s of sections) if (s.getBoundingClientRect().top - line <= 8) crossed = s;
+			else break;
+			const id = crossed?.dataset.cat;
+			if (!id) return;
+			setActive((prev) => {
+				if (prev === id) return prev;
+				const prevEl = sections.find((s) => s.dataset.cat === prev);
+				if (prevEl) {
+					const top = prevEl.getBoundingClientRect().top;
+					const bottom = prevEl.getBoundingClientRect().bottom;
+					if (top < line - 12 && bottom > line + 80) return prev;
+				}
+				const prevIdx = sections.findIndex((s) => s.dataset.cat === prev);
+				const nextIdx = sections.findIndex((s) => s.dataset.cat === id);
+				if (prevIdx >= 0 && Math.abs(nextIdx - prevIdx) > 1) {
+					const neighbor = sections[prevIdx + Math.sign(nextIdx - prevIdx)];
+					const nTop = neighbor?.getBoundingClientRect().top ?? 0;
+					if (neighbor && nTop - line < 48) return neighbor.dataset.cat ?? id;
+				}
+				return id;
+			});
+		};
+		const onScroll = () => {
+			if (tick != null) window.cancelAnimationFrame(tick);
+			tick = window.requestAnimationFrame(pickVisible);
+		};
+		pickVisible();
+		window.addEventListener("scroll", onScroll, { passive: true });
+		return () => {
+			if (tick != null) window.cancelAnimationFrame(tick);
+			window.removeEventListener("scroll", onScroll);
+		};
+	}, [
+		categories,
+		searchOpen,
+		query
+	]);
+	(0, import_react.useEffect)(() => {
+		if (!active || searchOpen) return;
+		if (spyLock.current) return;
+		centerActivePill(active, false);
+	}, [active, searchOpen]);
+	(0, import_react.useEffect)(() => {
 		if (!searchOpen) return;
-		searchSlotRef.current?.scrollIntoView({
-			inline: "start",
-			block: "nearest"
-		});
+		const rail = railRef.current;
+		if (rail) try {
+			rail.scrollTo({
+				left: 0,
+				behavior: railBehavior()
+			});
+		} catch {
+			rail.scrollLeft = 0;
+		}
+		window.setTimeout(() => searchInputRef.current?.focus(), 20);
 	}, [searchOpen]);
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "store-layout",
 		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StaleCartPrompt, {}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 				className: "store-main",
 				children: [
@@ -7931,7 +9711,10 @@ function Storefront({ restaurant, categories, settings }) {
 									type: "button",
 									className: "cat-skip",
 									"aria-label": "Previous category",
-									onClick: () => skipCategories(-1),
+									onClick: (e) => {
+										pulseArrow(e.currentTarget);
+										skipCategories(-1);
+									},
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronLeft, {
 										size: 20,
 										strokeWidth: 2.4
@@ -7944,38 +9727,30 @@ function Storefront({ restaurant, categories, settings }) {
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 										className: "cat-search-slot",
 										ref: searchSlotRef,
-										children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-											className: "cat-search",
-											children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, {
-												size: 16,
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+											type: "button",
+											className: "cat-search cat-search-icon",
+											"aria-label": searchOpen ? "Close menu search" : "Search the menu",
+											"aria-expanded": searchOpen,
+											onClick: () => {
+												setSearchOpen((open) => {
+													if (open) setQuery("");
+													return !open;
+												});
+											},
+											children: searchOpen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(X, {
+												size: 18,
 												strokeWidth: 2.2,
 												"aria-hidden": true
-											}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-												value: query,
-												onChange: (e) => {
-													setQuery(e.target.value);
-													setSearchOpen(true);
-												},
-												onFocus: () => setSearchOpen(true),
-												onKeyDown: (e) => {
-													if (e.key === "Escape") {
-														setSearchOpen(false);
-														e.target.blur();
-													}
-													if (e.key === "Enter" && suggestions[0]) {
-														e.preventDefault();
-														jumpTo(suggestions[0]);
-													}
-												},
-												placeholder: "Search",
-												"aria-label": "Search the menu",
-												autoComplete: "off",
-												enterKeyHint: "search"
-											})]
+											}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, {
+												size: 18,
+												strokeWidth: 2.2,
+												"aria-hidden": true
+											})
 										})
 									}), categories.map((cat) => {
 										const Icon = iconFor(cat.icon ?? cat.id);
-										const on = visible?.id === cat.id;
+										const on = active === cat.id;
 										return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 											type: "button",
 											"data-on": on,
@@ -7996,51 +9771,86 @@ function Storefront({ restaurant, categories, settings }) {
 									type: "button",
 									className: "cat-skip",
 									"aria-label": "Next category",
-									onClick: () => skipCategories(1),
+									onClick: (e) => {
+										pulseArrow(e.currentTarget);
+										skipCategories(1);
+									},
 									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ChevronRight, {
 										size: 20,
 										strokeWidth: 2.4
 									})
 								})
 							]
-						}), searchOpen && query.trim() ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+						}), searchOpen ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 							className: "cat-suggest",
 							role: "listbox",
 							"aria-label": "Menu suggestions",
-							children: suggestions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", {
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "cat-search-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Search, {
+									size: 16,
+									strokeWidth: 2.2,
+									"aria-hidden": true
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									ref: searchInputRef,
+									value: query,
+									onChange: (e) => setQuery(e.target.value),
+									onKeyDown: (e) => {
+										if (e.key === "Escape") {
+											setSearchOpen(false);
+											setQuery("");
+										}
+										if (e.key === "Enter" && suggestions[0]) {
+											e.preventDefault();
+											jumpTo(suggestions[0]);
+										}
+									},
+									"aria-label": "Search the menu",
+									autoComplete: "off",
+									enterKeyHint: "search"
+								})]
+							}), query.trim() ? suggestions.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 								className: "cat-suggest-empty",
 								children: [
 									"No matches for “",
 									query.trim(),
 									"”."
 								]
-							}) : suggestions.map((hit) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								onMouseDown: (e) => e.preventDefault(),
-								onClick: () => jumpTo(hit),
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: hit.item.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: hit.cat.name })]
-							}) }, `${hit.cat.id}-${hit.item.id ?? hit.item.name}`))
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+								className: "cat-suggest-list",
+								children: suggestions.map((hit) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									onMouseDown: (e) => e.preventDefault(),
+									onClick: () => jumpTo(hit),
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: hit.item.name }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: hit.cat.name })]
+								}) }, `${hit.cat.id}-${hit.item.id ?? hit.item.name}`))
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "cat-suggest-empty",
+								children: "Type a dish name."
+							})]
 						}) : null]
 					}),
-					visible ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+					categories.map((cat) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 						className: "cat-panel",
-						id: "menu",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
+						id: `menu-${cat.id}`,
+						"data-cat": cat.id,
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("header", {
 							className: "cat-panel-head",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: visible.name }), visible.note ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: visible.note }) : null]
+							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: cat.name })
 						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 							className: "food-grid",
+							"data-count": cat.items.length,
 							"data-card-size": settings.cardTextSize,
 							"data-card-fit": settings.cardSize,
 							style: cardTypeStyle(settings.cardTextColor, settings.cardDescColor, settings.cardPriceColor, settings.cardBg),
-							children: visible.items.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CatalogItem, {
-								cat: visible,
+							children: cat.items.map((item) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CatalogItem, {
+								cat,
 								item,
 								hit: hitId === (item.id ?? item.name),
-								onOpen: () => openItem(visible, item)
+								onOpen: () => openItem(cat, item)
 							}, item.id ?? item.name))
 						})]
-					}) : null
+					}, cat.id))
 				]
 			}),
 			bagOpen ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CartPop, {
@@ -8086,6 +9896,7 @@ function Storefront({ restaurant, categories, settings }) {
 			confirm ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ItemConfirm, {
 				item: confirm.item,
 				categoryName: confirm.cat.name,
+				categoryId: confirm.cat.id,
 				onClose: () => setConfirm(null),
 				onConfirm: (result) => {
 					add({
@@ -8096,9 +9907,28 @@ function Storefront({ restaurant, categories, settings }) {
 						detail: result.detail,
 						comment: result.comment,
 						condiments: result.condiments,
-						unitPrice: result.unitPrice
+						unitPrice: result.unitPrice,
+						qty: result.qty
 					});
 					setConfirm(null);
+				}
+			}) : null,
+			wings ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(WingsCustomize, {
+				item: wings.item,
+				categoryId: wings.cat.id,
+				onClose: () => setWings(null),
+				onConfirm: (result) => {
+					add({
+						itemId: wings.item.id ?? wings.item.name,
+						categoryId: wings.cat.id,
+						name: wings.item.name,
+						size: result.size,
+						detail: result.detail,
+						comment: result.comment,
+						condiments: result.condiments,
+						unitPrice: result.unitPrice
+					});
+					setWings(null);
 				}
 			}) : null
 		]
@@ -8545,7 +10375,7 @@ function InviteQr({ value, label }) {
 	}, [value]);
 	if (!drawn) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 		className: "ed-sub",
-		children: "Could not draw a QR code for this link."
+		children: "QR could not be drawn for this link. Use the secret key below in your authenticator app."
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("svg", {
 		className: "invite-qr",
@@ -8571,19 +10401,35 @@ function accountLoadMessage(err) {
 	if (isTransientFetchError(err)) return "The shop did not answer. Tap Try again.";
 	return raw.trim() || "Could not load your staff account.";
 }
-async function loadStaffAccount() {
-	let last;
-	for (let i = 0; i < 3; i += 1) try {
-		return await Promise.all([getMe(), getTwoFactorStatus()]);
-	} catch (err) {
-		last = err;
-		const msg = err instanceof Error ? err.message : "";
-		if (!(isTransientFetchError(err) || /profiles_pkey|duplicate key|unique constraint/i.test(msg)) || i === 2) throw err;
-		await new Promise((resolve) => setTimeout(resolve, 280 * (i + 1)));
-	}
-	throw last;
+function withTimeout(work, ms) {
+	return new Promise((resolve, reject) => {
+		const t = window.setTimeout(() => reject(/* @__PURE__ */ new Error("Account is taking too long. Tap Try again.")), ms);
+		work.then((v) => {
+			window.clearTimeout(t);
+			resolve(v);
+		}, (e) => {
+			window.clearTimeout(t);
+			reject(e);
+		});
+	});
 }
-function SessionGate({ children, needAdmin }) {
+var SKIP_2FA = {
+	required: false,
+	unlocked: true,
+	enabled: false,
+	enroll: false,
+	locked: false
+};
+async function loadStaffAccount() {
+	const profile = await withTimeout(getMe(), 6e3);
+	if (!profile.totpEnabled) return [profile, SKIP_2FA];
+	try {
+		return [profile, await withTimeout(getTwoFactorStatus(), 2500)];
+	} catch {
+		return [profile, SKIP_2FA];
+	}
+}
+function SessionGate({ children, needAdmin, fallback, softGuest, onContinueAsGuest }) {
 	const { user, isPending } = useCurrentUserState();
 	const pathname = useRouterState({ select: (s) => s.location.pathname });
 	const [profile, setProfile] = (0, import_react.useState)(null);
@@ -8591,21 +10437,43 @@ function SessionGate({ children, needAdmin }) {
 	const [error, setError] = (0, import_react.useState)("");
 	const [claiming, setClaiming] = (0, import_react.useState)(false);
 	const [retry, setRetry] = (0, import_react.useState)(0);
+	const [authWaited, setAuthWaited] = (0, import_react.useState)(false);
+	const userId = user?.id ?? "";
+	const heldAdmin = (0, import_react.useRef)(null);
 	(0, import_react.useEffect)(() => {
-		if (isPending || !user) return;
+		if (!isPending) {
+			setAuthWaited(false);
+			return;
+		}
+		const ms = needAdmin ? 2500 : 8e3;
+		const t = window.setTimeout(() => setAuthWaited(true), ms);
+		return () => window.clearTimeout(t);
+	}, [isPending, needAdmin]);
+	(0, import_react.useEffect)(() => {
+		if (isPending || !userId) return;
 		let live = true;
 		const timeout = window.setTimeout(() => {
 			if (!live) return;
+			if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) return;
 			setError("Account is taking too long. Tap Try again.");
-		}, 14e3);
+		}, 9e3);
 		loadStaffAccount().then(([p, t]) => {
 			if (!live) return;
 			window.clearTimeout(timeout);
+			if (p.adminMode || p.adminModeAllowed) heldAdmin.current = p;
+			setError("");
 			setProfile(p);
 			setTwoFactor(t);
 		}).catch((e) => {
 			if (!live) return;
 			window.clearTimeout(timeout);
+			if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) {
+				setProfile(heldAdmin.current);
+				setError("");
+				return;
+			}
+			setProfile(null);
+			setTwoFactor(null);
 			setError(accountLoadMessage(e));
 		});
 		return () => {
@@ -8614,46 +10482,56 @@ function SessionGate({ children, needAdmin }) {
 		};
 	}, [
 		isPending,
-		user,
-		retry
+		userId,
+		retry,
+		needAdmin
 	]);
-	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "page-skel",
-		children: "Loading account…"
-	});
+	if (isPending && !(needAdmin && authWaited && !user)) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, {});
 	if (!user) {
-		const next = pathname.startsWith("/") && !pathname.startsWith("//") ? pathname : "/";
+		const next = needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login")) ? "/admin" : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login") ? pathname : needAdmin ? "/admin" : "/";
 		return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Navigate, {
 			to: "/login",
 			search: { next }
 		});
 	}
-	if (error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "page-card",
-		children: [
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Could not load your account" }),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: error }),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-				className: "ed-sub",
-				children: "Nothing was lost. Tap Try again to open the shop desk."
-			}),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-				type: "button",
-				className: "btn-print",
-				onClick: () => {
-					setError("");
-					setProfile(null);
-					setTwoFactor(null);
-					setRetry((n) => n + 1);
-				},
-				children: "Try again"
-			})
-		]
-	});
-	if (!profile || !twoFactor) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "page-skel",
-		children: "Loading account…"
-	});
+	if (error) {
+		const retry = () => {
+			setError("");
+			setProfile(null);
+			setTwoFactor(null);
+			setRetry((n) => n + 1);
+		};
+		if (fallback) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(import_jsx_runtime.Fragment, { children: fallback({
+			error,
+			retry
+		}) });
+		return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+			className: "page-card",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Could not load your account" }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: error }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "ed-sub",
+					children: softGuest ? "Nothing was lost. Continue as guest to finish checkout, or try loading the account again." : "Nothing was lost. Tap Try again to open the shop desk."
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+					className: "confirm-actions",
+					children: [softGuest && onContinueAsGuest ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "btn-print",
+						onClick: onContinueAsGuest,
+						children: "Continue as guest"
+					}) : null, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: softGuest ? "ed-btn" : "btn-print",
+						onClick: retry,
+						children: "Try again"
+					})]
+				})
+			]
+		});
+	}
+	if (!profile || !twoFactor) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, {});
 	if (profile.banned) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "page-card",
 		children: [
@@ -8670,7 +10548,7 @@ function SessionGate({ children, needAdmin }) {
 		className: "page-card",
 		children: [
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Set up two-factor" }),
-			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Shop admin needs an authenticator app before the desk can open." }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: "Settings requires an authenticator app before the desk can open." }),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
 				to: "/enroll-2fa",
 				search: { next: pathname },
@@ -8692,7 +10570,7 @@ function SessionGate({ children, needAdmin }) {
 			})
 		]
 	});
-	if (needAdmin && profile.role !== "admin") {
+	if (needAdmin && !(profile.adminMode && profile.adminModeAllowed) && profile.role !== "admin") {
 		if (!profile.adminExists) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 			className: "page-card",
 			children: [
@@ -8727,6 +10605,58 @@ function SessionGate({ children, needAdmin }) {
 		profile,
 		twoFactor
 	}) });
+}
+//#endregion
+//#region src/lib/image-file.ts
+var TYPES = [
+	"image/webp",
+	"image/jpeg",
+	"image/png"
+];
+async function fileToDataImage(file, opts) {
+	if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
+	const probe = await createImageBitmap(file);
+	const scale = Math.min(1, opts.maxEdge / Math.max(probe.width, probe.height));
+	const w = Math.max(1, Math.round(probe.width * scale));
+	const h = Math.max(1, Math.round(probe.height * scale));
+	probe.close();
+	let bmp;
+	try {
+		bmp = await createImageBitmap(file, {
+			resizeWidth: w,
+			resizeHeight: h,
+			resizeQuality: "high"
+		});
+	} catch {
+		bmp = await createImageBitmap(file);
+	}
+	const canvas = document.createElement("canvas");
+	canvas.width = w;
+	canvas.height = h;
+	const ctx = canvas.getContext("2d");
+	if (!ctx) {
+		bmp.close();
+		throw new Error("Could not read that image.");
+	}
+	ctx.imageSmoothingEnabled = true;
+	ctx.imageSmoothingQuality = "high";
+	ctx.clearRect(0, 0, w, h);
+	ctx.drawImage(bmp, 0, 0, w, h);
+	bmp.close();
+	const cap = opts.maxChars ?? 35e4;
+	const startQ = opts.quality ?? .9;
+	let best = "";
+	for (const type of TYPES) {
+		let q = startQ;
+		for (let i = 0; i < 6; i += 1) {
+			const url = canvas.toDataURL(type, q);
+			if (!best || url.length < best.length) best = url;
+			if (url.length <= cap) return url;
+			q -= .08;
+		}
+	}
+	if (best && best.length <= cap + 7e4) return best;
+	throw new Error("That image is too large. Try a smaller photo.");
 }
 //#endregion
 //#region src/components/order-trays.tsx
@@ -8808,17 +10738,18 @@ function AccountPage() {
 	const { tab } = Route$27.useSearch();
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "shop-shell",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionGate, { children: ({ profile }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionGate, { children: ({ profile, twoFactor }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
 			className: "shop-main account-main",
 			id: "main",
 			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountBody, {
 				profile,
+				totpLocked: twoFactor.locked,
 				tab: asTab(tab)
 			})
 		})] }) })
 	});
 }
-function AccountBody({ profile, tab }) {
+function AccountBody({ profile, totpLocked, tab }) {
 	const navigate = useNavigate();
 	const add = useCartStore((s) => s.add);
 	const setNotes = useCartStore((s) => s.setNotes);
@@ -8843,6 +10774,9 @@ function AccountBody({ profile, tab }) {
 	const [previewCode, setPreviewCode] = (0, import_react.useState)("");
 	const [otpLeft, setOtpLeft] = (0, import_react.useState)(0);
 	const [copied, setCopied] = (0, import_react.useState)(false);
+	const [avatarUrl, setAvatarUrl] = (0, import_react.useState)(profile.avatarUrl || "");
+	const [photoBusy, setPhotoBusy] = (0, import_react.useState)(false);
+	const [photoErr, setPhotoErr] = (0, import_react.useState)("");
 	(0, import_react.useEffect)(() => {
 		listMyOrders().then(setOrders).catch(() => setOrders([]));
 		getMyRewards().then(setRewards).catch(() => setRewards(null));
@@ -8869,21 +10803,27 @@ function AccountBody({ profile, tab }) {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
 		/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("header", {
 			className: "page-card account-hero",
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "shop-brand-kicker",
-					children: "Your account"
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", { children: ["Hello, ", who] }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-					className: "ed-sub",
-					children: [email || "Signed in", phone ? ` · ${formatPhone(phone) || phone}` : ""]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-					className: "points-chip",
-					children: [points, " reward points"]
-				})
-			]
+			children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "shop-brand-kicker",
+				children: "Your account"
+			}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "account-hero-who",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountAvatar, {
+					src: avatarUrl,
+					name: who,
+					size: 72
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("h1", { children: ["Hello, ", who] }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [email || "Signed in", phone ? ` · ${formatPhone(phone) || phone}` : ""]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "points-chip",
+						children: [points, " reward points"]
+					})
+				] })]
+			})]
 		}),
 		/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 			className: "account-tabs",
@@ -9037,6 +10977,71 @@ function AccountBody({ profile, tab }) {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "ed-shop",
 					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "account-icon-edit",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountAvatar, {
+								src: avatarUrl,
+								name: who,
+								size: 72
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+									className: "ed-field",
+									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Account icon" })
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "ed-sub",
+									children: "This picture shows in the title bar. Square photos work best."
+								}),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+									className: "account-icon-actions",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+										className: "ed-btn ed-btn-quiet ed-photo-pick",
+										children: [
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ImagePlus, {
+												size: 14,
+												strokeWidth: 2.2
+											}),
+											avatarUrl ? "Replace photo" : "Upload photo",
+											/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+												type: "file",
+												accept: "image/png,image/jpeg,image/webp",
+												disabled: photoBusy,
+												onChange: (e) => {
+													const file = e.target.files?.[0];
+													e.target.value = "";
+													if (!file) return;
+													setPhotoBusy(true);
+													setPhotoErr("");
+													fileToDataImage(file, {
+														maxEdge: 384,
+														maxChars: 12e4,
+														quality: .84
+													}).then((url) => setMyAvatar({ data: { image: url } }).then((r) => setAvatarUrl(r.avatarUrl))).catch((err) => setPhotoErr(err instanceof Error ? err.message : "Could not save that photo")).finally(() => setPhotoBusy(false));
+												}
+											})
+										]
+									}), avatarUrl ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										className: "ed-btn ed-btn-quiet",
+										disabled: photoBusy,
+										onClick: () => {
+											setPhotoBusy(true);
+											setPhotoErr("");
+											setMyAvatar({ data: { image: "" } }).then((r) => setAvatarUrl(r.avatarUrl)).catch((err) => setPhotoErr(err instanceof Error ? err.message : "Could not remove that photo")).finally(() => setPhotoBusy(false));
+										},
+										children: "Remove"
+									}) : null]
+								}),
+								photoBusy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "ed-empty",
+									children: "Saving photo…"
+								}) : null,
+								photoErr ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+									className: "form-error",
+									children: photoErr
+								}) : null
+							] })]
+						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "ed-field",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
@@ -9264,9 +11269,9 @@ function AccountBody({ profile, tab }) {
 					className: "ed-sub",
 					children: "Protect the account with an authenticator app (Google Authenticator, Authy, 1Password). This is app-based 2FA — not SMS."
 				}),
-				totpOn ? profile.role === "admin" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				totpOn ? totpLocked ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-sub",
-					children: "Shop admin two-factor stays on. You can rotate the authenticator from a new enrollment after a verified session."
+					children: "Settings requires shop admin two-factor. Turn that off under Admin → Settings if you want to drop the authenticator, or rotate it by enrolling a new key after a verified session."
 				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
 					className: "login-form",
 					onSubmit: (e) => {
@@ -9622,6 +11627,58 @@ function AdminDrawer() {
 	] });
 }
 //#endregion
+//#region src/lib/ticket-line.ts
+function lineSummary(it) {
+	const bits = [`${Math.max(1, Math.round(Number(it.qty) || 1))}× ${String(it.name ?? "").trim() || "Item"}`];
+	const size = String(it.size ?? "").trim();
+	const detail = String(it.detail ?? "").trim();
+	const comment = String(it.comment ?? "").trim();
+	if (size) bits.push(size);
+	if (detail) bits.push(detail);
+	if (comment) bits.push(`Cook: ${comment}`);
+	return bits.join(" · ");
+}
+function payStatusLabel(method, status) {
+	if (method === "pay_card") return "Card (not live)";
+	const label = payMethodLabel(method);
+	if (status === "awaiting_payment") return `${label} · unpaid`;
+	return label;
+}
+//#endregion
+//#region src/lib/pos-toast.ts
+var POS_TOAST_MS = 3500;
+function formatCompletedToast(opts) {
+	const tip = Number(opts.tip) || 0;
+	const num = typeof opts.ticketNo === "number" ? opts.ticketNo : Number(opts.ticketNo) || 0;
+	return {
+		tone: "completed",
+		title: "Completed",
+		text: `Completed #${opts.formatTicketNo(num)} · ${opts.formatUsd(opts.total)}${tip > 0 ? ` (tip ${opts.formatUsd(tip)})` : ""}`
+	};
+}
+function formatAcceptedToast(opts) {
+	const num = typeof opts.ticketNo === "number" ? opts.ticketNo : Number(opts.ticketNo) || 0;
+	return {
+		tone: "accepted",
+		title: "Accepted",
+		text: `Ticket #${opts.formatTicketNo(num)} accepted — sent to the kitchen.`
+	};
+}
+//#endregion
+//#region src/components/pos-staff-toast.tsx
+/** Same chrome as Accept — portaled to body so POS tabs cannot cover it. */
+function PosStaffToast({ toast }) {
+	if (!toast || typeof document === "undefined") return null;
+	return (0, import_react_dom.createPortal)(/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "save-toast pos-accept-toast",
+		"data-ok": "true",
+		"data-kind": toast.tone,
+		"data-tone": toast.tone,
+		role: "status",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: toast.title }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast.text })]
+	}), document.body);
+}
+//#endregion
 //#region src/components/incoming-order-queue.tsx
 var DEFAULT_ALARM = "/order-alarm.wav";
 var SNOOZE_KEY = "southend-order-snooze";
@@ -9659,7 +11716,7 @@ function IncomingOrderQueue() {
 	const [error, setError] = (0, import_react.useState)("");
 	const [muted, setMuted] = (0, import_react.useState)(false);
 	const [src, setSrc] = (0, import_react.useState)(DEFAULT_ALARM);
-	const [toast, setToast] = (0, import_react.useState)("");
+	const [toast, setToast] = (0, import_react.useState)(null);
 	const seen = (0, import_react.useRef)(/* @__PURE__ */ new Set());
 	const snoozed = (0, import_react.useRef)(loadSnooze());
 	const taken = (0, import_react.useRef)(/* @__PURE__ */ new Set());
@@ -9683,7 +11740,7 @@ function IncomingOrderQueue() {
 	}, [src]);
 	(0, import_react.useEffect)(() => {
 		if (!toast) return;
-		const t = window.setTimeout(() => setToast(""), 3200);
+		const t = window.setTimeout(() => setToast(null), POS_TOAST_MS);
 		return () => window.clearTimeout(t);
 	}, [toast]);
 	function ring() {
@@ -9694,7 +11751,7 @@ function IncomingOrderQueue() {
 		el.play().catch(() => void 0);
 	}
 	function applyIncoming(list) {
-		const live = fifoIncoming(list.filter((t) => !snoozed.current.has(t.id) && !taken.current.has(t.id)));
+		const live = fifoIncoming(list.filter((t) => (t.status === "placed" || t.status === "awaiting_payment") && !snoozed.current.has(t.id) && !taken.current.has(t.id)));
 		setQueue(live);
 		setCurrentId((cur) => {
 			if (cur && live.some((t) => t.id === cur)) return cur;
@@ -9742,10 +11799,26 @@ function IncomingOrderQueue() {
 				chatThreadId: ticket.chatThreadId
 			};
 			emitPosAccepted(accepted);
-			setToast(`Ticket #${formatTicketNo(accepted.ticketNo)} accepted — sent to the kitchen.`);
+			setToast(formatAcceptedToast({
+				ticketNo: accepted.ticketNo,
+				formatTicketNo
+			}));
 		}).catch((e) => {
+			const msg = e instanceof Error ? e.message : "Could not accept";
+			if (/already|accepted|preparing|ready|cannot be accepted/i.test(msg)) {
+				taken.current.add(ticket.id);
+				emitPosAccepted({
+					...ticket,
+					status: "accepted"
+				});
+				setToast(formatAcceptedToast({
+					ticketNo: ticket.ticketNo,
+					formatTicketNo
+				}));
+				return;
+			}
 			taken.current.delete(ticket.id);
-			setError(e instanceof Error ? e.message : "Could not accept");
+			setError(msg);
 			setQueue((list) => {
 				if (list.some((t) => t.id === ticket.id)) return list;
 				return fifoIncoming([ticket, ...list]);
@@ -9753,12 +11826,7 @@ function IncomingOrderQueue() {
 			setCurrentId(ticket.id);
 		}).finally(() => setBusy(false));
 	}
-	const toastEl = toast ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-		className: "save-toast pos-accept-toast",
-		"data-ok": "true",
-		role: "status",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Accepted" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: toast })]
-	}) : null;
+	const toastEl = /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PosStaffToast, { toast });
 	if (!current) return toastEl;
 	const where = current.fulfillment === "delivery" ? `${current.addressLine}${current.city ? `, ${current.city}` : ""} ${current.zip}`.trim() : current.pickupName ? `Pickup for ${current.pickupName}` : "Pickup at the counter";
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [toastEl, /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
@@ -9818,32 +11886,35 @@ function IncomingOrderQueue() {
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 					className: "order-alert-who",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: current.customerName }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: current.pickupName || current.customerName }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
 						current.fulfillment === "delivery" ? "Delivery" : "Pickup",
 						" · ",
 						formatUsd(current.total)
 					] })]
 				}),
+				current.customerPhone ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "ed-sub",
+					children: current.customerPhone
+				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 					className: "ed-sub",
 					children: [
 						"Placed ",
 						formatShopWhen(current.createdAt),
-						current.scheduledFor ? ` · scheduled ${formatShopWhen(current.scheduledFor)}` : " · as soon as ready"
+						current.scheduledFor ? ` · promised ${formatShopWhen(current.scheduledFor)}` : " · as soon as ready"
 					]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-sub",
 					children: where
 				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "ed-sub",
+					children: payStatusLabel(current.paymentMethod, current.status)
+				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
 					className: "cart-lines",
-					children: current.items.slice(0, 8).map((it, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-						it.qty,
-						"× ",
-						it.name,
-						it.size ? ` · ${it.size}` : ""
-					] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: formatUsd(it.unitPrice * it.qty) })] }, `${it.itemId}-${i}`))
+					children: current.items.slice(0, 8).map((it, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: lineSummary(it) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: formatUsd(it.unitPrice * it.qty) })] }, `${it.itemId}-${i}`))
 				}),
 				current.notes ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 					className: "pos-notes",
@@ -9853,16 +11924,35 @@ function IncomingOrderQueue() {
 						current.notes
 					]
 				}) : null,
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", {
+					className: "totals",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Food" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(current.subtotal) })] }),
+						current.discount ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rewards" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dd", { children: ["−", formatUsd(current.discount)] })] }) : null,
+						current.deliveryFee ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Delivery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(current.deliveryFee) })] }) : null,
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Tax" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(current.tax) })] }),
+						current.tip ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Tip" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(current.tip) })] }) : null,
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "totals-grand",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Total" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(current.total) })]
+						})
+					]
+				}),
 				error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "form-error",
 					children: error
 				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "confirm-actions",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+					children: [current.status === "accepted" || current.status === "preparing" || current.status === "ready" || taken.current.has(current.id) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
 						className: "btn-print",
-						disabled: busy || taken.current.has(current.id),
+						disabled: true,
+						children: "Accepted"
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "btn-print",
+						disabled: busy,
 						onClick: take,
 						children: busy ? "Accepting…" : "Accept order"
 					}), queue.length > 1 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
@@ -9913,7 +12003,7 @@ function AdminLayout() {
 		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionGate, {
 			needAdmin: true,
 			children: ({ profile }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
-				posMode ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 					className: "admin-layout",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(AdminDrawer, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
@@ -10420,46 +12510,114 @@ function CheckoutPending() {
 		})]
 	});
 }
+var GUEST_CHECKOUT_KEY = "southend-checkout-guest";
+function readGuestCheckout() {
+	try {
+		return sessionStorage.getItem(GUEST_CHECKOUT_KEY) === "1";
+	} catch {
+		return false;
+	}
+}
+function writeGuestCheckout() {
+	try {
+		sessionStorage.setItem(GUEST_CHECKOUT_KEY, "1");
+	} catch {}
+}
 function CheckoutPage() {
 	const data = Route$24.useLoaderData();
 	const { user, isPending } = useCurrentUserState();
+	const [guestAnyway, setGuestAnyway] = (0, import_react.useState)(readGuestCheckout);
+	function stayGuest() {
+		writeGuestCheckout();
+		setGuestAnyway(true);
+	}
 	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "shop-shell",
 		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
 			className: "shop-main",
 			id: "main",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "page-skel",
-				children: "Loading checkout…"
-			})
+			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, {})
 		})]
 	});
-	if (user) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+	if (user && !guestAnyway) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 		className: "shop-shell",
-		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionGate, { children: ({ profile }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
-			className: "shop-main",
-			id: "main",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckoutForm, {
-				profile,
-				restaurant: data.restaurant,
-				settings: data.settings
-			})
-		})] }) })
+		children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(SessionGate, {
+			softGuest: true,
+			onContinueAsGuest: stayGuest,
+			fallback: ({ error }) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+				className: "shop-main",
+				id: "main",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+					className: "page-card",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Could not load your account" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", { children: error }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "You can still place a pickup order as a guest."
+						}),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "confirm-actions",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "btn-print",
+								onClick: stayGuest,
+								children: "Continue as guest"
+							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+								to: "/login",
+								search: { next: "/checkout" },
+								className: "ed-btn",
+								children: "Sign in"
+							})]
+						})
+					]
+				})
+			}),
+			children: ({ profile }) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, { profile }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+				className: "shop-main",
+				id: "main",
+				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckoutForm, {
+					profile,
+					restaurant: data.restaurant,
+					settings: data.settings,
+					onLockGuest: stayGuest
+				})
+			})] })
+		})
 	});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "shop-shell",
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(ShopHeader, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
 			className: "shop-main",
 			id: "main",
-			children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckoutForm, {
+			children: [user && guestAnyway ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+				className: "ed-sub",
+				style: { marginBottom: "0.75rem" },
+				children: [
+					"Checking out as a guest.",
+					" ",
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "ed-btn ed-btn-quiet",
+						onClick: () => {
+							try {
+								sessionStorage.removeItem(GUEST_CHECKOUT_KEY);
+							} catch {}
+							setGuestAnyway(false);
+						},
+						children: "Use signed-in account"
+					})
+				]
+			}) : null, /* @__PURE__ */ (0, import_jsx_runtime.jsx)(CheckoutForm, {
 				profile: null,
 				restaurant: data.restaurant,
-				settings: data.settings
-			})
+				settings: data.settings,
+				onLockGuest: stayGuest
+			})]
 		})]
 	});
 }
-function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
+function CheckoutForm({ profile, restaurant, settings: loadedSettings, onLockGuest }) {
 	const hydrated = useCartHydrated();
 	const lines = useCartStore((s) => s.lines);
 	const notes = useCartStore((s) => s.notes);
@@ -10485,6 +12643,7 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 	const [pickupName, setPickupName] = (0, import_react.useState)(profile?.displayName || "");
 	const [guestName, setGuestName] = (0, import_react.useState)(profile?.displayName || "");
 	const [guestPhone, setGuestPhone] = (0, import_react.useState)(profile?.phone || "");
+	const [pickupPhone, setPickupPhone] = (0, import_react.useState)(profile?.phone || "");
 	const guest = !profile;
 	const guestMustCard = false;
 	const [whenMode, setWhenMode] = (0, import_react.useState)(loadedSettings.openNow ? "asap" : "schedule");
@@ -10578,11 +12737,11 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 					search: { next: "/account" },
 					className: "btn-print",
 					children: "Create an account"
-				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+				}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(EnableAlertsButton, {}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
 					to: "/account",
-					className: "btn-print",
+					className: "ed-btn",
 					children: "View history"
-				}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+				})] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
 					to: "/",
 					className: "ed-btn",
 					children: "Back to the menu"
@@ -10620,6 +12779,22 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 				setError("Check a deliverable address first.");
 				return false;
 			}
+			if (subtotal < settings.minOrderDelivery) {
+				setError(`Delivery minimum is ${formatUsd(settings.minOrderDelivery)}.`);
+				return false;
+			}
+		}
+		if (fulfillment === "pickup") {
+			const name = pickupName.trim() || guestName.trim();
+			const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+			if (!name) {
+				setError("Enter the name for pickup.");
+				return false;
+			}
+			if (phone.length < 10) {
+				setError("Enter a 10-digit US phone number.");
+				return false;
+			}
 		}
 		if (whenMode === "schedule") {
 			if (!scheduledAt) {
@@ -10641,7 +12816,18 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 		return true;
 	}
 	function submitOrder() {
-		if (guest) {
+		const name = pickupName.trim() || guestName.trim();
+		const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+		if (fulfillment === "pickup") {
+			if (!name) {
+				setError("Enter the name for pickup.");
+				return;
+			}
+			if (phone.length < 10) {
+				setError("Enter a 10-digit US phone number.");
+				return;
+			}
+		} else if (guest) {
 			if (!guestName.trim()) {
 				setError("Enter your name.");
 				return;
@@ -10650,10 +12836,6 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 				setError("Enter a 10-digit US phone number.");
 				return;
 			}
-		}
-		if (fulfillment === "pickup" && !(pickupName.trim() || guestName.trim())) {
-			setError("Enter the name for pickup.");
-			return;
 		}
 		if (pay === "pay_card" && true) {
 			setError("Card payments are not live yet. Pay at pickup or with cash.");
@@ -10682,11 +12864,11 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 			redeemPoints: guest ? 0 : redeem,
 			paymentMethod: pay,
 			tip,
-			pickupName: fulfillment === "pickup" ? pickupName.trim() || guestName.trim() : "",
+			pickupName: fulfillment === "pickup" ? name : "",
 			scheduledDate: whenMode === "schedule" ? schedDate : "",
 			scheduledTime: whenMode === "schedule" ? schedTime : "",
-			guestName: guestName.trim(),
-			guestPhone
+			guestName: guestName.trim() || name,
+			guestPhone: guestPhone || pickupPhone
 		};
 		(guest ? placeGuestOrder({ data: payload }) : placeOrder({ data: payload })).then((r) => {
 			clear();
@@ -10725,7 +12907,7 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 							children: fulfillment === "delivery" ? "Deliver to" : "Pickup"
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: fulfillment === "delivery" ? `${address}, ${city} ${zip}` : pickupAt }),
-						fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "ed-field",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name for pickup" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								className: "ed-input",
@@ -10734,7 +12916,21 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 								required: true,
 								autoComplete: "name"
 							})]
-						}) : null,
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "ed-field",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Phone" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								className: "ed-input",
+								value: pickupPhone || guestPhone,
+								onChange: (e) => {
+									setPickupPhone(e.target.value);
+									if (guest) setGuestPhone(e.target.value);
+								},
+								required: true,
+								autoComplete: "tel",
+								inputMode: "tel",
+								placeholder: "e.g. (609) 555-0100"
+							})]
+						})] }) : null,
 						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("em", { children: [
 							whenLabel,
 							" · ",
@@ -10805,16 +13001,16 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 					className: "confirm-actions",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 						type: "button",
+						className: "btn-print checkout-primary",
+						disabled: busy || fulfillment === "pickup" && (!(pickupName.trim() || guestName.trim()) || (pickupPhone || guestPhone).replace(/\D/g, "").length < 10),
+						onClick: submitOrder,
+						children: busy ? "Placing…" : "Confirm and place"
+					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
 						className: "ed-btn",
 						disabled: busy,
 						onClick: () => setStep("form"),
 						children: "Edit order"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						className: "btn-print",
-						disabled: busy,
-						onClick: submitOrder,
-						children: busy ? "Placing…" : "Confirm and place"
 					})]
 				})
 			]
@@ -10826,420 +13022,453 @@ function CheckoutForm({ profile, restaurant, settings: loadedSettings }) {
 			e.preventDefault();
 			if (!validateCheckout()) return;
 			setError("");
+			onLockGuest?.();
 			setStep("review");
 		},
-		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
-			className: "page-card",
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Checkout" }),
-				guest ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "guest-banner",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "ed-sub",
-							children: [
-								"Checking out as a guest. We only need a name and phone for the ticket.",
-								" ",
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
-									to: "/login",
-									search: { next: "/checkout" },
-									children: "Sign in"
-								}),
-								" ",
-								"to use reward points and track orders."
-							]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(StaleCartPrompt, {}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+				className: "page-card",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Checkout" }),
+					guest ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "guest-banner",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "ed-sub",
+								children: [
+									"Checking out as a guest. We only need a name and phone for the ticket.",
+									" ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+										to: "/login",
+										search: { next: "/checkout" },
+										children: "Sign in"
+									}),
+									" ",
+									"to use reward points and track orders."
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Your name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: guestName,
+									onChange: (e) => {
+										setGuestName(e.target.value);
+										if (!pickupName || pickupName === guestName) setPickupName(e.target.value);
+									},
+									autoComplete: "name",
+									required: true
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Phone" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: guestPhone,
+									onChange: (e) => setGuestPhone(e.target.value),
+									autoComplete: "tel",
+									inputMode: "tel",
+									placeholder: "(609) 555-0100",
+									required: true
+								})]
+							})
+						]
+					}) : null,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "seg",
+						role: "group",
+						"aria-label": "Fulfillment",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": fulfillment === "pickup",
+							onClick: () => setFulfillment("pickup"),
+							children: "Pickup"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": fulfillment === "delivery",
+							onClick: () => setFulfillment("delivery"),
+							disabled: !settings.hasZones,
+							children: "Delivery"
+						})]
+					}),
+					fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [
+							"Pickup at ",
+							pickupAt,
+							". Pay when you arrive."
+						]
+					}) : null,
+					fulfillment === "pickup" && !guest ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "two-col",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Your name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name for pickup" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								className: "ed-input",
-								value: guestName,
-								onChange: (e) => {
-									setGuestName(e.target.value);
-									if (!pickupName || pickupName === guestName) setPickupName(e.target.value);
-								},
+								value: pickupName,
+								onChange: (e) => setPickupName(e.target.value),
 								autoComplete: "name",
 								required: true
 							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "ed-field",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Phone" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 								className: "ed-input",
-								value: guestPhone,
-								onChange: (e) => setGuestPhone(e.target.value),
+								value: pickupPhone,
+								onChange: (e) => setPickupPhone(e.target.value),
 								autoComplete: "tel",
 								inputMode: "tel",
-								placeholder: "(609) 555-0100",
+								placeholder: "e.g. (609) 555-0100",
 								required: true
 							})]
-						})
-					]
-				}) : null,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "seg",
-					role: "group",
-					"aria-label": "Fulfillment",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": fulfillment === "pickup",
-						onClick: () => setFulfillment("pickup"),
-						children: "Pickup"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": fulfillment === "delivery",
-						onClick: () => setFulfillment("delivery"),
-						disabled: !settings.hasZones,
-						children: "Delivery"
-					})]
-				}),
-				fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-					className: "ed-sub",
-					children: [
-						"Pickup at ",
-						pickupAt,
-						". Pay when you arrive. We will ask for a name at confirmation."
-					]
-				}) : null,
-				!settings.openNow ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-					className: "ed-sub",
-					children: [
-						"The kitchen is closed right now. ",
-						settings.hoursSummary,
-						" You can still schedule a later pickup or delivery."
-					]
-				}) : null,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
-					className: "tip-box",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "When" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "ed-sub",
-							children: "Times are Eastern, for Egg Harbor Township. Scheduled orders need 15 minutes of notice."
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "seg",
-							role: "group",
-							"aria-label": "When to fulfill",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						})]
+					}) : null,
+					!settings.openNow ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [
+							"The kitchen is closed right now. ",
+							settings.hoursSummary,
+							" You can still schedule a later pickup or delivery."
+						]
+					}) : null,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+						className: "tip-box",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "When" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "ed-sub",
+								children: "Times are Eastern, for Egg Harbor Township. Scheduled orders need 15 minutes of notice."
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "seg",
+								role: "group",
+								"aria-label": "When to fulfill",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									"data-on": whenMode === "asap",
+									disabled: !settings.openNow,
+									onClick: () => setWhenMode("asap"),
+									children: "As soon as ready"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									"data-on": whenMode === "schedule",
+									onClick: () => setWhenMode("schedule"),
+									children: "Schedule"
+								})]
+							}),
+							whenMode === "schedule" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "two-col sched-fields",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "ed-field",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Date" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										className: "ed-input",
+										type: "date",
+										min: dateBounds.min,
+										max: dateBounds.max,
+										value: schedDate,
+										onChange: (e) => setSchedDate(e.target.value),
+										required: true
+									})]
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+									className: "ed-field",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Time" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										className: "ed-input",
+										type: "time",
+										step: 900,
+										value: schedTime,
+										onChange: (e) => setSchedTime(e.target.value),
+										required: true
+									})]
+								})]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "ed-sub",
+								children: [
+									"About ",
+									eta,
+									" minutes for ",
+									fulfillment === "delivery" ? "delivery" : "pickup",
+									"."
+								]
+							})
+						]
+					}),
+					!settings.hasZones ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-sub",
+						children: "Delivery is off until the shop paints a zone on the admin map."
+					}) : null,
+					fulfillment === "delivery" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "ed-shop",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "ed-sub",
+								children: [
+									"Delivery minimum ",
+									formatUsd(settings.minOrderDelivery),
+									". Fee ",
+									formatUsd(settings.deliveryFee),
+									". We check the painted zone after you look up the address."
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Street" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: address,
+									onChange: (e) => {
+										setAddress(e.target.value);
+										setGeo(null);
+									},
+									required: true
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "City" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: city,
+									onChange: (e) => {
+										setCity(e.target.value);
+										setGeo(null);
+									}
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ZIP" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: zip,
+									onChange: (e) => {
+										setZip(e.target.value);
+										setGeo(null);
+									}
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								"data-on": whenMode === "asap",
-								disabled: !settings.openNow,
-								onClick: () => setWhenMode("asap"),
-								children: "As soon as ready"
+								className: "ed-btn",
+								onClick: () => {
+									checkDeliveryAddress({ data: { query: `${address}, ${city} ${zip}` } }).then((r) => {
+										if (!r.found || r.lat == null || r.lng == null) {
+											setGeo(null);
+											setError("We could not find that address.");
+											return;
+										}
+										setGeo({
+											lat: r.lat,
+											lng: r.lng,
+											label: r.label,
+											deliverable: r.deliverable,
+											mapsUrl: r.mapsUrl
+										});
+										setError(r.deliverable ? "" : "That pin is outside the delivery zone.");
+									});
+								},
+								children: "Check delivery zone"
+							}),
+							geo ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+								className: "ed-sub",
+								children: [
+									geo.deliverable ? "We deliver here." : "Outside the zone.",
+									" ",
+									geo.label,
+									" ",
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
+										href: geo.mapsUrl || googleMapsCoordUrl(geo.lat, geo.lng),
+										target: "_blank",
+										rel: "noreferrer",
+										children: "Google Maps"
+									})
+								]
+							}) : null
+						]
+					}) : null,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						className: "ed-field",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Notes for the kitchen" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
+							className: "ed-input ed-area",
+							rows: 3,
+							maxLength: 500,
+							value: notes,
+							onChange: (e) => setNotes(e.target.value),
+							placeholder: "e.g. extra napkins, doorbell is broken",
+							suppressHydrationWarning: true
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+						className: "tip-box",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Tip" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "ed-sub",
+								children: "Quick percents are on food after rewards. Tips are not taxed in New Jersey."
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "tip-chips",
+								role: "group",
+								"aria-label": "Tip percent",
+								children: [
+									["none", "No tip"],
+									[10, "10%"],
+									[15, "15%"],
+									[20, "20%"],
+									["custom", "Custom"]
+								].map(([mode, label]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+									type: "button",
+									"data-on": tipMode === mode,
+									onClick: () => setTipMode(mode),
+									children: [label, typeof mode === "number" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: formatUsd(tipFromPercent(subtotal, discount, mode)) }) : null]
+								}, String(mode)))
+							}),
+							tipMode === "custom" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Custom tip" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									inputMode: "decimal",
+									value: customTip,
+									onChange: (e) => setCustomTip(e.target.value.replace(/[^\d.]/g, "")),
+									placeholder: "0.00"
+								})]
+							}) : null
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
+						className: "pay-box",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Payment" }),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "ed-sub",
+								children: fulfillment === "pickup" ? "Pay at pickup when you arrive." : "Pay the driver with cash."
+							}),
+							fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "pay-opt",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "radio",
+									name: "pay",
+									checked: pay === "pay_pickup",
+									onChange: () => setPay("pay_pickup")
+								}), "Pay at pickup"]
+							}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "pay-opt",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									type: "radio",
+									name: "pay",
+									checked: pay === "pay_delivery",
+									onChange: () => setPay("pay_delivery")
+								}), "Cash"]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "ed-sub pay-card-note",
+								children: "Card coming soon. Pay at pickup or with cash today."
+							})
+						]
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
+				className: "page-card",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Bag" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
+						className: "cart-lines",
+						children: lines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: l.name }),
+							l.size ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "cart-size",
+								children: l.size
+							}) : null,
+							l.detail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+								className: "cart-size",
+								children: l.detail
+							}) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+								className: "cart-line-price",
+								children: formatUsd(l.unitPrice * l.qty)
+							})
+						] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+							className: "bag-line-tools",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "qty-step",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": `Fewer ${l.name}`,
+										onClick: () => setQty(l.key, l.qty - 1),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: l.qty }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+										type: "button",
+										"aria-label": `More ${l.name}`,
+										onClick: () => setQty(l.key, l.qty + 1),
+										children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
+									})
+								]
 							}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
-								"data-on": whenMode === "schedule",
-								onClick: () => setWhenMode("schedule"),
-								children: "Schedule"
-							})]
-						}),
-						whenMode === "schedule" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "two-col sched-fields",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "ed-field",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Date" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									className: "ed-input",
-									type: "date",
-									min: dateBounds.min,
-									max: dateBounds.max,
-									value: schedDate,
-									onChange: (e) => setSchedDate(e.target.value),
-									required: true
-								})]
-							}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-								className: "ed-field",
-								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Time" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-									className: "ed-input",
-									type: "time",
-									step: 900,
-									value: schedTime,
-									onChange: (e) => setSchedTime(e.target.value),
-									required: true
-								})]
-							})]
-						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "ed-sub",
-							children: [
-								"About ",
-								eta,
-								" minutes for ",
-								fulfillment === "delivery" ? "delivery" : "pickup",
-								"."
-							]
-						})
-					]
-				}),
-				!settings.hasZones ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "ed-sub",
-					children: "Delivery is off until the shop paints a zone on the admin map."
-				}) : null,
-				fulfillment === "delivery" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "ed-shop",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "ed-sub",
-							children: [
-								"Delivery minimum ",
-								formatUsd(settings.minOrderDelivery),
-								". Fee ",
-								formatUsd(settings.deliveryFee),
-								". We check the painted zone after you look up the address."
-							]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Street" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								value: address,
-								onChange: (e) => setAddress(e.target.value),
-								required: true
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "City" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								value: city,
-								onChange: (e) => setCity(e.target.value)
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "ZIP" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								value: zip,
-								onChange: (e) => setZip(e.target.value)
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "ed-btn",
-							onClick: () => {
-								checkDeliveryAddress({ data: { query: `${address}, ${city} ${zip}` } }).then((r) => {
-									if (!r.found || r.lat == null || r.lng == null) {
-										setGeo(null);
-										setError("We could not find that address.");
-										return;
-									}
-									setGeo({
-										lat: r.lat,
-										lng: r.lng,
-										label: r.label,
-										deliverable: r.deliverable,
-										mapsUrl: r.mapsUrl
-									});
-									setError(r.deliverable ? "" : "That pin is outside the delivery zone.");
-								});
-							},
-							children: "Check delivery zone"
-						}),
-						geo ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
-							className: "ed-sub",
-							children: [
-								geo.deliverable ? "We deliver here." : "Outside the zone.",
-								" ",
-								geo.label,
-								" ",
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("a", {
-									href: geo.mapsUrl || googleMapsCoordUrl(geo.lat, geo.lng),
-									target: "_blank",
-									rel: "noreferrer",
-									children: "Google Maps"
+								className: "bag-remove",
+								"aria-label": `Remove ${l.name}`,
+								onClick: () => remove(l.key),
+								children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, {
+									size: 16,
+									strokeWidth: 2.2
 								})
-							]
-						}) : null
-					]
-				}) : null,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-					className: "ed-field",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Notes for the kitchen" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("textarea", {
-						className: "ed-input ed-area",
-						rows: 3,
-						maxLength: 500,
-						value: notes,
-						onChange: (e) => setNotes(e.target.value),
-						placeholder: "Well done, extra ranch, doorbell is broken…",
-						suppressHydrationWarning: true
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
-					className: "tip-box",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Tip" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "ed-sub",
-							children: "Quick percents are on food after rewards. Tips are not taxed in New Jersey."
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "tip-chips",
-							role: "group",
-							"aria-label": "Tip percent",
-							children: [
-								["none", "No tip"],
-								[10, "10%"],
-								[15, "15%"],
-								[20, "20%"],
-								["custom", "Custom"]
-							].map(([mode, label]) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-								type: "button",
-								"data-on": tipMode === mode,
-								onClick: () => setTipMode(mode),
-								children: [label, typeof mode === "number" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("em", { children: formatUsd(tipFromPercent(subtotal, discount, mode)) }) : null]
-							}, String(mode)))
-						}),
-						tipMode === "custom" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Custom tip" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								inputMode: "decimal",
-								value: customTip,
-								onChange: (e) => setCustomTip(e.target.value.replace(/[^\d.]/g, "")),
-								placeholder: "0.00"
 							})]
-						}) : null
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("fieldset", {
-					className: "pay-box",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("legend", { children: "Payment" }),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "ed-sub",
-							children: "Pay at pickup or with cash. Card is coming soon."
-						}),
-						fulfillment === "pickup" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "pay-opt",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "radio",
-								name: "pay",
-								checked: pay === "pay_pickup",
-								onChange: () => setPay("pay_pickup")
-							}), "Pay at pickup"]
-						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "pay-opt",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "radio",
-								name: "pay",
-								checked: pay === "pay_delivery",
-								onChange: () => setPay("pay_delivery")
-							}), "Cash"]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "pay-opt pay-disabled",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								type: "radio",
-								name: "pay",
-								checked: false,
-								disabled: true
-							}), "Card coming soon"]
-						})
-					]
-				})
-			]
-		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("aside", {
-			className: "page-card",
-			children: [
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Bag" }),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
-					className: "cart-lines",
-					children: lines.map((l) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: l.name }),
-						l.size ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "cart-size",
-							children: l.size
-						}) : null,
-						l.detail ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
-							className: "cart-size",
-							children: l.detail
-						}) : null,
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-							className: "cart-line-price",
-							children: formatUsd(l.unitPrice * l.qty)
-						})
-					] }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-						className: "bag-line-tools",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "qty-step",
-							children: [
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									"aria-label": `Fewer ${l.name}`,
-									onClick: () => setQty(l.key, l.qty - 1),
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Minus, { size: 14 })
-								}),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: l.qty }),
-								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-									type: "button",
-									"aria-label": `More ${l.name}`,
-									onClick: () => setQty(l.key, l.qty + 1),
-									children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Plus, { size: 14 })
-								})
-							]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "button",
-							className: "bag-remove",
-							"aria-label": `Remove ${l.name}`,
-							onClick: () => remove(l.key),
-							children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Trash2, {
-								size: 16,
-								strokeWidth: 2.2
-							})
+						})] }, l.key))
+					}),
+					guest ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						className: "ed-field",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
+							"Redeem points (",
+							points,
+							" available, ",
+							redeemRate,
+							" pts = $1)"
+						] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							className: "ed-input",
+							type: "number",
+							min: 0,
+							step: redeemRate,
+							max: maxRedeem,
+							value: redeem,
+							onChange: (e) => setRedeem(Math.max(0, Math.min(maxRedeem, Number(e.target.value) || 0)))
 						})]
-					})] }, l.key))
-				}),
-				guest ? null : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-					className: "ed-field",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
-						"Redeem points (",
-						points,
-						" available, ",
-						redeemRate,
-						" pts = $1)"
-					] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-						className: "ed-input",
-						type: "number",
-						min: 0,
-						step: redeemRate,
-						max: maxRedeem,
-						value: redeem,
-						onChange: (e) => setRedeem(Math.max(0, Math.min(maxRedeem, Number(e.target.value) || 0)))
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", {
-					className: "totals",
-					children: [
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Subtotal" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(subtotal) })] }),
-						discount ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rewards" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dd", { children: ["−", formatUsd(discount)] })] }) : null,
-						deliveryFee ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Delivery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(deliveryFee) })] }) : null,
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dt", { children: [
-							"Tax (",
-							settings.taxRate,
-							"%)"
-						] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(tax) })] }),
-						tip ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Tip" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(tip) })] }) : null,
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-							className: "totals-grand",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Total" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(total) })]
-						})
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "ed-sub",
-					children: whenMode === "schedule" ? whenLabel : `About ${eta} minutes for ${fulfillment === "delivery" ? "delivery" : "pickup"}.`
-				}),
-				error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "form-error",
-					children: error
-				}) : null,
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-					type: "submit",
-					className: "btn-print",
-					disabled: busy,
-					children: "Review order"
-				})
-			]
-		})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dl", {
+						className: "totals",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Subtotal" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(subtotal) })] }),
+							discount ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Rewards" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dd", { children: ["−", formatUsd(discount)] })] }) : null,
+							deliveryFee ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Delivery" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(deliveryFee) })] }) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("dt", { children: [
+								"Tax (",
+								settings.taxRate,
+								"%)"
+							] }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(tax) })] }),
+							tip ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Tip" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(tip) })] }) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "totals-grand",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("dt", { children: "Total" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("dd", { children: formatUsd(total) })]
+							})
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-sub",
+						children: whenMode === "schedule" ? whenLabel : `About ${eta} minutes for ${fulfillment === "delivery" ? "delivery" : "pickup"}.`
+					}),
+					error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "form-error",
+						children: error
+					}) : null,
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "submit",
+						className: "btn-print checkout-primary",
+						disabled: busy,
+						children: "Review order"
+					})
+				]
+			})
+		]
 	});
 }
 //#endregion
@@ -11256,6 +13485,26 @@ var Route$23 = createFileRoute("/enroll-2fa")({
 	},
 	component: Enroll2fa
 });
+/** Survives remount storms — one in-flight setup per tab, shared across Enroll2fa mounts. */
+var setupCache = {
+	userId: null,
+	promise: null
+};
+function loadTotpSetup(userId) {
+	if (setupCache.userId === userId && setupCache.promise) return setupCache.promise;
+	setupCache.userId = userId;
+	setupCache.promise = startTotpSetup().then((r) => ({
+		secret: r.secret,
+		uri: r.uri
+	})).catch((err) => {
+		if (setupCache.userId === userId) {
+			setupCache.userId = null;
+			setupCache.promise = null;
+		}
+		throw err;
+	});
+	return setupCache.promise;
+}
 function Enroll2fa() {
 	const { user, isPending } = useCurrentUserState();
 	const { next } = Route$23.useSearch();
@@ -11266,24 +13515,26 @@ function Enroll2fa() {
 	const [busy, setBusy] = (0, import_react.useState)(false);
 	const [done, setDone] = (0, import_react.useState)(false);
 	(0, import_react.useEffect)(() => {
-		if (!user) return;
-		startTotpSetup().then((r) => {
+		if (!user?.id) return;
+		let live = true;
+		loadTotpSetup(user.id).then((r) => {
+			if (!live) return;
 			setSecret(r.secret);
 			setUri(r.uri);
-		}).catch((err) => setError(err instanceof Error ? err.message : "Could not start setup"));
-	}, [user]);
-	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "page-skel",
-		children: "Checking sign-in…"
-	});
+		}).catch((err) => {
+			if (!live) return;
+			setError(err instanceof Error ? err.message : "Could not start setup");
+		});
+		return () => {
+			live = false;
+		};
+	}, [user?.id]);
+	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, {});
 	if (!user) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RedirectToSignIn, {});
 	if (done) {
 		const dest = next || "/admin/pos";
 		window.location.replace(dest);
-		return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-			className: "page-skel",
-			children: "Opening the shop desk…"
-		});
+		return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, { label: "Loading account" });
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("main", {
 		className: "login-page",
@@ -11303,7 +13554,7 @@ function Enroll2fa() {
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Set up two-factor" }),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-sub",
-					children: "Admin requires an authenticator app (Google Authenticator, Authy, 1Password). Scan the code or type the key, then enter a 6-digit code to confirm."
+					children: "Scan with an authenticator app (Google Authenticator, Authy, 1Password), or type the key, then enter a 6-digit code to confirm."
 				}),
 				uri ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(InviteQr, {
 					value: uri,
@@ -11484,21 +13735,21 @@ function InstallPage() {
 							src: "/icon-512.png",
 							width: 180,
 							height: 180,
-							alt: "SouthEnd"
+							alt: "South End Pizza"
 						}),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "shop-brand-kicker",
-							children: "South End Pizza III"
+							children: "Egg Harbor Township"
 						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "SouthEnd" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "South End Pizza" }),
 						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "ed-sub",
-							children: "Put the shop on your home screen. Same menu, same account — opens like an app."
+							children: "Put the shop on your home screen. Same menu, same account — opens like an app named South End."
 						}),
-						standalone || done ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						standalone || done ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 							className: "points-chip",
-							children: "SouthEnd is on this device"
-						}) : promptEvent ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							children: "South End is on this device"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EnableAlertsButton, {})] }) : promptEvent ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							className: "btn-print",
 							disabled: busy,
@@ -11506,7 +13757,7 @@ function InstallPage() {
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Smartphone, {
 								size: 18,
 								strokeWidth: 2.2
-							}), busy ? "Installing…" : "Add SouthEnd"]
+							}), busy ? "Installing…" : "Add South End"]
 						}) : ios ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
 							className: "install-cta",
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Share, {
@@ -11528,7 +13779,7 @@ function InstallPage() {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Open this page in Safari." }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Tap the Share button." }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Choose Add to Home Screen, then Add." }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Look for the buffalo mark named SouthEnd." })
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Look for the buffalo mark named South End." })
 						]
 					})]
 				}),
@@ -11540,9 +13791,23 @@ function InstallPage() {
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Open this page in Chrome." }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Tap the browser menu." }),
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Choose Install app or Add to Home screen." }),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Confirm SouthEnd." })
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("li", { children: "Confirm South End Pizza." })
 						]
 					})]
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+					className: "page-card",
+					children: [
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Order alerts" }),
+						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "After you install, tap Enable order alerts so we can ping you when a ticket is ready. iPhone needs Add to Home Screen first."
+						}),
+						ios && !standalone ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+							className: "ed-sub",
+							children: "Add South End to the Home Screen, open it from the icon, then enable alerts."
+						}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)(EnableAlertsButton, { compact: true })
+					]
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-sub install-back",
@@ -11558,13 +13823,13 @@ function InstallPage() {
 //#endregion
 //#region src/lib/login-social.ts
 var BEARER_KEY = "grok-auth.bearer-token";
-function friendlyAuthError(err) {
-	const raw = err instanceof Error ? err.message : "Sign-in failed.";
-	const lower = raw.toLowerCase();
+function friendlyAuthError(err, hint) {
+	const lower = (err instanceof Error ? err.message : "Sign-in failed.").toLowerCase();
 	if (lower.includes("invalid origin")) return "This shop address is not on the sign-in list. Open the published shop link and try again.";
 	if (lower.includes("pop-up") || lower.includes("popup")) return "Allow pop-ups for this shop, then try Google or X again.";
 	if (lower.includes("cancelled") || lower.includes("canceled") || lower.includes("did not finish")) return "Sign-in did not finish. Try again.";
-	return raw;
+	if (lower.includes("invalid") || lower.includes("credential") || lower.includes("unauthorized") || lower.includes("password") || lower.includes("not found") || lower.includes("user")) return hint?.username ? "Invalid username or password." : "Invalid email, username, or password.";
+	return "Invalid email, username, or password.";
 }
 function inSandboxPreview() {
 	return typeof window !== "undefined" && window.location.hostname.endsWith(".grok-sandbox.com");
@@ -11690,6 +13955,9 @@ function providerMark(label) {
 	if (label === "X") return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(XMark, {});
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(GoogleMark, {});
 }
+function needsEmailOtp(_email) {
+	return false;
+}
 function Login() {
 	const { user, isPending } = useCurrentUserState();
 	const navigate = useNavigate();
@@ -11703,6 +13971,10 @@ function Login() {
 	const [error, setError] = (0, import_react.useState)(searchError ? friendlyAuthError(new Error(searchError)) : "");
 	const [busy, setBusy] = (0, import_react.useState)(false);
 	const [showMark, setShowMark] = (0, import_react.useState)(true);
+	const [verifyStep, setVerifyStep] = (0, import_react.useState)(null);
+	const [signupOtp, setSignupOtp] = (0, import_react.useState)("");
+	const [otpLeft, setOtpLeft] = (0, import_react.useState)(0);
+	const [gatePending, setGatePending] = (0, import_react.useState)(false);
 	const closeTo = next || "/";
 	(0, import_react.useEffect)(() => {
 		captureReferral(ref);
@@ -11710,14 +13982,84 @@ function Login() {
 	(0, import_react.useEffect)(() => {
 		getStorefront().then((d) => setShowMark(d.settings.showMark)).catch(() => setShowMark(true));
 	}, []);
-	if (isPending && !busy) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "page-skel",
-		children: "Checking sign-in…"
+	(0, import_react.useEffect)(() => {
+		if (!user || verifyStep || !needsEmailOtp("")) {
+			setGatePending(false);
+			return;
+		}
+		let cancelled = false;
+		setGatePending(true);
+		(async () => {
+			try {
+				const me = await getMe();
+				if (cancelled) return;
+				const email = String(me.email ?? "").trim().toLowerCase();
+				if (!email || !needsEmailOtp(email) || me.emailVerified) return;
+				const sent = await sendSignupEmailCode({ data: { email } });
+				if (cancelled) return;
+				if (sent.alreadyVerified) return;
+				setVerifyStep({
+					email,
+					masked: sent.email,
+					previewCode: sent.previewCode
+				});
+				setSignupOtp("");
+				setOtpLeft(sent.expiresIn || 60);
+			} catch {} finally {
+				if (!cancelled) setGatePending(false);
+			}
+		})();
+		return () => {
+			cancelled = true;
+		};
+	}, [user, verifyStep]);
+	(0, import_react.useEffect)(() => {
+		if (otpLeft <= 0) return;
+		const t = window.setInterval(() => setOtpLeft((n) => Math.max(0, n - 1)), 1e3);
+		return () => window.clearInterval(t);
+	}, [otpLeft]);
+	if ((isPending || gatePending) && !busy && !verifyStep && !error) return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("main", {
+		className: "login-page",
+		"data-popup": "true",
+		children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+			to: closeTo,
+			className: "login-scrim",
+			"aria-label": "Close sign-in"
+		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+			className: "login-card login-dialog",
+			role: "status",
+			"aria-busy": "true",
+			"aria-labelledby": "login-title",
+			children: [
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PizzaSpinner, { size: "md" }),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+					id: "login-title",
+					children: "Loading account"
+				}),
+				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "ed-sub",
+					children: "Connecting you to the shop…"
+				})
+			]
+		})]
 	});
-	if (user && !busy) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Navigate, {
+	if (user && !busy && !verifyStep && !gatePending && !error) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Navigate, {
 		to: closeTo,
 		replace: true
 	});
+	async function beginEmailVerify(email) {
+		if (!needsEmailOtp(email)) return true;
+		const sent = await sendSignupEmailCode({ data: { email } });
+		if (sent.alreadyVerified) return true;
+		setVerifyStep({
+			email,
+			masked: sent.email,
+			previewCode: sent.previewCode
+		});
+		setSignupOtp("");
+		setOtpLeft(sent.expiresIn || 60);
+		return false;
+	}
 	async function submit(e) {
 		e.preventDefault();
 		setError("");
@@ -11757,19 +14099,81 @@ function Login() {
 				} }).catch(() => void 0);
 				const invite = peekReferral();
 				if (invite) claimReferral({ data: { code: invite } }).catch(() => void 0);
+				if (needsEmailOtp(parsed.email)) {
+					if (!await beginEmailVerify(parsed.email)) {
+						setBusy(false);
+						return;
+					}
+				}
 			} else {
-				const { error: err } = await authClient.signIn.email({
+				const { data, error: err } = await authClient.signIn.email({
 					email: parsed.email,
 					password
 				});
-				if (err) throw new Error(err.message || "Could not sign in.");
+				if (err || !data?.user) throw new Error(err?.message || "Invalid email, username, or password.");
+				if (isStaffAdminAccount(void 0, parsed.email) || isStaffAdminUsername(identifier)) noteStaffDeskLogin().catch(() => void 0);
+				if (needsEmailOtp(parsed.email)) {
+					if (!await beginEmailVerify(parsed.email)) {
+						setBusy(false);
+						return;
+					}
+				}
 			}
 			navigate({
 				to: closeTo,
 				replace: true
 			});
 		} catch (err) {
-			setError(friendlyAuthError(err));
+			const username = mode === "email" && !identifier.includes("@");
+			setError(friendlyAuthError(err, { username }));
+			setBusy(false);
+			dropClientSession();
+		}
+	}
+	async function submitVerify(e) {
+		e.preventDefault();
+		if (!verifyStep) return;
+		setError("");
+		setBusy(true);
+		try {
+			await verifySignupEmailCode({ data: {
+				email: verifyStep.email,
+				code: signupOtp
+			} });
+			setVerifyStep(null);
+			navigate({
+				to: closeTo,
+				replace: true
+			});
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Could not verify that code.");
+			setBusy(false);
+		}
+	}
+	async function resendVerify() {
+		if (!verifyStep || otpLeft > 0) return;
+		setError("");
+		setBusy(true);
+		try {
+			const sent = await sendSignupEmailCode({ data: { email: verifyStep.email } });
+			if (sent.alreadyVerified) {
+				setVerifyStep(null);
+				navigate({
+					to: closeTo,
+					replace: true
+				});
+				return;
+			}
+			setVerifyStep({
+				email: verifyStep.email,
+				masked: sent.email,
+				previewCode: sent.previewCode
+			});
+			setSignupOtp("");
+			setOtpLeft(sent.expiresIn || 60);
+		} catch (err) {
+			setError(err instanceof Error ? err.message : "Could not send another code.");
+		} finally {
 			setBusy(false);
 		}
 	}
@@ -11799,6 +14203,7 @@ function Login() {
 			"aria-label": "Close sign-in"
 		}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 			className: "login-card login-dialog",
+			"data-error": error ? "true" : void 0,
 			role: "dialog",
 			"aria-modal": "true",
 			"aria-labelledby": "login-title",
@@ -11818,132 +14223,213 @@ function Login() {
 					className: "shop-brand-kicker",
 					children: "South End Pizza III"
 				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
-					id: "login-title",
-					children: tab === "up" ? "Create account" : "Welcome back"
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-					className: "ed-sub",
-					children: next === "/checkout" ? "Sign in to place your order, or check out as a guest. Your cart stays on this device." : "Email, the shop username, or a US phone number. Google and X work too."
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "seg",
-					role: "group",
-					"aria-label": "Identifier type",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": mode === "email",
-						onClick: () => setMode("email"),
-						children: "Email"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": mode === "phone",
-						onClick: () => setMode("phone"),
-						children: "Phone"
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
-					className: "seg",
-					role: "group",
-					"aria-label": "Create or sign in",
-					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": tab === "in",
-						onClick: () => setTab("in"),
-						children: "Sign in"
-					}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-						type: "button",
-						"data-on": tab === "up",
-						onClick: () => setTab("up"),
-						children: "Create account"
-					})]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
-					className: "login-form",
-					onSubmit: (e) => void submit(e),
-					children: [
-						tab === "up" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								value: name,
-								onChange: (e) => setName(e.target.value),
-								autoComplete: "name"
-							})]
-						}) : null,
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: mode === "phone" ? "Phone" : "Email or username" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								value: identifier,
-								onChange: (e) => setIdentifier(e.target.value),
-								autoComplete: mode === "phone" ? "tel" : "username",
-								inputMode: mode === "phone" ? "tel" : "email",
-								placeholder: mode === "phone" ? "(609) 555-0100" : "you@email.com or username",
-								required: true
-							})]
-						}),
-						/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Password" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								type: "password",
-								value: password,
-								onChange: (e) => setPassword(e.target.value),
-								autoComplete: tab === "up" ? "new-password" : "current-password",
-								placeholder: "Password",
-								minLength: 8,
-								required: true
-							})]
-						}),
-						tab === "up" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
-							className: "ed-field",
-							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Confirm password" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
-								className: "ed-input",
-								type: "password",
-								value: password2,
-								onChange: (e) => setPassword2(e.target.value),
-								autoComplete: "new-password",
-								minLength: 8,
-								required: true
-							})]
-						}) : null,
-						error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
-							className: "form-error",
-							children: error
-						}) : null,
-						/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
-							type: "submit",
-							className: "btn-print",
+				verifyStep ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+						id: "login-title",
+						children: "Check your inbox"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [
+							"We sent a 6-digit code to ",
+							verifyStep.masked,
+							". Enter it below to finish setting up your South End Pizza account."
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+						className: "login-form",
+						onSubmit: (e) => void submitVerify(e),
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "mail-slip",
+								role: "status",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "slip-kind",
+										children: ["Inbox · ", verifyStep.masked]
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Your South End Pizza signup code" }),
+									verifyStep.previewCode && otpLeft > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "otp-code",
+										children: verifyStep.previewCode
+									}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+										className: "ed-sub",
+										children: otpLeft > 0 ? `Enter the 6-digit code. ${otpLeft}s left.` : "That code expired. Send a new one."
+									}),
+									verifyStep.previewCode && otpLeft > 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+										className: "ed-sub",
+										children: [
+											"This shop preview shows the message here. It expires in ",
+											otpLeft,
+											"s."
+										]
+									}) : null
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "One-time code" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									inputMode: "numeric",
+									autoComplete: "one-time-code",
+									value: signupOtp,
+									onChange: (e) => setSignupOtp(e.target.value.replace(/\D/g, "").slice(0, 6)),
+									placeholder: "6-digit code",
+									minLength: 6,
+									maxLength: 6,
+									required: true
+								})]
+							}),
+							error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "form-error",
+								children: error
+							}) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "submit",
+								className: "btn-print",
+								disabled: busy || signupOtp.length !== 6,
+								children: busy ? "Please wait…" : "Verify & continue"
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "button",
+								className: "ed-btn ed-btn-quiet",
+								disabled: busy || otpLeft > 0,
+								onClick: () => void resendVerify(),
+								children: otpLeft > 0 ? `Send again in ${otpLeft}s` : "Send a new code"
+							})
+						]
+					})
+				] }) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)(import_jsx_runtime.Fragment, { children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", {
+						id: "login-title",
+						children: tab === "up" ? "Create account" : "Welcome back"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-sub",
+						children: next === "/checkout" ? "Sign in to place your order, or check out as a guest. Your cart stays on this device." : "Email, the shop username, or a US phone number. Google and X work too."
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "seg",
+						role: "group",
+						"aria-label": "Identifier type",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": mode === "email",
+							onClick: () => setMode("email"),
+							children: "Email"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": mode === "phone",
+							onClick: () => setMode("phone"),
+							children: "Phone"
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "seg",
+						role: "group",
+						"aria-label": "Create or sign in",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": tab === "in",
+							onClick: () => setTab("in"),
+							children: "Sign in"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							"data-on": tab === "up",
+							onClick: () => setTab("up"),
+							children: "Create account"
+						})]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("form", {
+						className: "login-form",
+						onSubmit: (e) => void submit(e),
+						children: [
+							tab === "up" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: name,
+									onChange: (e) => setName(e.target.value),
+									autoComplete: "name"
+								})]
+							}) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: mode === "phone" ? "Phone" : "Email or username" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									value: identifier,
+									onChange: (e) => setIdentifier(e.target.value),
+									autoComplete: mode === "phone" ? "tel" : "username",
+									inputMode: mode === "phone" ? "tel" : "email",
+									placeholder: mode === "phone" ? "(609) 555-0100" : "you@email.com or username",
+									required: true
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Password" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									type: "password",
+									value: password,
+									onChange: (e) => setPassword(e.target.value),
+									autoComplete: tab === "up" ? "new-password" : "current-password",
+									placeholder: "Password",
+									minLength: isStaffAdminUsername(identifier) ? 4 : 8,
+									required: true
+								})]
+							}),
+							tab === "up" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Confirm password" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+									className: "ed-input",
+									type: "password",
+									value: password2,
+									onChange: (e) => setPassword2(e.target.value),
+									autoComplete: "new-password",
+									minLength: 8,
+									required: true
+								})]
+							}) : null,
+							error ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+								className: "form-error",
+								children: error
+							}) : null,
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								type: "submit",
+								className: "btn-print",
+								disabled: busy,
+								children: busy ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
+									className: "login-busy",
+									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PizzaSpinner, { size: "sm" }), "Loading account"]
+								}) : tab === "up" ? "Create account" : "Sign in"
+							}),
+							tab === "in" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+								to: "/recover",
+								className: "login-back",
+								children: "Forgot password?"
+							}) : null
+						]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "login-split",
+						children: "or continue with"
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "login-socials",
+						children: GROK_PROVIDERS.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							type: "button",
+							className: "login-social",
 							disabled: busy,
-							children: busy ? "Please wait…" : tab === "up" ? "Create account" : "Sign in"
-						}),
-						tab === "in" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
-							to: "/recover",
-							className: "login-back",
-							children: "Forgot password?"
-						}) : null
-					]
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "login-split",
-					children: "or continue with"
-				}),
-				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-					className: "login-socials",
-					children: GROK_PROVIDERS.map((p) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
-						type: "button",
-						className: "login-social",
-						disabled: busy,
-						onClick: () => void social(p.providerId),
-						children: [providerMark(p.label), p.label]
-					}, p.providerId))
-				}),
-				next === "/checkout" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
-					to: "/checkout",
-					className: "login-back",
-					children: "Checkout as a guest"
-				}) : null
+							onClick: () => void social(p.providerId),
+							children: [busy ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(PizzaSpinner, { size: "sm" }) : providerMark(p.label), p.label]
+						}, p.providerId))
+					}),
+					next === "/checkout" ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Link, {
+						to: "/checkout",
+						className: "login-back",
+						children: "Checkout as a guest"
+					}) : null
+				] })
 			]
 		})]
 	});
@@ -12158,6 +14644,50 @@ function jobsForPrinters(printers, kinds) {
 		});
 	}
 	return jobs;
+}
+//#endregion
+//#region src/lib/lan-printer.ts
+function escapeXml(value) {
+	return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll("\"", "&quot;");
+}
+function eposEnvelope(body) {
+	return `<?xml version="1.0" encoding="utf-8"?>
+<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/">
+  <s:Body>
+    <epos-print xmlns="http://www.epson-pos.com/schemas/2011/03/epos-print">
+      <text>${escapeXml(body).replaceAll("\n", "&#10;")}</text>
+      <feed line="3"/>
+      <cut type="feed"/>
+    </epos-print>
+  </s:Body>
+</s:Envelope>`;
+}
+function lanPrinterUrl(printer) {
+	const host = String(printer.lanHost ?? "").trim();
+	if (!host) return "";
+	const proto = printer.lanProtocol === "https" ? "https" : "http";
+	return `${proto}://${host}:${printer.lanPort === 8043 || proto === "https" ? 8043 : 8008}/cgi-bin/epos/service.cgi?devid=local_printer&timeout=10000`;
+}
+async function printLanReceipt(printer, body) {
+	const url = lanPrinterUrl(printer);
+	if (!url) throw new Error("Enter the printer IP on the shop Wi-Fi.");
+	const res = await fetch(url, {
+		method: "POST",
+		headers: { "Content-Type": "text/xml; charset=utf-8" },
+		body: eposEnvelope(body)
+	});
+	if (!res.ok) throw new Error(`Printer answered ${res.status}. Check the IP and that this tablet is on shop Wi-Fi.`);
+}
+async function testLanPrint(printer) {
+	await printLanReceipt(printer, [
+		"SOUTH END PIZZA III",
+		"443 Zion Rd",
+		"",
+		"Test print from the shop tablet",
+		(/* @__PURE__ */ new Date()).toLocaleString("en-US", { timeZone: "America/New_York" }),
+		"",
+		"If you can read this, LAN ePOS is working."
+	].join("\n"));
 }
 //#endregion
 //#region src/lib/bluetooth-printer.ts
@@ -12623,7 +15153,7 @@ ${slips.map((s) => `<section class="slip"><div class="kind">${escapeHtml(s.title
 	w.document.close();
 }
 function escapeHtml(s) {
-	return s.replaceAll("&", "&").replaceAll("<", "<").replaceAll(">", ">");
+	return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 async function printOrderReceipts(opts) {
 	const kinds = opts.kinds ?? ["customer", "store"];
@@ -12641,6 +15171,12 @@ async function printOrderReceipts(opts) {
 			paper: job.printer.paper
 		});
 		const title = `${job.printer.name} · ${job.kind === "store" ? "Store copy" : "Customer copy"}`;
+		if (job.printer.lanHost) try {
+			await printLanReceipt(job.printer, body);
+			continue;
+		} catch (e) {
+			errors.push(`${job.printer.name}: ${e instanceof Error ? e.message : "LAN print failed"}`);
+		}
 		if (job.printer.bluetoothId) try {
 			await printEscPos(job.printer.bluetoothId, textToEscPos(body));
 			continue;
@@ -12910,18 +15446,12 @@ function Verify2fa() {
 	const [error, setError] = (0, import_react.useState)("");
 	const [busy, setBusy] = (0, import_react.useState)(false);
 	const [done, setDone] = (0, import_react.useState)(false);
-	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-		className: "page-skel",
-		children: "Checking sign-in…"
-	});
+	if (isPending) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, {});
 	if (!user) return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(RedirectToSignIn, {});
 	if (done) {
 		if (next) {
 			window.location.replace(next);
-			return /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
-				className: "page-skel",
-				children: "Continuing…"
-			});
+			return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(AccountLoading, { label: "Loading account" });
 		}
 		return /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Navigate, { to: "/" });
 	}
@@ -12970,58 +15500,6 @@ function Verify2fa() {
 //#region src/routes/admin/index.tsx
 var Route$16 = createFileRoute("/admin/")({ component: () => /* @__PURE__ */ (0, import_jsx_runtime.jsx)(Navigate, { to: "/admin/menu" }) });
 //#endregion
-//#region src/lib/image-file.ts
-var TYPES = [
-	"image/webp",
-	"image/jpeg",
-	"image/png"
-];
-async function fileToDataImage(file, opts) {
-	if (!file.type.startsWith("image/")) throw new Error("Choose an image file.");
-	const probe = await createImageBitmap(file);
-	const scale = Math.min(1, opts.maxEdge / Math.max(probe.width, probe.height));
-	const w = Math.max(1, Math.round(probe.width * scale));
-	const h = Math.max(1, Math.round(probe.height * scale));
-	probe.close();
-	let bmp;
-	try {
-		bmp = await createImageBitmap(file, {
-			resizeWidth: w,
-			resizeHeight: h,
-			resizeQuality: "high"
-		});
-	} catch {
-		bmp = await createImageBitmap(file);
-	}
-	const canvas = document.createElement("canvas");
-	canvas.width = w;
-	canvas.height = h;
-	const ctx = canvas.getContext("2d");
-	if (!ctx) {
-		bmp.close();
-		throw new Error("Could not read that image.");
-	}
-	ctx.imageSmoothingEnabled = true;
-	ctx.imageSmoothingQuality = "high";
-	ctx.clearRect(0, 0, w, h);
-	ctx.drawImage(bmp, 0, 0, w, h);
-	bmp.close();
-	const cap = opts.maxChars ?? 35e4;
-	const startQ = opts.quality ?? .9;
-	let best = "";
-	for (const type of TYPES) {
-		let q = startQ;
-		for (let i = 0; i < 6; i += 1) {
-			const url = canvas.toDataURL(type, q);
-			if (!best || url.length < best.length) best = url;
-			if (url.length <= cap) return url;
-			q -= .08;
-		}
-	}
-	if (best && best.length <= cap + 7e4) return best;
-	throw new Error("That image is too large. Try a smaller photo.");
-}
-//#endregion
 //#region src/routes/admin/background.tsx
 var Route$15 = createFileRoute("/admin/background")({ component: AdminBackground });
 function AdminBackground() {
@@ -13031,6 +15509,7 @@ function AdminBackground() {
 	const [logoPreview, setLogoPreview] = (0, import_react.useState)("");
 	const [notify, setNotify] = (0, import_react.useState)("");
 	const [season, setSeason] = (0, import_react.useState)("none");
+	const [adminTotpRequired, setAdminTotpRequired] = (0, import_react.useState)(false);
 	const [busy, setBusy] = (0, import_react.useState)(false);
 	const [msg, setMsg] = (0, import_react.useState)("");
 	const [previewAspect, setPreviewAspect] = (0, import_react.useState)("16 / 9");
@@ -13042,6 +15521,7 @@ function AdminBackground() {
 			setLogoPreview(d.settings.logoData || "/mark.jpg");
 			setNotify(d.notifyAudio || "");
 			setSeason(sanitizeSeasonEffect(d.settings.seasonEffect));
+			setAdminTotpRequired(Boolean(d.settings.adminTotpRequired));
 		}).catch((e) => setMsg(e instanceof Error ? e.message : "Could not load"));
 	}, []);
 	(0, import_react.useEffect)(() => {
@@ -13097,7 +15577,36 @@ function AdminBackground() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Settings" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "ed-sub",
-						children: "Swap the website icon, the full-page backdrop, seasonal effects, and the incoming-order alarm. The icon shows in the header, login, and browser tab. The backdrop covers the screen at the visitor’s window size, faded so the menu stays readable."
+						children: "Swap the website icon, the full-page backdrop, seasonal effects, and the incoming-order alarm. Desk authenticator for Admin is optional here."
+					})
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+				className: "page-card",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Desk security" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-sub",
+						children: "Off by default. When this is on, Admin must enroll an authenticator app before POS and the rest of the desk open. Personal 2FA on Account still works either way."
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+						className: "pay-opt",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+							type: "checkbox",
+							checked: adminTotpRequired,
+							disabled: busy,
+							onChange: (e) => {
+								const next = e.target.checked;
+								setBusy(true);
+								setMsg("");
+								saveShopSettings({ data: { adminTotpRequired: next } }).then(() => {
+									setAdminTotpRequired(next);
+									setMsg(next ? "Admin must use an authenticator before the desk opens." : "Admin authenticator is optional.");
+								}).catch((err) => {
+									setMsg(err instanceof Error ? err.message : "Could not save");
+								}).finally(() => setBusy(false));
+							}
+						}), "Require authenticator for Admin"]
 					})
 				]
 			}),
@@ -13314,7 +15823,14 @@ function bool(v) {
 }
 async function requireAdmin(userId) {
 	const sql = await getSql();
-	if ((await sql`select role from profiles where user_id = ${userId}`)[0]?.role !== "admin") {
+	let on = false;
+	try {
+		const row = (await sql`select role, admin_mode, admin_mode_allowed from profiles where user_id = ${userId}`)[0];
+		on = bool(row?.admin_mode) && bool(row?.admin_mode_allowed);
+	} catch {
+		on = (await sql`select role from profiles where user_id = ${userId}`)[0]?.role === "admin";
+	}
+	if (!on) {
 		const err = /* @__PURE__ */ new Error("Forbidden");
 		err.status = 403;
 		throw err;
@@ -13419,19 +15935,52 @@ var Route$14 = createFileRoute("/admin/bots")({ component: AdminBots });
 function AdminBots() {
 	const [agents, setAgents] = (0, import_react.useState)([]);
 	const [audit, setAudit] = (0, import_react.useState)([]);
+	const [mode, setMode] = (0, import_react.useState)("preset");
 	const [preset, setPreset] = (0, import_react.useState)(BOT_PRESETS[0]?.name ?? "security-guard");
+	const [customName, setCustomName] = (0, import_react.useState)("");
+	const [customRole, setCustomRole] = (0, import_react.useState)("ops_read");
 	const [busy, setBusy] = (0, import_react.useState)("");
 	const [msg, setMsg] = (0, import_react.useState)("");
 	const [issued, setIssued] = (0, import_react.useState)(null);
+	const [desk, setDesk] = (0, import_react.useState)({
+		accounts: [],
+		canGrant: false,
+		granted: 0,
+		max: 12
+	});
 	function reload() {
 		listBotAgents().then(setAgents).catch((e) => setMsg(e instanceof Error ? e.message : "Could not load bots"));
 		listBotAudit().then(setAudit).catch(() => setAudit([]));
+		listDeskAccounts().then(setDesk).catch(() => void 0);
 	}
 	(0, import_react.useEffect)(() => {
 		reload();
 	}, []);
 	function copyToken(token) {
 		navigator.clipboard.writeText(token).then(() => setMsg("Token copied. Store it as a bot secret — it will not be shown again."));
+	}
+	function onCreated(r) {
+		setIssued({
+			name: r.agent.name,
+			token: r.token
+		});
+		setAgents((list) => [...list.filter((a) => a.id !== r.agent.id), r.agent].sort((a, b) => a.name.localeCompare(b.name)));
+	}
+	function createPreset() {
+		setBusy("create");
+		setMsg("");
+		createBotAgent({ data: { preset } }).then(onCreated).catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot")).finally(() => setBusy(""));
+	}
+	function createCustom() {
+		setBusy("create");
+		setMsg("");
+		createBotAgent({ data: {
+			name: customName.trim().toLowerCase(),
+			role: customRole
+		} }).then((r) => {
+			onCreated(r);
+			setCustomName("");
+		}).catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot")).finally(() => setBusy(""));
 	}
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "settings-page",
@@ -13446,7 +15995,7 @@ function AdminBots() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h1", { children: "Bot access" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "ed-sub",
-						children: "Each bot gets its own token and the least scopes it needs. Bots never sign in as Admin. The raw token is shown once — copy it into the bot’s secret store, then treat it like a password."
+						children: "Each bot gets its own token and the least scopes it needs. Bots never sign in as Admin. The raw token is shown once — copy it into the bot’s secret store, then treat it like a password. Use a preset for known desk roles, or Custom to mint any future agent by name and role."
 					})
 				]
 			}),
@@ -13455,6 +16004,25 @@ function AdminBots() {
 				children: [
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Create an agent" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "seg",
+						role: "tablist",
+						"aria-label": "Create mode",
+						style: { marginBottom: 12 },
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "seg-btn",
+							"data-on": mode === "preset" ? "true" : "false",
+							onClick: () => setMode("preset"),
+							children: "Preset"
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+							type: "button",
+							className: "seg-btn",
+							"data-on": mode === "custom" ? "true" : "false",
+							onClick: () => setMode("custom"),
+							children: "Custom"
+						})]
+					}),
+					mode === "preset" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "two-col",
 						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 							className: "ed-field",
@@ -13473,20 +16041,53 @@ function AdminBots() {
 								type: "button",
 								className: "btn-print",
 								disabled: Boolean(busy),
-								onClick: () => {
-									setBusy("create");
-									setMsg("");
-									createBotAgent({ data: { preset } }).then((r) => {
-										setIssued({
-											name: r.agent.name,
-											token: r.token
-										});
-										setAgents((list) => [...list.filter((a) => a.id !== r.agent.id), r.agent].sort((a, b) => a.name.localeCompare(b.name)));
-									}).catch((e) => setMsg(e instanceof Error ? e.message : "Could not create bot")).finally(() => setBusy(""));
-								},
+								onClick: createPreset,
 								children: busy === "create" ? "Creating…" : "Create token"
 							})]
 						})]
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "two-col",
+						children: [
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Name" }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+										className: "ed-input",
+										value: customName,
+										placeholder: "style",
+										autoComplete: "off",
+										onChange: (e) => setCustomName(e.target.value)
+									}),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "ed-sub",
+										children: "2–40 chars: letters, numbers, dashes"
+									})
+								]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Role" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
+									className: "ed-input",
+									value: customRole,
+									onChange: (e) => setCustomRole(e.target.value),
+									children: BOT_ROLES.map((role) => /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+										value: role,
+										children: BOT_ROLE_LABELS[role]
+									}, role))
+								})]
+							}),
+							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+								className: "ed-field",
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Issue" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: "btn-print",
+									disabled: Boolean(busy) || customName.trim().length < 2,
+									onClick: createCustom,
+									children: busy === "create" ? "Creating…" : "Create token"
+								})]
+							})
+						]
 					}),
 					issued ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "bot-token-box",
@@ -13515,6 +16116,76 @@ function AdminBots() {
 						className: "ed-sub",
 						children: msg
 					}) : null
+				]
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+				className: "page-card",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Team / desk accounts" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [
+							"Each bot uses its own email and password. Silver grants Admin mode here (soft max ",
+							desk.max,
+							"). Then that person turns ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: "Admin mode" }),
+							" on from the header name menu. Desk path is",
+							" ",
+							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("code", { children: "/admin/pos" }),
+							". Temp Admin cannot grant others."
+						]
+					}),
+					desk.accounts.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-empty",
+						children: "No signed-up accounts yet."
+					}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
+						className: "table-wrap",
+						children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("table", {
+							className: "plain-table",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("thead", { children: /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Account" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", { children: "Allowed" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("th", {})
+							] }) }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("tbody", { children: desk.accounts.map((row) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("tr", { children: [
+								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("td", { children: [
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("strong", { children: row.emailLocal }),
+									/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "bot-agent-state",
+										children: row.emailMasked
+									}),
+									row.displayName && row.displayName !== row.emailLocal ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", {
+										className: "bot-agent-state",
+										children: row.displayName
+									}) : null
+								] }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: row.adminModeAllowed ? row.adminMode ? "On" : "Granted" : "—" }),
+								/* @__PURE__ */ (0, import_jsx_runtime.jsx)("td", { children: desk.canGrant ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+									type: "button",
+									className: row.adminModeAllowed ? "ed-btn ed-btn-danger" : "ed-btn",
+									disabled: Boolean(busy),
+									onClick: () => {
+										setBusy(row.userId);
+										setMsg("");
+										setDeskAllowed({ data: {
+											userId: row.userId,
+											allowed: !row.adminModeAllowed
+										} }).then(() => reload()).catch((e) => setMsg(e instanceof Error ? e.message : "Could not update desk grant")).finally(() => setBusy(""));
+									},
+									children: row.adminModeAllowed ? "Revoke" : "Grant"
+								}) : null })
+							] }, row.userId)) })]
+						})
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [
+							desk.granted,
+							"/",
+							desk.max,
+							" granted",
+							desk.canGrant ? "" : " · Ask Silver to grant your account, then use Admin mode in the header."
+						]
+					})
 				]
 			}),
 			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
@@ -13643,9 +16314,10 @@ function CustomersPanel({ customers, setCustomers, onMsg, onMessage, focusId }) 
 		} }).then(() => {
 			setCustomers(customers.map((row) => row.userId === c.userId ? {
 				...row,
-				role: on ? "admin" : "customer"
+				role: on ? "admin" : "customer",
+				adminModeAllowed: on
 			} : row));
-			onMsg(on ? `${c.displayName} can open the shop admin.` : `${c.displayName} is a customer account.`);
+			onMsg(on ? `${c.displayName} can turn on Admin mode.` : `${c.displayName} is a customer account.`);
 		}).catch((e) => onMsg(e instanceof Error ? e.message : "Could not update admin authority")).finally(() => setBusyId(""));
 	}
 	function changePoints(c, sign) {
@@ -13778,10 +16450,10 @@ function CustomersPanel({ customers, setCustomers, onMsg, onMessage, focusId }) 
 									className: "pay-opt",
 									children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
 										type: "checkbox",
-										checked: c.role === "admin",
+										checked: Boolean(c.adminModeAllowed),
 										disabled: busyId === c.userId,
 										onChange: (e) => toggleAdmin(c, e.target.checked)
-									}), "Admin authority on this account"]
+									}), "Allow Admin mode on this account"]
 								}),
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 									className: "pay-opt",
@@ -14558,6 +17230,10 @@ function AdminFinancialsPage() {
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Kpi, {
 						label: "Collected",
 						value: formatUsd(insightsView.financials.collected)
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Kpi, {
+						label: "Outstanding",
+						value: formatUsd(insightsView.financials.awaitingPayment)
 					})
 				]
 			}),
@@ -16073,6 +18749,65 @@ function Field({ label, value, onChange }) {
 		})]
 	});
 }
+function WingExtraPrices({ cat }) {
+	const patchItem = useMenuStore((s) => s.patchItem);
+	const wing = cat.items.find((it) => /wing/i.test(it.name));
+	if (!wing) return null;
+	const wingId = wing.id;
+	const conds = wing.condiments ?? [];
+	function unit(which) {
+		return conds.find((c) => which === "ranch" ? /extra ranch/i.test(c.name) || c.id === "wing-extra-ranch" : /extra blue/i.test(c.name) || c.id === "wing-extra-blue")?.price ?? "1.50";
+	}
+	function setUnit(which, price) {
+		const id = which === "ranch" ? "wing-extra-ranch" : "wing-extra-blue";
+		const name = which === "ranch" ? "Extra Ranch" : "Extra Blue cheese";
+		const next = [...conds];
+		const i = next.findIndex((c) => c.id === id || (which === "ranch" ? /extra ranch/i.test(c.name) : /extra blue/i.test(c.name)));
+		const row = {
+			id,
+			name,
+			price,
+			extraPrice: price,
+			maxQty: "6"
+		};
+		if (i >= 0) next[i] = {
+			...next[i],
+			...row
+		};
+		else next.push(row);
+		patchItem(cat.id, wingId, { condiments: next });
+	}
+	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+		className: "ed-field",
+		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Extra dips (per 2 cups)" }),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+				className: "ed-sub",
+				children: "Guest wing builder uses these live prices. Included Ranch / Blue cheese / None stay free."
+			}),
+			/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+				className: "two-col",
+				children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+					className: "ed-field",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Extra Ranch" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+						className: "ed-input ed-price",
+						inputMode: "decimal",
+						value: unit("ranch"),
+						onChange: (e) => setUnit("ranch", e.target.value)
+					})]
+				}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+					className: "ed-field",
+					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Extra Blue cheese" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+						className: "ed-input ed-price",
+						inputMode: "decimal",
+						value: unit("blue"),
+						onChange: (e) => setUnit("blue", e.target.value)
+					})]
+				})]
+			})
+		]
+	});
+}
 function CategoryCard({ cat, open, onToggle, isFirst, isLast, allCats, querying }) {
 	const patchCategory = useMenuStore((s) => s.patchCategory);
 	const setKind = useMenuStore((s) => s.setKind);
@@ -16130,10 +18865,11 @@ function CategoryCard({ cat, open, onToggle, isFirst, isLast, allCats, querying 
 					onChange: (v) => patchCategory(cat.id, { name: v })
 				}),
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Field, {
-					label: "Note",
+					label: "Section description",
 					value: cat.note ?? "",
 					onChange: (v) => patchCategory(cat.id, { note: v })
 				}),
+				cat.id === "wings" || cat.items.some((it) => /wing/i.test(it.name)) ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)(WingExtraPrices, { cat }) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 					className: "ed-field",
 					children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Icon" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("select", {
@@ -16811,24 +19547,20 @@ function CardEditor() {
 //#region src/components/printer-setup.tsx
 var STEPS = [
 	{
-		title: "Use Chrome or Edge on the shop tablet",
-		body: "Bluetooth printing needs Chrome or Edge on Android or Windows. Safari, Firefox, and iPhone cannot talk to a thermal printer from the browser."
+		title: "Stay on shop Wi-Fi",
+		body: "The Epson talks over the shop network (HTTP 8008 or HTTPS 8043). Enter the printer IP from this tablet, then Test print. Hardware buy is still on hold — save the IP when the printer is on the counter."
 	},
 	{
-		title: "Turn Bluetooth on",
-		body: "Open tablet settings, turn Bluetooth on, and keep the printer awake. Many 58 mm printers sleep after a minute — tap the feed button before pairing."
+		title: "HTTPS tablets may need the printer certificate",
+		body: "This shop is HTTPS. A browser can block HTTP 8008 as mixed content. Prefer the printer’s HTTPS 8043 once its certificate is trusted on this tablet."
 	},
 	{
-		title: "Allow the chooser and pop-ups",
-		body: "Pairing must happen from a tap. If a second window opens, leave it on top and pick the printer there. Allow pop-ups for this shop if the window is blocked."
-	},
-	{
-		title: "Pick the printer, then save",
-		body: "Choose the thermal printer in the list (often named MTP, RPP, XP-, Inner, or similar). After it pairs, tap Save printer setup so the shop remembers it."
+		title: "Bluetooth is a fallback only",
+		body: "Chrome or Edge on Android or Windows can pair a spare BLE printer. Safari and iPhone cannot. Completes never wait on a print failure."
 	},
 	{
 		title: "Test print, then accept an order",
-		body: "Tap Test print. If a paper preview opens instead, the tablet is not talking to the printer yet — re-pair while it is awake. Auto-print on accept uses the same path."
+		body: "Tap Test print. If a paper preview opens instead, the tablet is not talking to the printer yet. Auto-print on accept uses the same path and still never blocks Completes."
 	}
 ];
 function hintFor(msg, diag) {
@@ -16940,6 +19672,11 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 		setBusyId(printer.id);
 		setPairMsg("");
 		try {
+			if (printer.lanHost) {
+				await testLanPrint(printer);
+				setPairMsg(`Sent a LAN test slip to ${printer.name} at ${printer.lanHost}.`);
+				return;
+			}
 			const result = await printOrderReceipts({
 				order: sample,
 				restaurant,
@@ -16948,7 +19685,7 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 				taxRate,
 				fallback: true
 			});
-			setPairMsg(result.fallback ? `Opened a paper preview for ${printer.name}. Pair Bluetooth on the tablet to send it to the thermal printer.` : `Sent a test ticket to ${printer.name}.`);
+			setPairMsg(result.fallback ? `Opened a paper preview for ${printer.name}. Set a LAN IP or pair Bluetooth to send it to the thermal printer.` : `Sent a test ticket to ${printer.name}.`);
 			if (result.fallback) setHelpOpen(true);
 		} catch (e) {
 			setPairMsg(e instanceof Error ? e.message : "Test print failed.");
@@ -16984,7 +19721,7 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "Printer setup" }),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "ed-sub",
-						children: "Pair one or more Bluetooth thermal printers. When the tablet accepts an order, each enabled printer prints the customer and store copies you check, as many times as the dropdown says. Slips are itemized with NJ sales tax shown separately."
+						children: "Primary path is Wi-Fi / LAN (Epson ePOS, port 8008 or HTTPS 8043). Enter the printer IP from this shop tablet on the shop network, then Test print. Bluetooth is a fallback for Chrome/Android only — iPhone cannot print over Bluetooth from the browser."
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "ed-sub",
@@ -17079,7 +19816,7 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "printer-actions",
-						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+						children: [bt ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							className: "btn-print",
 							onClick: () => void pair(),
@@ -17087,8 +19824,8 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bluetooth, {
 								size: 16,
 								strokeWidth: 2.2
-							}), busyId === "new" ? "Waiting for printer…" : "Pair Bluetooth printer"]
-						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							}), busyId === "new" ? "Waiting for printer…" : "Pair Bluetooth fallback"]
+						}) : null, /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 							type: "button",
 							className: "ed-btn",
 							onClick: () => setPrinters([...printers, newPrinter({ name: `Printer ${printers.length + 1}` })]),
@@ -17116,7 +19853,7 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 				className: "page-card",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-empty",
-					children: "No printers yet. Pair a Bluetooth printer or add one by name."
+					children: "No printers yet. Add one and enter the Epson IP, or pair Bluetooth as a fallback."
 				})
 			}) : printers.map((printer) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
 				className: "page-card printer-card",
@@ -17145,9 +19882,47 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 							})
 						]
 					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("p", {
+						className: "ed-sub",
+						children: [printer.lanHost ? `LAN: ${printer.lanProtocol}://${printer.lanHost}:${printer.lanPort}` : "No LAN IP yet — add it for the shop Wi-Fi printer.", printer.bluetoothId ? ` · Bluetooth fallback: ${printer.bluetoothName || printer.bluetoothId}` : bt ? " · Bluetooth fallback not paired." : ""]
+					}),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
+						className: "account-cityzip",
+						children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "ed-field",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Printer IP (shop Wi-Fi)" }), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("input", {
+								className: "ed-input",
+								value: printer.lanHost,
+								onChange: (e) => patch(printer.id, { lanHost: e.target.value }),
+								placeholder: "192.168.1.50",
+								inputMode: "decimal",
+								autoComplete: "off"
+							})]
+						}), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
+							className: "ed-field",
+							children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("span", { children: "Protocol" }), /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("select", {
+								className: "ed-input",
+								value: printer.lanProtocol === "https" ? "https" : "http",
+								onChange: (e) => {
+									const https = e.target.value === "https";
+									patch(printer.id, {
+										lanProtocol: https ? "https" : "http",
+										lanPort: https ? 8043 : 8008
+									});
+								},
+								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+									value: "http",
+									children: "HTTP · 8008"
+								}), /* @__PURE__ */ (0, import_jsx_runtime.jsx)("option", {
+									value: "https",
+									children: "HTTPS · 8043"
+								})]
+							})]
+						})]
+					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 						className: "ed-sub",
-						children: printer.bluetoothId ? `Paired: ${printer.bluetoothName || printer.bluetoothId}` : "Not paired on this tablet yet."
+						children: "Test print from this tablet on shop Wi-Fi. Completes never wait on a print failure. Hardware buy is still on hold — save the IP whenever the Epson is on the counter."
 					}),
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("label", {
 						className: "pay-opt",
@@ -17214,7 +19989,7 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 					/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 						className: "printer-actions",
 						children: [
-							/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
+							bt ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("button", {
 								type: "button",
 								className: "ed-btn",
 								disabled: Boolean(busyId),
@@ -17222,15 +19997,15 @@ function PrinterSetup({ printers, setPrinters, receipt, setReceipt, restaurant, 
 								children: [/* @__PURE__ */ (0, import_jsx_runtime.jsx)(Bluetooth, {
 									size: 16,
 									strokeWidth: 2.2
-								}), printer.bluetoothId ? "Re-pair" : "Pair Bluetooth"]
-							}),
-							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+								}), printer.bluetoothId ? "Re-pair Bluetooth fallback" : "Pair Bluetooth fallback"]
+							}) : null,
+							bt && printer.bluetoothId ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "ed-btn",
 								disabled: Boolean(busyId),
 								onClick: () => void checkConnection(printer),
-								children: "Check connection"
-							}),
+								children: "Check Bluetooth"
+							}) : null,
 							/* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
 								type: "button",
 								className: "ed-btn",
@@ -17836,11 +20611,117 @@ var Route$7 = createFileRoute("/admin/orders")({ component: () => /* @__PURE__ *
 //#region src/data/patches.ts
 var PATCHES = [
 	{
+		id: "2026-09-11-app-transition",
+		date: "September 11, 2026",
+		title: "South End on the home screen, order alerts, LAN print",
+		added: [
+			"Add to Home Screen is named South End Pizza — cream theme, full icon set, not Grok App.",
+			"After checkout or install, Enable order alerts for Ready / out-for-delivery pings. iPhone needs the home-screen icon first.",
+			"Printer settings take a shop Wi-Fi IP and Test print over Epson ePOS. Bluetooth is a labeled fallback and hides where the browser cannot pair. Completes never wait on print."
+		]
+	},
+	{
+		id: "2026-09-11-update-auth-isolation-continuity",
+		date: "September 11, 2026",
+		title: "Wrong password stays on sign-in",
+		added: ["A bad password stays on the sign-in card with a clear error and never opens a desk. Signed-in checkout keeps the account through Review. Call and Chat sit above the last menu cards, category arrows hug the phone edge, and POS shows the account menu."]
+	},
+	{
+		id: "2026-09-11-followup-account-load",
+		date: "September 11, 2026",
+		title: "Desk account load no longer hangs",
+		added: ["Admin pages load from a fast account read — no schema work on the way in. Guest /admin returns to the desk after sign-in. Category chips follow the section on screen, and Call/Chat sit clear of the last menu cards."]
+	},
+	{
+		id: "2026-09-11-admin-mode-per-account",
+		date: "September 11, 2026",
+		title: "Admin mode per account",
+		added: ["Each teammate uses their own login. Allowed accounts turn Admin mode on from the name menu. Guests cannot. Shared diagnostic desk login is no longer the path."]
+	},
+	{
+		id: "2026-09-11-category-carousel",
+		date: "September 11, 2026",
+		title: "Category rail sticks, centers, and pulses",
+		added: ["Phone arrows sit flush on the category rail. Search stays with the sticky pills. The active category slides to the middle as you browse, and the arrows pulse when you tap them."]
+	},
+	{
+		id: "2026-09-11-staff-admin-login-column",
+		date: "September 11, 2026",
+		title: "Desk login toggle no longer 500s",
+		added: ["Bot access Diagnostic Admin login writes a real column on first load. Security summary stays 200 even if the column was missing. The toggle still starts off."]
+	},
+	{
+		id: "2026-09-11-category-headers",
+		date: "September 11, 2026",
+		title: "Bigger category names, no section blurbs",
+		added: ["Menu sections are the category name only — larger and heavier. The extra line under Wings, Pizza, and the rest is gone. Item cards still show their own copy."]
+	},
+	{
+		id: "2026-09-11-pizza-account-loader",
+		date: "September 11, 2026",
+		title: "Pepperoni pizza while your account connects",
+		added: ["Sign-in and the header chip spin a pepperoni pie while the shop is connecting your account. It clears as soon as you are in."]
+	},
+	{
+		id: "2026-09-11-bugfix-desk-wings-pos",
+		date: "September 11, 2026",
+		title: "Diagnostic desk, wing tens, checkout and POS polish",
+		added: [
+			"Diagnostic Admin login is a Bot access toggle plus a host flag. Off clears the desk password. Bots stay as they are.",
+			"Complete still toasts on the Open board. Accept turns off after a ticket is Accepted. Wings sell in tens. Guest checkout no longer jumps to a leftover account.",
+			"Financials Collected skips unpaid card tickets. Today uses New Jersey time. Kitchen notes stay on the device until you place the order."
+		]
+	},
+	{
+		id: "2026-09-11-slice-browse-wings-price",
+		date: "September 11, 2026",
+		title: "Slice-style menu, live wing dips, tighter phone bar",
+		added: [
+			"The menu is one long page. Sticky category pills scroll you to each section and follow as you browse.",
+			"Wing extra Ranch / Blue cheese prices come from the menu editor (per 2 cups). Accept cards and bot tickets show sauce, dips, notes, and the money stack.",
+			"On a phone the title bar is a single line — South End Pizza, icon cart, no POS for guests — and the grid stays two cards wide."
+		]
+	},
+	{
+		id: "2026-09-11-complete-toast-wings-guest",
+		date: "September 11, 2026",
+		title: "Completed toast, wings builder, guest checkout",
+		added: [
+			"Complete uses the same staff toast as Accept — ticket, total, and tip only — below the POS tabs.",
+			"Fresh Wings require sauce and included dips. Extra dips sell in 2-cup sets at $1.50.",
+			"Guests never see POS. Pickup needs name and phone. Card is a notice. Resume or start fresh on a leftover bag."
+		]
+	},
+	{
+		id: "2026-09-10-email-otp-resend",
+		date: "September 10, 2026",
+		title: "Email signup codes via Resend",
+		added: ["Email create-account and unverified sign-in ask for a 6-digit inbox code. Phone, Google, X, and the desk Admin skip it.", "Password reset actually emails the code when Resend is configured. Preview still shows the code on screen."]
+	},
+	{
+		id: "2026-09-10-pos-complete-stay-open",
+		date: "September 10, 2026",
+		title: "Complete closes the ticket and stays on Open",
+		added: ["Marking a ticket Completed saves, closes the popup, and keeps the Open tab — no jump to history.", "Staff toast is ticket number, total, and tip only. Last ticket completed shows You're caught up."]
+	},
+	{
+		id: "2026-09-10-style-custom-bots",
+		date: "September 10, 2026",
+		title: "Style bot + custom bot minting",
+		added: ["Admin → Bot access includes a Style preset (menu/health read) and a New Customer preset.", "Custom mode lets you mint any future bot by name and role without another code drop."]
+	},
+	{
+		id: "2026-09-10-admin-totp-toggle",
+		date: "September 10, 2026",
+		title: "Admin authenticator is optional",
+		added: ["Admin can open the desk without an authenticator. Require it anytime under Admin → Settings → Desk security."]
+	},
+	{
 		id: "2026-09-10-security-bot-access",
 		date: "September 10, 2026",
 		title: "Desk security and bot access",
 		added: [
-			"Shop Admin password lives only in host secrets now, and Admin must enroll an authenticator before the desk opens.",
+			"Shop Admin password lives only in host secrets now.",
 			"Live card capture is frozen — checkout is cash or pay at pickup until a real processor is wired.",
 			"Bots get their own tokens under Admin → Bot access, with least-privilege scopes and a one-time copy."
 		]
@@ -18250,7 +21131,7 @@ function priceNum(p) {
 function ticketWhere(t) {
 	return t.fulfillment === "delivery" ? `${t.addressLine}${t.city ? `, ${t.city}` : ""} ${t.zip}`.trim() : "Pickup at 443 Zion Rd";
 }
-function PosTicketDialog({ ticket, itemQuery, menuHits, busyId, onClose, onQuery, onStatus, onSaveItems, onReprint }) {
+function PosTicketDialog({ ticket, itemQuery, menuHits, busyId, statusBusy, statusError, onClose, onQuery, onStatus, onSaveItems, onReprint }) {
 	const titleId = (0, import_react.useId)();
 	const panelRef = (0, import_react.useRef)(null);
 	const bucket = posBucket(ticket.status);
@@ -18310,10 +21191,15 @@ function PosTicketDialog({ ticket, itemQuery, menuHits, busyId, onClose, onQuery
 						type: "button",
 						"data-on": bucket === s.id,
 						"data-tone": s.id,
+						disabled: Boolean(statusBusy) || s.id === "accepted" && (bucket === "accepted" || bucket === "completed") || s.id === bucket && s.id !== "completed",
 						onClick: () => onStatus(s.id),
-						children: s.label
+						children: s.id === "completed" && statusBusy === "completed" ? "Completing…" : s.label
 					}, s.id))]
 				}),
+				statusError ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+					className: "form-error",
+					children: statusError
+				}) : null,
 				/* @__PURE__ */ (0, import_jsx_runtime.jsx)("ul", {
 					className: "cart-lines pos-edit-lines",
 					children: ticket.items.map((it, i) => /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("li", { children: [/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", { children: [
@@ -18509,11 +21395,21 @@ function AdminPos() {
 	const [restaurant, setRestaurant] = (0, import_react.useState)(RESTAURANT);
 	const [taxRate, setTaxRate] = (0, import_react.useState)(6.625);
 	const [busyId, setBusyId] = (0, import_react.useState)("");
+	const [statusBusy, setStatusBusy] = (0, import_react.useState)("");
+	const [dialogError, setDialogError] = (0, import_react.useState)("");
 	const [desk, setDesk] = (0, import_react.useState)("open");
+	const [completeToast, setCompleteToast] = (0, import_react.useState)(null);
 	const [chromeHost, setChromeHost] = (0, import_react.useState)(null);
 	const seenChat = (0, import_react.useRef)(/* @__PURE__ */ new Set());
 	const primedChat = (0, import_react.useRef)(false);
 	const heldAccepted = (0, import_react.useRef)(/* @__PURE__ */ new Set());
+	const closedByStaff = (0, import_react.useRef)(/* @__PURE__ */ new Set());
+	const statusBusyRef = (0, import_react.useRef)(false);
+	(0, import_react.useEffect)(() => {
+		if (!completeToast) return;
+		const t = window.setTimeout(() => setCompleteToast(null), POS_TOAST_MS);
+		return () => window.clearTimeout(t);
+	}, [completeToast]);
 	(0, import_react.useEffect)(() => {
 		const onAccepted = (event) => {
 			const order = event.detail;
@@ -18555,14 +21451,12 @@ function AdminPos() {
 					if (fresh[0]) prefer = fresh[0].id;
 				}
 				setOpenId((cur) => {
-					if (prefer) return prefer;
-					if (ticket && list.some((t) => t.id === ticket)) return ticket;
+					if (prefer && !closedByStaff.current.has(prefer)) return prefer;
+					if (ticket && !closedByStaff.current.has(ticket) && list.some((t) => t.id === ticket)) return ticket;
 					if (cur && list.some((t) => t.id === cur)) return cur;
 					return "";
 				});
 				if (ticket) setQuery(ticket);
-				const hit = ticket ? list.find((t) => t.id === ticket) : void 0;
-				if (hit) setDesk(posBucket(hit.status) === "completed" ? "done" : "open");
 			}).catch((e) => {
 				if (isTransientFetchError(e)) return;
 				setError(e instanceof Error ? e.message : "Could not load POS");
@@ -18585,15 +21479,41 @@ function AdminPos() {
 		} : t));
 	}
 	function setStatus(id, status) {
+		if (statusBusyRef.current) return;
+		statusBusyRef.current = true;
 		setError("");
+		setDialogError("");
+		setStatusBusy(status);
+		const prior = tickets.find((t) => t.id === id);
 		updateOrderStatus({ data: {
 			id,
 			status
 		} }).then((r) => {
 			if (!r.order) return;
 			mergeTicket(id, r.order);
-			setDesk(posBucket(r.order.status) === "completed" ? "done" : "open");
-		}).catch((e) => setError(e instanceof Error ? e.message : "Could not update"));
+			if (status !== "completed") return;
+			const wasComplete = posBucket(prior?.status ?? "") === "completed";
+			closedByStaff.current.add(id);
+			setOpenId("");
+			setItemQuery("");
+			if (!wasComplete) {
+				setDesk("open");
+				setCompleteToast(formatCompletedToast({
+					ticketNo: r.order.ticketNo || prior?.ticketNo || 0,
+					total: r.order.total || prior?.total || 0,
+					tip: r.order.tip || prior?.tip,
+					formatTicketNo,
+					formatUsd
+				}));
+			}
+		}).catch((e) => {
+			const msg = e instanceof Error ? e.message : "Could not update";
+			if (status === "completed") setDialogError(msg);
+			else setError(msg);
+		}).finally(() => {
+			statusBusyRef.current = false;
+			setStatusBusy("");
+		});
 	}
 	function saveItems(id, items) {
 		setError("");
@@ -18653,7 +21573,17 @@ function AdminPos() {
 		hits.sort((a, b) => b.score - a.score || a.item.name.localeCompare(b.item.name));
 		return hits.slice(0, 8);
 	}, [categories, itemQuery]);
-	const openTickets = (0, import_react.useMemo)(() => visible.filter((t) => posBucket(t.status) !== "completed"), [visible]);
+	const openTickets = (0, import_react.useMemo)(() => {
+		return [...visible.filter((t) => posBucket(t.status) !== "completed")].sort((a, b) => {
+			const ap = a.status === "placed" || a.status === "awaiting_payment" ? 0 : 1;
+			const bp = b.status === "placed" || b.status === "awaiting_payment" ? 0 : 1;
+			if (ap !== bp) return ap - bp;
+			const ta = Date.parse(a.createdAt) || 0;
+			const tb = Date.parse(b.createdAt) || 0;
+			if (ta !== tb) return ta - tb;
+			return (a.ticketNo || 0) - (b.ticketNo || 0) || a.id.localeCompare(b.id);
+		});
+	}, [visible]);
 	const doneTickets = (0, import_react.useMemo)(() => visible.filter((t) => posBucket(t.status) === "completed"), [visible]);
 	const shown = desk === "done" ? doneTickets : openTickets;
 	const openTicket = tickets.find((t) => t.id === openId) ?? null;
@@ -18694,6 +21624,7 @@ function AdminPos() {
 	return /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("div", {
 		className: "pos-page",
 		children: [
+			/* @__PURE__ */ (0, import_jsx_runtime.jsx)(PosStaffToast, { toast: completeToast }),
 			chromeHost ? (0, import_react_dom.createPortal)(deskTabs, chromeHost) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("div", {
 				className: "pos-chrome",
 				children: deskTabs
@@ -18702,11 +21633,30 @@ function AdminPos() {
 				className: "form-error",
 				children: error
 			}) : null,
-			shown.length === 0 ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
+			shown.length === 0 ? desk === "open" ? /* @__PURE__ */ (0, import_jsx_runtime.jsxs)("section", {
+				className: "page-card pos-empty-open",
+				children: [
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("h2", { children: "You're caught up" }),
+					/* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
+						className: "ed-sub",
+						children: "No open tickets. New orders will show here."
+					}),
+					doneTickets.length ? /* @__PURE__ */ (0, import_jsx_runtime.jsx)("button", {
+						type: "button",
+						className: "ed-btn",
+						onClick: () => {
+							setDesk("done");
+							setOpenId("");
+							setItemQuery("");
+						},
+						children: "View completed"
+					}) : null
+				]
+			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("section", {
 				className: "page-card",
 				children: /* @__PURE__ */ (0, import_jsx_runtime.jsx)("p", {
 					className: "ed-empty",
-					children: desk === "done" ? "No completed tickets." : "No open tickets."
+					children: "No completed tickets."
 				})
 			}) : /* @__PURE__ */ (0, import_jsx_runtime.jsx)("ol", {
 				className: "pos-list",
@@ -18728,6 +21678,7 @@ function AdminPos() {
 							onClick: () => {
 								setOpenId(t.id);
 								setItemQuery("");
+								setDialogError("");
 							},
 							children: [
 								/* @__PURE__ */ (0, import_jsx_runtime.jsxs)("span", {
@@ -18791,9 +21742,12 @@ function AdminPos() {
 				itemQuery,
 				menuHits,
 				busyId,
+				statusBusy,
+				statusError: dialogError,
 				onClose: () => {
 					setOpenId("");
 					setItemQuery("");
+					setDialogError("");
 				},
 				onQuery: setItemQuery,
 				onStatus: (status) => setStatus(openTicket.id, status),
@@ -18930,6 +21884,20 @@ function requestIp(request) {
 }
 //#endregion
 //#region src/routes/api/bot/v1/$.ts
+/**
+* Bot API v1 — South End Pizza
+*
+* Changelog (POS quality-up):
+* - GET /orders/recent: adds itemCount, itemSummary, customerName, notes, tip
+*   (nullable-safe). Joins profiles for display name; items come from orders.items jsonb.
+*   Existing fields (id, ticketNo, status, fulfillment, total, paymentMethod,
+*   createdAt, scheduledFor) are unchanged.
+* - POST /orders/status: accepting/preparing is idempotent — if the ticket is
+*   already accepted, preparing, or further along the kitchen path, returns 200
+*   with the current state (no error spam). Other transitions still update normally.
+*
+* Scope: build-only. No Neon cutover, auth/BETTER_AUTH, card processor, or bot scope changes.
+*/
 var KITCHEN_STATUSES = /* @__PURE__ */ new Set([
 	"accepted",
 	"preparing",
@@ -18996,20 +21964,36 @@ async function handle(request) {
 			}
 			agentId = gate.agent.id;
 			const sql = await getSql();
-			const counts = await sql.query(`select count(*)::int as n, count(*) filter (where enabled)::int as enabled from bot_agents`);
-			const totp = await sql.query(`select count(*)::int as n from profiles where totp_enabled = true and role = 'admin'`);
+			let agents = {
+				total: 0,
+				enabled: 0
+			};
+			let adminTotp = 0;
+			try {
+				const counts = await sql.query(`select count(*)::int as n, count(*) filter (where enabled)::int as enabled from bot_agents`);
+				agents = {
+					total: Math.round(Number(counts[0]?.n) || 0),
+					enabled: Math.round(Number(counts[0]?.enabled) || 0)
+				};
+			} catch {}
+			try {
+				const totp = await sql.query(`select count(*)::int as n from profiles where totp_enabled = true and role = 'admin'`);
+				adminTotp = Math.round(Number(totp[0]?.n) || 0);
+			} catch {}
+			const desk = await diagnosticDeskAuthStatus(sql);
 			return reply({
 				db: dbSource,
 				production: isVercelProduction(),
 				neon: dbSource === "neon",
-				staffSecretConfigured: staffSecretConfigured(),
+				staffSecretConfigured: desk.staffSecretConfigured,
+				diagnosticDeskAuth: desk.diagnosticDeskAuth,
+				staffAdminLoginEnabled: desk.staffAdminLoginEnabled,
+				envDeskLoginEnabled: desk.envDeskLoginEnabled,
+				staffDeskLoginEnabled: desk.staffDeskLoginEnabled,
 				trustedOrigins: isVercelProduction() ? PRODUCTION_AUTH_ORIGINS : "preview-dynamic",
 				cardProcessor: "disabled",
-				adminTotp: Math.round(Number(totp[0]?.n) || 0),
-				agents: {
-					total: Math.round(Number(counts[0]?.n) || 0),
-					enabled: Math.round(Number(counts[0]?.enabled) || 0)
-				}
+				adminTotp,
+				agents
 			});
 		}
 		if (request.method === "GET" && key === "deploy/status") {
@@ -19052,19 +22036,78 @@ async function handle(request) {
 			}
 			agentId = gate.agent.id;
 			return reply({ orders: (await (await getSql())`
-        select id, ticket_no, status, fulfillment, total, payment_method, created_at, scheduled_for
-        from orders
-        order by created_at desc
-        limit 25`).map((row) => ({
-				id: String(row.id),
-				ticketNo: Math.round(Number(row.ticket_no) || 0),
-				status: String(row.status ?? ""),
-				fulfillment: String(row.fulfillment ?? ""),
-				total: String(row.total ?? "0"),
-				paymentMethod: String(row.payment_method ?? ""),
-				createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
-				scheduledFor: row.scheduled_for ? row.scheduled_for instanceof Date ? row.scheduled_for.toISOString() : String(row.scheduled_for) : null
-			})) });
+        select o.id, o.ticket_no, o.status, o.fulfillment, o.total, o.payment_method,
+               o.created_at, o.scheduled_for, o.notes, o.tip, o.tax, o.subtotal, o.discount,
+               o.delivery_fee, o.items, o.pickup_name,
+               p.display_name, p.phone
+        from orders o
+        left join profiles p on p.user_id = o.user_id
+        order by o.created_at desc
+        limit 25`).map((row) => {
+				const itemsRaw = row.items;
+				let items = [];
+				if (Array.isArray(itemsRaw)) items = itemsRaw;
+				else if (typeof itemsRaw === "string") try {
+					const parsed = JSON.parse(itemsRaw);
+					if (Array.isArray(parsed)) items = parsed;
+				} catch {
+					items = [];
+				}
+				let itemCount = 0;
+				const bits = [];
+				for (const raw of items) {
+					const it = raw && typeof raw === "object" ? raw : {};
+					const qty = Math.max(1, Math.round(Number(it.qty) || 1));
+					itemCount += qty;
+					bits.push(lineSummary({
+						qty,
+						name: String(it.name ?? ""),
+						size: String(it.size ?? ""),
+						detail: String(it.detail ?? ""),
+						comment: String(it.comment ?? "")
+					}));
+				}
+				const money = (v) => {
+					if (v === null || v === void 0 || v === "") return null;
+					return String(v);
+				};
+				const tip = money(row.tip);
+				const tax = money(row.tax);
+				const subtotal = money(row.subtotal);
+				const discountRaw = money(row.discount);
+				const deliveryFeeRaw = money(row.delivery_fee);
+				const notesRaw = row.notes;
+				const notes = notesRaw === null || notesRaw === void 0 ? null : String(notesRaw).trim() || null;
+				const pickupName = String(row.pickup_name ?? "").trim() || null;
+				const pickupPhone = String(row.phone ?? "").trim() || null;
+				const customerName = pickupName || String(row.display_name ?? "").trim() || "Guest";
+				const promisedEta = row.scheduled_for ? row.scheduled_for instanceof Date ? row.scheduled_for.toISOString() : String(row.scheduled_for) : null;
+				const paymentMethod = String(row.payment_method ?? "");
+				const status = String(row.status ?? "");
+				return {
+					id: String(row.id),
+					ticketNo: Math.round(Number(row.ticket_no) || 0),
+					status,
+					fulfillment: String(row.fulfillment ?? ""),
+					total: String(row.total ?? "0"),
+					paymentMethod,
+					paymentLabel: payStatusLabel(paymentMethod, status),
+					createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
+					scheduledFor: promisedEta,
+					promisedEta,
+					itemCount,
+					itemSummary: bits.slice(0, 6).join(", ") + (bits.length > 6 ? "…" : ""),
+					customerName,
+					pickupName,
+					pickupPhone,
+					notes,
+					tip,
+					tax,
+					subtotal,
+					discount: discountRaw && Number(discountRaw) > 0 ? discountRaw : null,
+					deliveryFee: deliveryFeeRaw && Number(deliveryFeeRaw) > 0 ? deliveryFeeRaw : null
+				};
+			}) });
 		}
 		if (request.method === "GET" && key === "menu") {
 			const gate = await requireAgent(request, "menu.read");
@@ -19096,12 +22139,15 @@ async function handle(request) {
 				return gate;
 			}
 			agentId = gate.agent.id;
-			const row = (await (await getSql()).query(`select count(*)::int as n, coalesce(sum(total), 0)::text as collected
-           from orders where status <> 'canceled'`))[0];
+			const row = (await (await getSql()).query(`select count(*) filter (where status not in ('canceled', 'awaiting_payment'))::int as n,
+                  coalesce(sum(total) filter (where status not in ('canceled', 'awaiting_payment')), 0)::text as collected,
+                  coalesce(sum(total) filter (where status = 'awaiting_payment'), 0)::text as outstanding
+           from orders`))[0];
 			return reply({
 				processor: "disabled",
 				tickets: Math.round(Number(row?.n) || 0),
-				collected: row?.collected ?? "0"
+				collected: row?.collected ?? "0",
+				outstanding: row?.outstanding ?? "0"
 			});
 		}
 		if (request.method === "POST" && key === "orders/status") {
@@ -19116,7 +22162,36 @@ async function handle(request) {
 			const next = String(body.status ?? "").trim();
 			if (!id) return reply({ error: "missing_id" }, 400);
 			if (!KITCHEN_STATUSES.has(next)) return reply({ error: "invalid_status" }, 400);
-			const updated = await (await getSql()).query(`update orders set status = $1, accepted_at = case when $1 in ('accepted','preparing') then coalesce(accepted_at, now()) else accepted_at end
+			const sql = await getSql();
+			const existing = await sql.query(`select id, ticket_no, status from orders where id = $1`, [id]);
+			if (!existing[0]) return reply({ error: "not_found" }, 404);
+			const current = String(existing[0].status ?? "");
+			const pastAccepted = /* @__PURE__ */ new Set([
+				"accepted",
+				"preparing",
+				"ready",
+				"out_for_delivery",
+				"completed"
+			]);
+			const pastPreparing = /* @__PURE__ */ new Set([
+				"preparing",
+				"ready",
+				"out_for_delivery",
+				"completed"
+			]);
+			if (next === "accepted" && pastAccepted.has(current)) return reply({
+				ok: true,
+				id: String(existing[0].id),
+				ticketNo: Math.round(Number(existing[0].ticket_no) || 0),
+				status: current
+			});
+			if (next === "preparing" && pastPreparing.has(current)) return reply({
+				ok: true,
+				id: String(existing[0].id),
+				ticketNo: Math.round(Number(existing[0].ticket_no) || 0),
+				status: current
+			});
+			const updated = await sql.query(`update orders set status = $1, accepted_at = case when $1 in ('accepted','preparing') then coalesce(accepted_at, now()) else accepted_at end
          where id = $2 returning id, ticket_no, status`, [next, id]);
 			if (!updated[0]) return reply({ error: "not_found" }, 404);
 			return reply({

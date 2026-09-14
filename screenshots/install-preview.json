@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/install",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Download App",
+      "hasCanvas": false,
+      "bodyTextLen": 704,
+      "bodyTextHash": "b4b6028efc53decd26e1409eea6e511274cf5b9ffdc0c738e2a173f25eef96b6",
+      "bodyTextPrefix": "Skip to content EGG HARBOR TOWNSHIP South End Pizza III Sign in ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/install-preview.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Download App",
+      "hasCanvas": false,
+      "bodyTextLen": 674,
+      "bodyTextHash": "c54217585a94e27b63b159aab130cafb6bfd667c32b332327273a63ba6b5d050",
+      "bodyTextPrefix": "Skip to content EGG HARBOR TOWNSHIP South End Pizza III Sign in ",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/install-preview-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/install-preview.json"
+}

@@ -50,6 +50,13 @@ var ROLE_SCOPES = {
 		"menu.read"
 	]
 };
+var BOT_ROLE_LABELS = {
+	security_read: "Security read",
+	ops_read: "Ops read",
+	menu_write: "Menu write",
+	orders_read: "Orders read",
+	admin_write: "Admin write"
+};
 var BOT_PRESETS = [
 	{
 		name: "security-guard",
@@ -71,6 +78,22 @@ var BOT_PRESETS = [
 		name: "pos",
 		role: "orders_read",
 		label: "POS Employee"
+	},
+	{
+		name: "style",
+		role: "ops_read",
+		label: "Style",
+		scopes: ["health.read", "menu.read"]
+	},
+	{
+		name: "new-customer",
+		role: "ops_read",
+		label: "New Customer",
+		scopes: [
+			"health.read",
+			"menu.read",
+			"orders.read"
+		]
 	}
 ];
 function isBotScope(raw) {
@@ -169,4 +192,4 @@ async function verifyBotBearer(request) {
 	return agent;
 }
 //#endregion
-export { BOT_PRESETS as a, scopesForRole as c, verifyBotBearer as i, rateLimitBot as n, isBotRole as o, tokens_server_exports as r, scopesForPreset as s, agentHasScope as t };
+export { BOT_PRESETS as a, isBotRole as c, verifyBotBearer as i, scopesForPreset as l, rateLimitBot as n, BOT_ROLES as o, tokens_server_exports as r, BOT_ROLE_LABELS as s, agentHasScope as t, scopesForRole as u };

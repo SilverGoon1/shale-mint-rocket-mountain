@@ -14,7 +14,7 @@
     },
     {
       "headers": {
-        "Permissions-Policy": "bluetooth=*, serial=*, hid=*, usb=*, geolocation=(self)",
+        "Permissions-Policy": "bluetooth=*, serial=*, hid=*, usb=*, geolocation=(self), notifications=(self)",
         "Feature-Policy": "bluetooth *; usb *; serial *; hid *; geolocation 'self'"
       },
       "src": "/(.*)"
