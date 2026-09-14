@@ -1,1 +1,0 @@
-import{t as e}from"./jsx-runtime-NZYk81nU.js";import{t}from"./useNavigate-Dq4mAnrp.js";var n=e(),r=()=>(0,n.jsx)(t,{to:`/admin/menu`,search:{tab:`delivery`}});export{r as component};
