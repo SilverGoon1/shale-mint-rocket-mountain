@@ -193,6 +193,7 @@ export type ShopSettingsPublic = {
   inviteeBonus: number;
   minOrderDelivery: number;
   deliveryFee: number;
+  deliveryFeeOn: boolean;
   hasZones: boolean;
   taxRate: number;
   prepMinutes: number;
@@ -209,6 +210,7 @@ export type ShopSettingsPublic = {
   toppingPriceMd: number;
   toppingPriceLg: number;
   toppingPriceXl: number;
+  toppingPricesById: Record<string, { SM: number; MD: number; LG: number; XL: number }>;
   backdropData: string;
   logoData: string;
   seasonEffect: SeasonEffect;
@@ -406,6 +408,9 @@ export type PrinterProfile = {
   name: string;
   bluetoothId: string;
   bluetoothName: string;
+  lanHost: string;
+  lanPort: 8008 | 8043;
+  lanProtocol: "http" | "https";
   enabled: boolean;
   copies: number;
   customerCopy: boolean;
@@ -434,6 +439,18 @@ export function formatUsd(value: number) {
   return `$${value.toFixed(2)}`;
 }
 
+export const DESK_ACCOUNT_SOFT_MAX = 14;
+export const DESK_BOT_SOFT_MAX = 12;
+
+export function checkoutDeliveryFee(
+  settings: Pick<ShopSettingsPublic, "deliveryFee" | "deliveryFeeOn">,
+  fulfillment: string,
+) {
+  if (fulfillment !== "delivery") return 0;
+  if (settings.deliveryFeeOn === false) return 0;
+  return Math.max(0, Math.round(moneyNumber(settings.deliveryFee) * 100) / 100);
+}
+
 export function payMethodLabel(method: string) {
   if (method === "pay_delivery") return "Cash";
   if (method === "pay_pickup") return "Pay at pickup";
@@ -459,11 +476,15 @@ export function clampTip(value: number) {
 }
 
 export function newPrinter(init?: Partial<PrinterProfile>): PrinterProfile {
+  const https = init?.lanProtocol === "https" || init?.lanPort === 8043;
   return {
     id: `ptr-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`,
     name: init?.name || "Receipt printer",
     bluetoothId: init?.bluetoothId || "",
     bluetoothName: init?.bluetoothName || "",
+    lanHost: init?.lanHost || "",
+    lanPort: https ? 8043 : 8008,
+    lanProtocol: https ? "https" : "http",
     enabled: init?.enabled ?? true,
     copies: init?.copies ?? 1,
     customerCopy: init?.customerCopy ?? true,
@@ -489,6 +510,9 @@ export function parsePrinters(raw: unknown): PrinterProfile[] {
       name: String(r.name || "Receipt printer"),
       bluetoothId: String(r.bluetoothId || ""),
       bluetoothName: String(r.bluetoothName || ""),
+      lanHost: String(r.lanHost || ""),
+      lanPort: r.lanPort === 8043 || r.lanProtocol === "https" ? 8043 : 8008,
+      lanProtocol: r.lanProtocol === "https" ? "https" : "http",
       enabled: r.enabled !== false,
       copies: Math.max(1, Math.round(moneyNumber(r.copies as number) || 1)),
       customerCopy: r.customerCopy !== false,

@@ -9,8 +9,9 @@ import {
   DeliveryPanel,
   HoursPanel,
   PaymentsPanel,
+  ShopDetailsAccordions,
   TaxPanel,
-  ToppingPricePanel,
+  ToppingPricesPanel,
   VacationPanel,
 } from "@/components/shop-ops-panels";
 import { SaveToast, useSaveFlash } from "@/components/save-toast";
@@ -24,7 +25,7 @@ import {
 } from "@/lib/shop-types";
 import type { RestaurantInfo } from "@/data/menu";
 
-const TABS = ["menu", "cards", "hours", "payments", "tax", "delivery", "printers"] as const;
+const TABS = ["menu", "toppings", "shop", "cards", "hours", "payments", "tax", "delivery", "printers"] as const;
 type MenuTab = (typeof TABS)[number];
 
 export const Route = createFileRoute("/admin/menu")({
@@ -72,11 +73,41 @@ function AdminMenu() {
       setReceipt(d.receiptOptions);
       setPrinterStamp(JSON.stringify({ printers: d.printers, receipt: d.receiptOptions }));
       setCells(d.cells);
+      useMenuStore.getState().applyPizzaNotes(d.settings);
     });
   }, []);
 
   function go(next: MenuTab) {
     void navigate({ to: "/admin/menu", search: next === "menu" ? {} : { tab: next } });
+  }
+
+  function saveMenuAndSettings(ok = "Prices and shop details are live.") {
+    const snap = useMenuStore.getState();
+    if (settings) snap.applyPizzaNotes(settings);
+    const nextSnap = useMenuStore.getState();
+    const nextRestaurant = { ...nextSnap.restaurant, shortName: nextSnap.restaurant.name };
+    void Promise.all([
+      saveShopMenu({
+        data: { restaurant: nextRestaurant, footer: nextSnap.footer, categories: nextSnap.categories },
+      }),
+      saveShopSettings({
+        data: {
+          tagline: nextSnap.tagline,
+          showMark: nextSnap.showMark,
+          toppingPriceSm: settings?.toppingPriceSm,
+          toppingPriceMd: settings?.toppingPriceMd,
+          toppingPriceLg: settings?.toppingPriceLg,
+          toppingPriceXl: settings?.toppingPriceXl,
+          toppingPricesById: settings?.toppingPricesById,
+        },
+      }),
+    ])
+      .then(() => {
+        setRestaurant(nextRestaurant);
+        setMsg(ok);
+        flashOk(true);
+      })
+      .catch((e) => setMsg(e instanceof Error ? e.message : "Could not save"));
   }
 
   function saveOps(data: Record<string, unknown>, ok = "Saved.") {
@@ -97,11 +128,13 @@ function AdminMenu() {
       <SaveToast toast={toast} />
       <div className="page-card">
         <h1>Menu & shop details</h1>
-        <p className="ed-sub">Menu, cards, hours, payments, tax, delivery, and printers — each tab saves on its own.</p>
+        <p className="ed-sub">Menu, topping prices, shop details, cards, hours, payments, tax, delivery, and printers — each tab saves on its own.</p>
         <div className="seg center-tabs menu-ops-tabs" role="tablist" aria-label="Menu and shop details">
           {(
             [
               ["menu", "Menu"],
+              ["toppings", "Toppings"],
+              ["shop", "Shop details"],
               ["cards", "Card Editor"],
               ["hours", "Hours"],
               ["payments", "Payments"],
@@ -128,45 +161,37 @@ function AdminMenu() {
         <div className="admin-menu-grid">
           <div>
             <div className="page-card">
-              <button
-                type="button"
-                className="btn-print"
-                onClick={() => {
-                  const snap = useMenuStore.getState();
-                  const nextRestaurant = { ...snap.restaurant, shortName: snap.restaurant.name };
-                  void Promise.all([
-                    saveShopMenu({
-                      data: { restaurant: nextRestaurant, footer: snap.footer, categories: snap.categories },
-                    }),
-                    saveShopSettings({
-                      data: {
-                        tagline: snap.tagline,
-                        showMark: snap.showMark,
-                        toppingPriceSm: settings?.toppingPriceSm,
-                        toppingPriceMd: settings?.toppingPriceMd,
-                        toppingPriceLg: settings?.toppingPriceLg,
-                        toppingPriceXl: settings?.toppingPriceXl,
-                      },
-                    }),
-                  ])
-                    .then(() => {
-                      setRestaurant(nextRestaurant);
-                      setMsg("Prices and shop details are live.");
-                      flashOk(true);
-                    })
-                    .catch((e) => setMsg(e instanceof Error ? e.message : "Could not save"));
-                }}
-              >
+              <button type="button" className="btn-print" onClick={() => saveMenuAndSettings()}>
                 Save all
               </button>
               {msg ? <p className="ed-sub">{msg}</p> : null}
             </div>
-            {settings ? <ToppingPricePanel settings={settings} setSettings={setSettings} /> : null}
-            <MenuEditor />
+            <MenuEditor settings={settings ?? undefined} />
           </div>
           <div className="preview-wrap">
-            <MenuBoard paper="letter" showDesc={false} />
+            <MenuBoard paper="letter" showDesc={false} settings={settings ?? undefined} />
           </div>
+        </div>
+      ) : null}
+
+      {tab === "toppings" && settings ? (
+        <div className="settings-page">
+          <ToppingPricesPanel settings={settings} setSettings={setSettings} />
+          <button type="button" className="btn-print" onClick={() => saveMenuAndSettings("Topping prices are live.")}>
+            Save toppings
+          </button>
+          {msg ? <p className="ed-sub">{msg}</p> : null}
+        </div>
+      ) : null}
+
+      {tab === "shop" && settings ? (
+        <div className="settings-page">
+          <p className="ed-sub">Open one section at a time. Save all still publishes menu, extras, and shop copy.</p>
+          <ShopDetailsAccordions settings={settings} setSettings={setSettings} />
+          <button type="button" className="btn-print" onClick={() => saveMenuAndSettings("Shop details are live.")}>
+            Save shop details
+          </button>
+          {msg ? <p className="ed-sub">{msg}</p> : null}
         </div>
       ) : null}
 
@@ -282,6 +307,7 @@ function AdminMenu() {
                   data: {
                     minOrderDelivery: settings.minOrderDelivery,
                     deliveryFee: settings.deliveryFee,
+                    deliveryFeeOn: settings.deliveryFeeOn,
                     deliveryMinutes: settings.deliveryMinutes,
                   },
                 }),

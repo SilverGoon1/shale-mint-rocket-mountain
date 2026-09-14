@@ -90,3 +90,48 @@ export function mergeItemDetail(...parts: (string | undefined)[]) {
     .filter(Boolean)
     .join(" · ");
 }
+
+export function condimentListedPrice(c: Pick<ItemCondiment, "price" | "extraPrice"> | undefined) {
+  if (!c) return 0;
+  const extra = moneyNumber(c.extraPrice);
+  if (extra > 0) return extra;
+  const price = moneyNumber(c.price);
+  return price > 0 ? price : 0;
+}
+
+export type ExtraKind = "ranch" | "blue" | "dressing";
+
+export function extraCondimentMeta(kind: ExtraKind) {
+  if (kind === "ranch") return { id: "wing-extra-ranch", name: "Extra Ranch" };
+  if (kind === "blue") return { id: "wing-extra-blue", name: "Extra Blue cheese" };
+  return { id: "salad-extra", name: "Extra dressing" };
+}
+
+export function isExtraKind(c: { id?: string; name?: string }, kind: ExtraKind) {
+  const id = String(c.id ?? "").toLowerCase();
+  const name = String(c.name ?? "");
+  if (kind === "ranch") {
+    return id === "wing-extra-ranch" || /extra-ranch/.test(id) || /extra ranch/i.test(name);
+  }
+  if (kind === "blue") {
+    return id === "wing-extra-blue" || /extra-blue/.test(id) || /extra blue/i.test(name);
+  }
+  return id === "salad-extra" || /extra-dressing/.test(id) || /extra dressing/i.test(name);
+}
+
+export function upsertExtraCondiments(list: ItemCondiment[] | undefined, kind: ExtraKind, price: string): ItemCondiment[] {
+  const meta = extraCondimentMeta(kind);
+  const next = [...(list ?? [])];
+  const i = next.findIndex((c) => isExtraKind(c, kind));
+  const listed = String(price ?? "").trim();
+  const row: ItemCondiment = {
+    id: meta.id,
+    name: meta.name,
+    price: listed,
+    extraPrice: listed,
+    maxQty: "6",
+  };
+  if (i >= 0) next[i] = { ...next[i], ...row, id: next[i].id || meta.id };
+  else next.push(row);
+  return next;
+}

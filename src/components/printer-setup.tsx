@@ -11,31 +11,28 @@ import {
   type BluetoothDiagnose,
   type PairedPrinter,
 } from "@/lib/bluetooth-printer";
-import { buildReceiptText, sampleOrder } from "@/lib/receipt";
+import { testLanPrint } from "@/lib/lan-printer";
 import type { RestaurantInfo } from "@/data/menu";
+import { buildReceiptText, sampleOrder } from "@/lib/receipt";
 import type { PrinterProfile, ReceiptOptions } from "@/lib/shop-types";
 import { newPrinter } from "@/lib/shop-types";
 
 const STEPS = [
   {
-    title: "Use Chrome or Edge on the shop tablet",
-    body: "Bluetooth printing needs Chrome or Edge on Android or Windows. Safari, Firefox, and iPhone cannot talk to a thermal printer from the browser.",
+    title: "Stay on shop Wi-Fi",
+    body: "The Epson talks over the shop network (HTTP 8008 or HTTPS 8043). Enter the printer IP from this tablet, then Test print. Hardware buy is still on hold — save the IP when the printer is on the counter.",
   },
   {
-    title: "Turn Bluetooth on",
-    body: "Open tablet settings, turn Bluetooth on, and keep the printer awake. Many 58 mm printers sleep after a minute — tap the feed button before pairing.",
+    title: "HTTPS tablets may need the printer certificate",
+    body: "This shop is HTTPS. A browser can block HTTP 8008 as mixed content. Prefer the printer’s HTTPS 8043 once its certificate is trusted on this tablet.",
   },
   {
-    title: "Allow the chooser and pop-ups",
-    body: "Pairing must happen from a tap. If a second window opens, leave it on top and pick the printer there. Allow pop-ups for this shop if the window is blocked.",
-  },
-  {
-    title: "Pick the printer, then save",
-    body: "Choose the thermal printer in the list (often named MTP, RPP, XP-, Inner, or similar). After it pairs, tap Save printer setup so the shop remembers it.",
+    title: "Bluetooth is a fallback only",
+    body: "Chrome or Edge on Android or Windows can pair a spare BLE printer. Safari and iPhone cannot. Completes never wait on a print failure.",
   },
   {
     title: "Test print, then accept an order",
-    body: "Tap Test print. If a paper preview opens instead, the tablet is not talking to the printer yet — re-pair while it is awake. Auto-print on accept uses the same path.",
+    body: "Tap Test print. If a paper preview opens instead, the tablet is not talking to the printer yet. Auto-print on accept uses the same path and still never blocks Completes.",
   },
 ] as const;
 
@@ -196,6 +193,11 @@ export function PrinterSetup({
     setBusyId(printer.id);
     setPairMsg("");
     try {
+      if (printer.lanHost) {
+        await testLanPrint(printer);
+        setPairMsg(`Sent a LAN test slip to ${printer.name} at ${printer.lanHost}.`);
+        return;
+      }
       const result = await printOrderReceipts({
         order: sample,
         restaurant,
@@ -206,7 +208,7 @@ export function PrinterSetup({
       });
       setPairMsg(
         result.fallback
-          ? `Opened a paper preview for ${printer.name}. Pair Bluetooth on the tablet to send it to the thermal printer.`
+          ? `Opened a paper preview for ${printer.name}. Set a LAN IP or pair Bluetooth to send it to the thermal printer.`
           : `Sent a test ticket to ${printer.name}.`,
       );
       if (result.fallback) setHelpOpen(true);
@@ -251,9 +253,9 @@ export function PrinterSetup({
       <section className="page-card">
         <h2>Printer setup</h2>
         <p className="ed-sub">
-          Pair one or more Bluetooth thermal printers. When the tablet accepts an order, each enabled printer prints
-          the customer and store copies you check, as many times as the dropdown says. Slips are itemized with NJ
-          sales tax shown separately.
+          Primary path is Wi-Fi / LAN (Epson ePOS, port 8008 or HTTPS 8043). Enter the printer IP from this shop
+          tablet on the shop network, then Test print. Bluetooth is a fallback for Chrome/Android only — iPhone
+          cannot print over Bluetooth from the browser.
         </p>
         <p className="ed-sub">{statusLine}</p>
         {diag ? (
@@ -323,10 +325,12 @@ export function PrinterSetup({
           Print automatically when an order is accepted
         </label>
         <div className="printer-actions">
-          <button type="button" className="btn-print" onClick={() => void pair()} disabled={Boolean(busyId)}>
-            <Bluetooth size={16} strokeWidth={2.2} />
-            {busyId === "new" ? "Waiting for printer…" : "Pair Bluetooth printer"}
-          </button>
+          {bt ? (
+            <button type="button" className="btn-print" onClick={() => void pair()} disabled={Boolean(busyId)}>
+              <Bluetooth size={16} strokeWidth={2.2} />
+              {busyId === "new" ? "Waiting for printer…" : "Pair Bluetooth fallback"}
+            </button>
+          ) : null}
           <button
             type="button"
             className="ed-btn"
@@ -343,7 +347,7 @@ export function PrinterSetup({
 
       {printers.length === 0 ? (
         <section className="page-card">
-          <p className="ed-empty">No printers yet. Pair a Bluetooth printer or add one by name.</p>
+          <p className="ed-empty">No printers yet. Add one and enter the Epson IP, or pair Bluetooth as a fallback.</p>
         </section>
       ) : (
         printers.map((printer) => (
@@ -368,9 +372,48 @@ export function PrinterSetup({
               </button>
             </div>
             <p className="ed-sub">
+              {printer.lanHost
+                ? `LAN: ${printer.lanProtocol}://${printer.lanHost}:${printer.lanPort}`
+                : "No LAN IP yet — add it for the shop Wi-Fi printer."}
               {printer.bluetoothId
-                ? `Paired: ${printer.bluetoothName || printer.bluetoothId}`
-                : "Not paired on this tablet yet."}
+                ? ` · Bluetooth fallback: ${printer.bluetoothName || printer.bluetoothId}`
+                : bt
+                  ? " · Bluetooth fallback not paired."
+                  : ""}
+            </p>
+            <div className="account-cityzip">
+              <label className="ed-field">
+                <span>Printer IP (shop Wi-Fi)</span>
+                <input
+                  className="ed-input"
+                  value={printer.lanHost}
+                  onChange={(e) => patch(printer.id, { lanHost: e.target.value })}
+                  placeholder="192.168.1.50"
+                  inputMode="decimal"
+                  autoComplete="off"
+                />
+              </label>
+              <label className="ed-field">
+                <span>Protocol</span>
+                <select
+                  className="ed-input"
+                  value={printer.lanProtocol === "https" ? "https" : "http"}
+                  onChange={(e) => {
+                    const https = e.target.value === "https";
+                    patch(printer.id, {
+                      lanProtocol: https ? "https" : "http",
+                      lanPort: https ? 8043 : 8008,
+                    });
+                  }}
+                >
+                  <option value="http">HTTP · 8008</option>
+                  <option value="https">HTTPS · 8043</option>
+                </select>
+              </label>
+            </div>
+            <p className="ed-sub">
+              Test print from this tablet on shop Wi-Fi. Completes never wait on a print failure. Hardware buy is
+              still on hold — save the IP whenever the Epson is on the counter.
             </p>
             <label className="pay-opt">
               <input
@@ -424,23 +467,27 @@ export function PrinterSetup({
               </label>
             </div>
             <div className="printer-actions">
-              <button
-                type="button"
-                className="ed-btn"
-                disabled={Boolean(busyId)}
-                onClick={() => void pair(printer)}
-              >
-                <Bluetooth size={16} strokeWidth={2.2} />
-                {printer.bluetoothId ? "Re-pair" : "Pair Bluetooth"}
-              </button>
-              <button
-                type="button"
-                className="ed-btn"
-                disabled={Boolean(busyId)}
-                onClick={() => void checkConnection(printer)}
-              >
-                Check connection
-              </button>
+              {bt ? (
+                <button
+                  type="button"
+                  className="ed-btn"
+                  disabled={Boolean(busyId)}
+                  onClick={() => void pair(printer)}
+                >
+                  <Bluetooth size={16} strokeWidth={2.2} />
+                  {printer.bluetoothId ? "Re-pair Bluetooth fallback" : "Pair Bluetooth fallback"}
+                </button>
+              ) : null}
+              {bt && printer.bluetoothId ? (
+                <button
+                  type="button"
+                  className="ed-btn"
+                  disabled={Boolean(busyId)}
+                  onClick={() => void checkConnection(printer)}
+                >
+                  Check Bluetooth
+                </button>
+              ) : null}
               <button
                 type="button"
                 className="ed-btn"

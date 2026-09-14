@@ -16,6 +16,9 @@ import { itemPhoto } from "@/data/item-photos";
 import type { CategoryKind, ItemCondiment, PriceCol } from "@/data/menu";
 import { fileToDataImage } from "@/lib/image-file";
 import { condimentMax } from "@/lib/condiments";
+import { GROUP_SAUCE_DIP, GROUP_SALAD, GROUP_BUFFALO, MODIFIER_GROUPS, hasGroup, itemGroups } from "@/lib/modifiers";
+import { pizzaNote } from "@/lib/pizza";
+import type { ShopSettingsPublic } from "@/lib/shop-types";
 import {
   isCustomMenu,
   useMenuStore,
@@ -29,17 +32,14 @@ const KINDS: { id: CategoryKind; label: string }[] = [
   { id: "single", label: "Single price" },
 ];
 
-export function MenuEditor() {
+export function MenuEditor({ settings }: { settings?: ShopSettingsPublic }) {
   const restaurant = useMenuStore((s) => s.restaurant);
   const footer = useMenuStore((s) => s.footer);
   const categories = useMenuStore((s) => s.categories);
-  const setRestaurant = useMenuStore((s) => s.setRestaurant);
-  const setFooter = useMenuStore((s) => s.setFooter);
   const addCategory = useMenuStore((s) => s.addCategory);
   const reset = useMenuStore((s) => s.reset);
 
   const [query, setQuery] = useState("");
-  const [shopOpen, setShopOpen] = useState(false);
   const [openCats, setOpenCats] = useState<Set<string>>(() => new Set());
   const custom = isCustomMenu({ restaurant, footer, categories });
 
@@ -63,7 +63,6 @@ export function MenuEditor() {
   }, [q, visible]);
 
   function toggleCat(id: string) {
-    setShopOpen(false);
     setOpenCats((prev) => {
       if (prev.has(id) && prev.size === 1) return new Set();
       return new Set([id]);
@@ -87,7 +86,6 @@ export function MenuEditor() {
             if (window.confirm("Restore the original South End Pizza III menu and shop details?")) {
               reset();
               setOpenCats(new Set());
-              setShopOpen(false);
             }
           }}
         >
@@ -107,44 +105,6 @@ export function MenuEditor() {
         />
       </label>
 
-      <section className="ed-block">
-        <button
-          type="button"
-          className="ed-block-toggle"
-          aria-expanded={shopOpen}
-          onClick={() => {
-            setShopOpen((v) => !v);
-            setOpenCats(new Set());
-          }}
-        >
-          <span>Shop details</span>
-          {shopOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
-        </button>
-        {shopOpen ? (
-          <div className="ed-shop">
-            <Field label="Address" value={restaurant.address} onChange={(v) => setRestaurant({ address: v })} />
-            <Field label="City" value={restaurant.city} onChange={(v) => setRestaurant({ city: v })} />
-            <Field label="Phone" value={restaurant.phone} onChange={(v) => setRestaurant({ phone: v })} />
-            <Field label="Hours" value={restaurant.hours} onChange={(v) => setRestaurant({ hours: v })} />
-            <Field
-              label="Established"
-              value={restaurant.established}
-              onChange={(v) => setRestaurant({ established: v })}
-            />
-            <ShopWebFields />
-            <label className="ed-field">
-              <span>Footer note</span>
-              <textarea
-                className="ed-input ed-area"
-                rows={2}
-                value={footer}
-                onChange={(e) => setFooter(e.target.value)}
-              />
-            </label>
-          </div>
-        ) : null}
-      </section>
-
       <div className="ed-cat-list">
         {visible.map((cat, index) => (
           <CategoryCard
@@ -156,6 +116,7 @@ export function MenuEditor() {
             isLast={index === visible.length - 1 && !q}
             allCats={categories}
             querying={Boolean(q)}
+            settings={settings}
           />
         ))}
         {visible.length === 0 ? <p className="ed-empty">No items match that search.</p> : null}
@@ -166,21 +127,6 @@ export function MenuEditor() {
         Add section
       </button>
     </aside>
-  );
-}
-
-function ShopWebFields() {
-  const tagline = useMenuStore((s) => s.tagline);
-  const showMark = useMenuStore((s) => s.showMark);
-  const setShopWeb = useMenuStore((s) => s.setShopWeb);
-  return (
-    <>
-      <Field label="Tagline" value={tagline} onChange={(v) => setShopWeb({ tagline: v })} />
-      <label className="pay-opt">
-        <input type="checkbox" checked={showMark} onChange={(e) => setShopWeb({ showMark: e.target.checked })} />
-        Show the buffalo mark on login and the wall menu
-      </label>
-    </>
   );
 }
 
@@ -203,45 +149,56 @@ function Field({
 
 function WingExtraPrices({ cat }: { cat: EditableCategory }) {
   const patchItem = useMenuStore((s) => s.patchItem);
-  const wing = cat.items.find((it) => /wing/i.test(it.name));
-  if (!wing) return null;
-  const wingId = wing.id;
-  const conds = wing.condiments ?? [];
+  const targets = cat.items.filter((it) => hasGroup(cat, it, GROUP_SAUCE_DIP) || hasGroup(cat, it, GROUP_BUFFALO));
+  if (!targets.length) return null;
 
   function unit(which: "ranch" | "blue") {
-    const hit = conds.find((c) =>
-      which === "ranch" ? /extra ranch/i.test(c.name) || c.id === "wing-extra-ranch" : /extra blue/i.test(c.name) || c.id === "wing-extra-blue",
-    );
-    return hit?.price ?? "1.50";
+    for (const it of targets) {
+      const hit = (it.condiments ?? []).find((c) =>
+        which === "ranch"
+          ? /extra ranch/i.test(c.name) || c.id === "wing-extra-ranch"
+          : /extra blue/i.test(c.name) || c.id === "wing-extra-blue",
+      );
+      if (hit?.price) return hit.price;
+    }
+    return "";
   }
 
   function setUnit(which: "ranch" | "blue", price: string) {
     const id = which === "ranch" ? "wing-extra-ranch" : "wing-extra-blue";
     const name = which === "ranch" ? "Extra Ranch" : "Extra Blue cheese";
-    const next = [...conds];
-    const i = next.findIndex((c) => c.id === id || (which === "ranch" ? /extra ranch/i.test(c.name) : /extra blue/i.test(c.name)));
-    const row = {
-      id,
-      name,
-      price,
-      extraPrice: price,
-      maxQty: "6",
-    };
-    if (i >= 0) next[i] = { ...next[i], ...row };
-    else next.push(row);
-    patchItem(cat.id, wingId, { condiments: next });
+    for (const it of targets) {
+      const conds = it.condiments ?? [];
+      const next = [...conds];
+      const i = next.findIndex((c) =>
+        which === "ranch"
+          ? c.id === "wing-extra-ranch" || /extra ranch/i.test(c.name)
+          : c.id === "wing-extra-blue" || /extra blue/i.test(c.name),
+      );
+      const row = {
+        id,
+        name,
+        price,
+        extraPrice: price,
+        maxQty: "6",
+      };
+      if (i >= 0) next[i] = { ...next[i], ...row, id: next[i].id || id };
+      else next.push(row);
+      patchItem(cat.id, it.id, { condiments: next });
+    }
   }
 
   return (
     <div className="ed-field">
-      <span>Extra dips (per 2 cups)</span>
-      <p className="ed-sub">Guest wing builder uses these live prices. Included Ranch / Blue cheese / None stay free.</p>
+      <span>Extra dressings (per 2 cups)</span>
+      <p className="ed-sub">Group default for sauce & dressing items. Leave blank until you set a price — guests will not invent a dollar amount.</p>
       <div className="two-col">
         <label className="ed-field">
           <span>Extra Ranch</span>
           <input
             className="ed-input ed-price"
             inputMode="decimal"
+            placeholder="Menu price"
             value={unit("ranch")}
             onChange={(e) => setUnit("ranch", e.target.value)}
           />
@@ -251,11 +208,94 @@ function WingExtraPrices({ cat }: { cat: EditableCategory }) {
           <input
             className="ed-input ed-price"
             inputMode="decimal"
+            placeholder="Menu price"
             value={unit("blue")}
             onChange={(e) => setUnit("blue", e.target.value)}
           />
         </label>
       </div>
+    </div>
+  );
+}
+
+function SaladExtraPrices({ cat }: { cat: EditableCategory }) {
+  const patchItem = useMenuStore((s) => s.patchItem);
+  const targets = cat.items.filter((it) => hasGroup(cat, it, GROUP_SALAD));
+  if (!targets.length) return null;
+
+  function unit() {
+    for (const it of targets) {
+      const hit = (it.condiments ?? []).find(
+        (c) => c.id === "salad-extra" || /extra dressing/i.test(c.name),
+      );
+      if (hit?.price) return hit.price;
+    }
+    return "";
+  }
+
+  function setUnit(price: string) {
+    for (const it of targets) {
+      const conds = it.condiments ?? [];
+      const next = [...conds];
+      const i = next.findIndex((c) => c.id === "salad-extra" || /extra dressing/i.test(c.name));
+      const row = {
+        id: "salad-extra",
+        name: "Extra dressing",
+        price,
+        extraPrice: price,
+        maxQty: "6",
+      };
+      if (i >= 0) next[i] = { ...next[i], ...row, id: next[i].id || "salad-extra" };
+      else next.push(row);
+      patchItem(cat.id, it.id, { condiments: next });
+    }
+  }
+
+  return (
+    <div className="ed-field">
+      <span>Extra dressings (per 2 cups)</span>
+      <p className="ed-sub">Group default for salad items. Leave blank until you set a price.</p>
+      <label className="ed-field">
+        <span>Extra dressing</span>
+        <input
+          className="ed-input ed-price"
+          inputMode="decimal"
+          placeholder="Menu price"
+          value={unit()}
+          onChange={(e) => setUnit(e.target.value)}
+        />
+      </label>
+    </div>
+  );
+}
+
+function ItemGroupFields({ cat, item }: { cat: EditableCategory; item: EditableItem }) {
+  const patchItem = useMenuStore((s) => s.patchItem);
+  const current = itemGroups(cat, item);
+  function toggle(id: string, on: boolean) {
+    const next = on ? [...current.filter((g) => g !== id), id] : current.filter((g) => g !== id);
+    patchItem(cat.id, item.id, { groups: next });
+  }
+  return (
+    <div className="ed-field">
+      <span>Modifier groups</span>
+      <p className="ed-sub">
+        Attach sauce & dressings, salad dressings, or pasta shape. Uncheck to detach — stuffed pastas (Manicotti, Ravioli,
+        Ziti) skip shape.
+      </p>
+      {MODIFIER_GROUPS.map((g) => (
+        <label className="toggle-row" key={g.id}>
+          <input
+            className="toggle"
+            type="checkbox"
+            role="switch"
+            checked={current.includes(g.id)}
+            aria-checked={current.includes(g.id)}
+            onChange={(e) => toggle(g.id, e.target.checked)}
+          />
+          <span>{g.label}</span>
+        </label>
+      ))}
     </div>
   );
 }
@@ -268,6 +308,7 @@ function CategoryCard({
   isLast,
   allCats,
   querying,
+  settings,
 }: {
   cat: EditableCategory;
   open: boolean;
@@ -276,6 +317,7 @@ function CategoryCard({
   isLast: boolean;
   allCats: EditableCategory[];
   querying: boolean;
+  settings?: ShopSettingsPublic;
 }) {
   const patchCategory = useMenuStore((s) => s.patchCategory);
   const setKind = useMenuStore((s) => s.setKind);
@@ -283,7 +325,21 @@ function CategoryCard({
   const deleteCategory = useMenuStore((s) => s.deleteCategory);
   const moveCategory = useMenuStore((s) => s.moveCategory);
   const [confirmDel, setConfirmDel] = useState(false);
+  const [openItemId, setOpenItemId] = useState<string | null>(null);
   const Icon = iconFor(cat.icon ?? cat.id);
+
+  useEffect(() => {
+    if (querying && cat.items[0]) setOpenItemId(cat.items[0].id);
+  }, [querying, cat.id, cat.items[0]?.id]);
+
+  useEffect(() => {
+    if (openItemId && !cat.items.some((it) => it.id === openItemId)) setOpenItemId(null);
+  }, [cat.items, openItemId]);
+
+  function openNewLastItem() {
+    const last = useMenuStore.getState().categories.find((c) => c.id === cat.id)?.items.at(-1);
+    if (last) setOpenItemId(last.id);
+  }
 
   return (
     <section className="ed-cat" data-open={open ? "true" : "false"}>
@@ -310,12 +366,26 @@ function CategoryCard({
       {open ? (
         <div className="ed-cat-body">
           <Field label="Section name" value={cat.name} onChange={(v) => patchCategory(cat.id, { name: v })} />
-          <Field
-            label="Section description"
-            value={cat.note ?? ""}
-            onChange={(v) => patchCategory(cat.id, { note: v })}
-          />
-          {cat.id === "wings" || cat.items.some((it) => /wing/i.test(it.name)) ? <WingExtraPrices cat={cat} /> : null}
+          {cat.kind === "pizza" ? (
+            <label className="ed-field">
+              <span>Section description</span>
+              <textarea
+                className="ed-input ed-area"
+                rows={2}
+                readOnly
+                value={settings ? pizzaNote(settings, cat.items) : (cat.note ?? "")}
+              />
+              <span className="ed-sub">Follows extra topping prices. Save writes this to the guest menu.</span>
+            </label>
+          ) : (
+            <Field
+              label="Section description"
+              value={cat.note ?? ""}
+              onChange={(v) => patchCategory(cat.id, { note: v })}
+            />
+          )}
+          {cat.items.some((it) => hasGroup(cat, it, GROUP_SAUCE_DIP) || hasGroup(cat, it, GROUP_BUFFALO)) ? <WingExtraPrices cat={cat} /> : null}
+          {cat.items.some((it) => hasGroup(cat, it, GROUP_SALAD)) ? <SaladExtraPrices cat={cat} /> : null}
           <label className="ed-field">
             <span>Icon</span>
             <select
@@ -351,6 +421,9 @@ function CategoryCard({
                 key={item.id}
                 cat={cat}
                 item={item}
+                open={openItemId === item.id}
+                onToggle={() => setOpenItemId((cur) => (cur === item.id ? null : item.id))}
+                onOpenItem={(id) => setOpenItemId(id)}
                 isFirst={i === 0}
                 isLast={i === cat.items.length - 1}
                 allCats={allCats}
@@ -359,7 +432,14 @@ function CategoryCard({
             {cat.items.length === 0 ? <p className="ed-empty">No items in this section yet.</p> : null}
           </div>
           <div className="ed-cat-actions">
-            <button type="button" className="ed-btn" onClick={() => addItem(cat.id)}>
+            <button
+              type="button"
+              className="ed-btn"
+              onClick={() => {
+                addItem(cat.id);
+                openNewLastItem();
+              }}
+            >
               <Plus size={15} strokeWidth={2.2} />
               Add item
             </button>
@@ -387,12 +467,18 @@ function CategoryCard({
 function ItemCard({
   cat,
   item,
+  open,
+  onToggle,
+  onOpenItem,
   isFirst,
   isLast,
   allCats,
 }: {
   cat: EditableCategory;
   item: EditableItem;
+  open: boolean;
+  onToggle: () => void;
+  onOpenItem: (id: string) => void;
   isFirst: boolean;
   isLast: boolean;
   allCats: EditableCategory[];
@@ -407,8 +493,35 @@ function ItemCard({
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState("");
 
+  function duplicateAndOpen() {
+    duplicateItem(cat.id, item.id);
+    const next = useMenuStore.getState().categories.find((c) => c.id === cat.id);
+    const i = next?.items.findIndex((it) => it.id === item.id) ?? -1;
+    const copy = i >= 0 ? next?.items[i + 1] : undefined;
+    if (copy) onOpenItem(copy.id);
+  }
+
   return (
-    <article className="ed-item" data-fav={item.highlight ? "true" : undefined}>
+    <article className="ed-item" data-fav={item.highlight ? "true" : undefined} data-open={open ? "true" : undefined}>
+      <div className="ed-item-head">
+        <button type="button" className="ed-item-toggle" aria-expanded={open} onClick={onToggle}>
+          <span className="ed-item-toggle-name">
+            {item.highlight ? <Star size={12} strokeWidth={2.2} fill="currentColor" /> : null}
+            {item.name || "Untitled item"}
+          </span>
+          {open ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+        </button>
+        <div className="ed-icon-btns">
+          <IconBtn label="Move up" disabled={isFirst} onClick={() => moveItem(cat.id, item.id, -1)}>
+            <ChevronUp size={15} />
+          </IconBtn>
+          <IconBtn label="Move down" disabled={isLast} onClick={() => moveItem(cat.id, item.id, 1)}>
+            <ChevronDown size={15} />
+          </IconBtn>
+        </div>
+      </div>
+      {open ? (
+        <div className="ed-item-body">
       <label className="ed-field">
         <span>Item</span>
         <input
@@ -480,6 +593,7 @@ function ItemCard({
         {photoErr ? <p className="form-error">{photoErr}</p> : null}
       </div>
       <PriceFields kind={cat.kind} prices={item.prices} onChange={(prices) => setPrices(cat.id, item.id, prices)} />
+      <ItemGroupFields cat={cat} item={item} />
       <CondimentFields
         condiments={item.condiments ?? []}
         onChange={(condiments) => patchItem(cat.id, item.id, { condiments })}
@@ -496,13 +610,7 @@ function ItemCard({
           House favorite
         </button>
         <div className="ed-icon-btns">
-          <IconBtn label="Move up" disabled={isFirst} onClick={() => moveItem(cat.id, item.id, -1)}>
-            <ChevronUp size={15} />
-          </IconBtn>
-          <IconBtn label="Move down" disabled={isLast} onClick={() => moveItem(cat.id, item.id, 1)}>
-            <ChevronDown size={15} />
-          </IconBtn>
-          <IconBtn label="Duplicate" onClick={() => duplicateItem(cat.id, item.id)}>
+          <IconBtn label="Duplicate" onClick={duplicateAndOpen}>
             <Copy size={14} />
           </IconBtn>
           {confirmDel ? (
@@ -533,6 +641,8 @@ function ItemCard({
             ))}
           </select>
         </label>
+      ) : null}
+        </div>
       ) : null}
     </article>
   );

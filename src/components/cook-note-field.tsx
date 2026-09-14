@@ -1,14 +1,18 @@
 import type { RefObject } from "react";
 
+const NOTE_PLACEHOLDER = "What's happening?";
+
 /** Uncontrolled so typing never remounts or steals focus from the cook note. */
 export function CookNoteField({
   id,
   noteRef,
-  placeholder,
+  placeholder = NOTE_PLACEHOLDER,
+  rows = 2,
 }: {
   id: string;
   noteRef: RefObject<HTMLTextAreaElement | null>;
-  placeholder: string;
+  placeholder?: string;
+  rows?: number;
 }) {
   return (
     <div className="ed-field pizza-modal-block pizza-cook-field">
@@ -17,7 +21,7 @@ export function CookNoteField({
         id={id}
         ref={noteRef}
         className="ed-input ed-area"
-        rows={2}
+        rows={rows}
         maxLength={160}
         defaultValue=""
         placeholder={placeholder}

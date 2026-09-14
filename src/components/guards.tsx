@@ -79,6 +79,14 @@ export function SessionGate({
   const heldAdmin = useRef<ProfileView | null>(null);
 
   useEffect(() => {
+    if (userId) return;
+    heldAdmin.current = null;
+    setProfile(null);
+    setTwoFactor(null);
+    setError("");
+  }, [userId]);
+
+  useEffect(() => {
     if (!isPending) {
       setAuthWaited(false);
       return;
@@ -93,14 +101,14 @@ export function SessionGate({
     let live = true;
     const timeout = window.setTimeout(() => {
       if (!live) return;
-      if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) return;
+      if (heldAdmin.current && heldAdmin.current.userId === userId) return;
       setError("Account is taking too long. Tap Try again.");
     }, 9000);
     void loadStaffAccount()
       .then(([p, t]) => {
         if (!live) return;
         window.clearTimeout(timeout);
-        if (p.adminMode || p.adminModeAllowed) heldAdmin.current = p;
+        heldAdmin.current = p;
         setError("");
         setProfile(p);
         setTwoFactor(t);
@@ -108,7 +116,7 @@ export function SessionGate({
       .catch((e) => {
         if (!live) return;
         window.clearTimeout(timeout);
-        if (needAdmin && heldAdmin.current && heldAdmin.current.userId === userId) {
+        if (heldAdmin.current && heldAdmin.current.userId === userId) {
           setProfile(heldAdmin.current);
           setError("");
           return;
@@ -123,26 +131,37 @@ export function SessionGate({
     };
   }, [isPending, userId, retry, needAdmin]);
 
-  if (isPending && !(needAdmin && authWaited && !user)) return <AccountLoading />;
-  if (!user) {
-    const next =
-      needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
-        ? "/admin"
-        : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
-          ? pathname
-          : needAdmin
-            ? "/admin"
-            : "/";
-    return <Navigate to="/login" search={{ next }} />;
+  const shownProfile = profile || (userId && heldAdmin.current?.userId === userId ? heldAdmin.current : null);
+  const shownTwoFactor = twoFactor || (shownProfile ? SKIP_2FA : null);
+
+  if (!userId) {
+    if (!isPending) {
+      const next =
+        needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
+          ? "/admin"
+          : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
+            ? pathname
+            : needAdmin
+              ? "/admin"
+              : "/";
+      return <Navigate to="/login" search={{ next }} />;
+    }
+    if (needAdmin && authWaited) {
+      return <Navigate to="/login" search={{ next: "/admin" }} />;
+    }
+    return <AccountLoading />;
   }
-  if (error) {
-    const retry = () => {
+  if (isPending && !shownProfile) {
+    return <AccountLoading />;
+  }
+  if (error && !shownProfile) {
+    const retryFn = () => {
       setError("");
       setProfile(null);
       setTwoFactor(null);
       setRetry((n) => n + 1);
     };
-    if (fallback) return <>{fallback({ error, retry })}</>;
+    if (fallback) return <>{fallback({ error, retry: retryFn })}</>;
     return (
       <div className="page-card">
         <h1>Could not load your account</h1>
@@ -158,15 +177,15 @@ export function SessionGate({
               Continue as guest
             </button>
           ) : null}
-          <button type="button" className={softGuest ? "ed-btn" : "btn-print"} onClick={retry}>
+          <button type="button" className={softGuest ? "ed-btn" : "btn-print"} onClick={retryFn}>
             Try again
           </button>
         </div>
       </div>
     );
   }
-  if (!profile || !twoFactor) return <AccountLoading />;
-  if (profile.banned) {
+  if (!shownProfile || !shownTwoFactor) return <AccountLoading />;
+  if (shownProfile.banned) {
     return (
       <div className="page-card">
         <h1>Account restricted</h1>
@@ -177,7 +196,7 @@ export function SessionGate({
       </div>
     );
   }
-  if (twoFactor.enroll) {
+  if (shownTwoFactor.enroll) {
     return (
       <div className="page-card">
         <h1>Set up two-factor</h1>
@@ -188,7 +207,7 @@ export function SessionGate({
       </div>
     );
   }
-  if (twoFactor.required) {
+  if (shownTwoFactor.required) {
     return (
       <div className="page-card">
         <h1>Two-factor check</h1>
@@ -199,8 +218,8 @@ export function SessionGate({
       </div>
     );
   }
-  if (needAdmin && !(profile.adminMode && profile.adminModeAllowed) && profile.role !== "admin") {
-    if (!profile.adminExists) {
+  if (needAdmin && !(shownProfile.adminModeAllowed || shownProfile.role === "admin" || shownProfile.adminMode)) {
+    if (!shownProfile.adminExists) {
       return (
         <div className="page-card">
           <h1>Set up shop admin</h1>
@@ -235,5 +254,5 @@ export function SessionGate({
       </div>
     );
   }
-  return <>{children({ profile, twoFactor })}</>;
+  return <>{children({ profile: shownProfile, twoFactor: shownTwoFactor })}</>;
 }

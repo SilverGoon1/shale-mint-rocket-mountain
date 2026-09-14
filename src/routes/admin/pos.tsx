@@ -6,7 +6,7 @@ import { printOrderReceipts } from "@/lib/bluetooth-printer";
 import { useDialogLock } from "@/lib/dialog-lock";
 import { getAdminShop, listPosOrders, patchPosOrder, updateOrderStatus } from "@/lib/shop-server";
 import { formatShopWhen } from "@/lib/hours";
-import { isTransientFetchError } from "@/lib/fetch-retry";
+import { isTransientFetchError, isUnauthorizedError } from "@/lib/fetch-retry";
 import { onVisibleInterval } from "@/lib/page-visible";
 import {
   formatTicketNo,
@@ -21,7 +21,7 @@ import type { MenuCategory, MenuItem, RestaurantInfo } from "@/data/menu";
 import { RESTAURANT } from "@/data/menu";
 import { POS_ACCEPTED_EVENT } from "@/components/incoming-order-queue";
 import { PosStaffToast, type PosStaffToastState } from "@/components/pos-staff-toast";
-import { formatCompletedToast, POS_TOAST_MS } from "@/lib/pos-toast";
+import { formatAcceptedToast, formatCompletedToast, POS_TOAST_MS } from "@/lib/pos-toast";
 
 export const Route = createFileRoute("/admin/pos")({
   validateSearch: (search: Record<string, unknown>): { ticket?: string } => {
@@ -70,6 +70,7 @@ function PosTicketDialog({
   busyId,
   statusBusy,
   statusError,
+  authLost,
   onClose,
   onQuery,
   onStatus,
@@ -82,6 +83,7 @@ function PosTicketDialog({
   busyId: string;
   statusBusy: string;
   statusError: string;
+  authLost?: boolean;
   onClose: () => void;
   onQuery: (q: string) => void;
   onStatus: (status: string) => void;
@@ -129,6 +131,7 @@ function PosTicketDialog({
               data-on={bucket === s.id}
               data-tone={s.id}
               disabled={
+                Boolean(authLost) ||
                 Boolean(statusBusy) ||
                 (s.id === "accepted" && (bucket === "accepted" || bucket === "completed")) ||
                 (s.id === bucket && s.id !== "completed")
@@ -322,7 +325,8 @@ function AdminPos() {
   const [statusBusy, setStatusBusy] = useState("");
   const [dialogError, setDialogError] = useState("");
   const [desk, setDesk] = useState<"open" | "done">("open");
-  const [completeToast, setCompleteToast] = useState<PosStaffToastState | null>(null);
+  const [posToast, setPosToast] = useState<PosStaffToastState | null>(null);
+  const [authLost, setAuthLost] = useState(false);
   const [chromeHost, setChromeHost] = useState<Element | null>(null);
   const seenChat = useRef(new Set<string>());
   const primedChat = useRef(false);
@@ -331,10 +335,10 @@ function AdminPos() {
   const statusBusyRef = useRef(false);
 
   useEffect(() => {
-    if (!completeToast) return;
-    const t = window.setTimeout(() => setCompleteToast(null), POS_TOAST_MS);
+    if (!posToast) return;
+    const t = window.setTimeout(() => setPosToast(null), POS_TOAST_MS);
     return () => window.clearTimeout(t);
-  }, [completeToast]);
+  }, [posToast]);
 
   useEffect(() => {
     const onAccepted = (event: Event) => {
@@ -342,6 +346,7 @@ function AdminPos() {
       if (!order?.id) return;
       heldAccepted.current.add(order.id);
       setTickets((list) => list.map((t) => (t.id === order.id ? { ...t, ...order, status: "accepted" } : t)));
+      setPosToast(formatAcceptedToast({ ticketNo: order.ticketNo, formatTicketNo }));
     };
     window.addEventListener(POS_ACCEPTED_EVENT, onAccepted);
     return () => window.removeEventListener(POS_ACCEPTED_EVENT, onAccepted);
@@ -382,6 +387,11 @@ function AdminPos() {
         })
         .catch((e) => {
           if (isTransientFetchError(e)) return;
+          if (isUnauthorizedError(e)) {
+            setAuthLost(true);
+            setError("Your desk sign-in expired. Sign in again to Accept tickets.");
+            return;
+          }
           setError(e instanceof Error ? e.message : "Could not load POS");
         });
     });
@@ -403,7 +413,22 @@ function AdminPos() {
     setTickets((list) => list.map((t) => (t.id === id ? { ...t, ...patch } : t)));
   }
 
+  function lockIfUnauthorized(e: unknown, fallback: string, intoDialog = false) {
+    if (isUnauthorizedError(e)) {
+      setAuthLost(true);
+      const text = "Your desk sign-in expired. Sign in again to Accept tickets.";
+      if (intoDialog) setDialogError(text);
+      else setError(text);
+      return true;
+    }
+    const msg = e instanceof Error ? e.message : fallback;
+    if (intoDialog) setDialogError(msg);
+    else setError(msg);
+    return false;
+  }
+
   function setStatus(id: string, status: string) {
+    if (authLost) return;
     if (statusBusyRef.current) return;
     statusBusyRef.current = true;
     setError("");
@@ -414,25 +439,37 @@ function AdminPos() {
       .then((r) => {
         if (!r.order) return;
         mergeTicket(id, r.order);
-        if (status !== "completed") return;
-        const wasComplete = posBucket(prior?.status ?? "") === "completed";
-        closedByStaff.current.add(id);
-        setOpenId("");
-        setItemQuery("");
-        if (!wasComplete) {
-          setDesk("open");
-          setCompleteToast(
-            formatCompletedToast({
+        const next = r.order.status || status;
+        if (status === "completed" || next === "completed") {
+          const wasComplete = posBucket(prior?.status ?? "") === "completed";
+          closedByStaff.current.add(id);
+          setOpenId("");
+          setItemQuery("");
+          if (!wasComplete) {
+            setDesk("open");
+            setPosToast(
+              formatCompletedToast({
+                ticketNo: r.order.ticketNo || prior?.ticketNo || 0,
+                total: r.order.total || prior?.total || 0,
+                tip: r.order.tip || prior?.tip,
+                formatTicketNo,
+                formatUsd,
+              }),
+            );
+          }
+          return;
+        }
+        if (status === "accepted" || next === "accepted") {
+          setPosToast(
+            formatAcceptedToast({
               ticketNo: r.order.ticketNo || prior?.ticketNo || 0,
-              total: r.order.total || prior?.total || 0,
-              tip: r.order.tip || prior?.tip,
               formatTicketNo,
-              formatUsd,
             }),
           );
         }
       })
       .catch((e) => {
+        if (lockIfUnauthorized(e, "Could not update", status === "completed")) return;
         const msg = e instanceof Error ? e.message : "Could not update";
         if (status === "completed") setDialogError(msg);
         else setError(msg);
@@ -444,13 +481,17 @@ function AdminPos() {
   }
 
   function saveItems(id: string, items: OrderItem[]) {
+    if (authLost) return;
     setError("");
     void patchPosOrder({ data: { id, items } })
       .then((r) => {
         if (!r.order) return;
         mergeTicket(id, r.order);
       })
-      .catch((e) => setError(e instanceof Error ? e.message : "Could not update items"));
+      .catch((e) => {
+        if (lockIfUnauthorized(e, "Could not update items")) return;
+        setError(e instanceof Error ? e.message : "Could not update items");
+      });
   }
 
   function reprint(order: PosTicket) {
@@ -553,9 +594,18 @@ function AdminPos() {
 
   return (
     <div className="pos-page">
-      <PosStaffToast toast={completeToast} />
+      <PosStaffToast toast={posToast} />
       {chromeHost ? createPortal(deskTabs, chromeHost) : <div className="pos-chrome">{deskTabs}</div>}
-      {error ? <p className="form-error">{error}</p> : null}
+      {authLost ? (
+        <p className="form-error">
+          Your desk sign-in expired.{" "}
+          <Link to="/login" search={{ next: "/admin/pos" }}>
+            Sign in again
+          </Link>{" "}
+          to Accept tickets.
+        </p>
+      ) : null}
+      {error && !authLost ? <p className="form-error">{error}</p> : null}
       {shown.length === 0 ? (
         desk === "open" ? (
           <section className="page-card pos-empty-open">
@@ -649,6 +699,7 @@ function AdminPos() {
           busyId={busyId}
           statusBusy={statusBusy}
           statusError={dialogError}
+          authLost={authLost}
           onClose={() => {
             setOpenId("");
             setItemQuery("");

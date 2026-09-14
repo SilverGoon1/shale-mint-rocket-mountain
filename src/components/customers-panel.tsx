@@ -1,8 +1,17 @@
-import { useEffect, useMemo, useState } from "react";
-import { setAccountBanned, setAccountRole, adjustCustomerPoints } from "@/lib/shop-server";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { setAccountBanned, setAccountRole, adjustCustomerPoints, deleteCustomerAccount } from "@/lib/shop-server";
 import { formatTicketNo, formatUsd, type CustomerRecord } from "@/lib/shop-types";
 import { formatShopWhen } from "@/lib/hours";
+import { isStaffAdminAccount } from "@/lib/staff-admin";
 import { OrderDateTrays } from "@/components/order-trays";
+
+const TINTS = 8;
+
+function customerTint(id: string) {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return h % TINTS;
+}
 
 export function CustomersPanel({
   customers,
@@ -21,23 +30,48 @@ export function CustomersPanel({
   const [openId, setOpenId] = useState(focusId ?? "");
   const [busyId, setBusyId] = useState("");
   const [pointDelta, setPointDelta] = useState("10");
+  const [pendingRemove, setPendingRemove] = useState<CustomerRecord | null>(null);
+  const pinnedFor = useRef("");
 
   useEffect(() => {
-    if (!focusId) return;
+    if (!focusId) {
+      pinnedFor.current = "";
+      return;
+    }
     setOpenId(focusId);
+    const hit = customers.find((c) => c.userId === focusId);
+    if (!hit || pinnedFor.current === focusId) return;
+    pinnedFor.current = focusId;
+    setQuery(hit.displayName);
     const t = window.setTimeout(() => {
-      document.getElementById(`cust-${focusId}`)?.scrollIntoView({ block: "nearest", behavior: "smooth" });
-    }, 50);
+      document.getElementById(`cust-${focusId}`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+    }, 80);
     return () => window.clearTimeout(t);
-  }, [focusId]);
+  }, [focusId, customers]);
+
+  useEffect(() => {
+    if (!pendingRemove) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && !busyId) setPendingRemove(null);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [pendingRemove, busyId]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    if (!q) return customers;
-    return customers.filter((c) =>
-      [c.displayName, c.phone, c.email, c.userId, c.role].join(" ").toLowerCase().includes(q),
-    );
-  }, [customers, query]);
+    const list = !q
+      ? customers
+      : customers.filter((c) =>
+          [c.displayName, c.phone, c.email, c.userId, c.role].join(" ").toLowerCase().includes(q),
+        );
+    if (!focusId) return list;
+    return [...list].sort((a, b) => {
+      if (a.userId === focusId) return -1;
+      if (b.userId === focusId) return 1;
+      return 0;
+    });
+  }, [customers, query, focusId]);
 
   function toggleAdmin(c: CustomerRecord, on: boolean) {
     setBusyId(c.userId);
@@ -48,7 +82,7 @@ export function CustomersPanel({
             row.userId === c.userId ? { ...row, role: on ? "admin" : "customer", adminModeAllowed: on } : row,
           ),
         );
-        onMsg(on ? `${c.displayName} can turn on Admin mode.` : `${c.displayName} is a customer account.`);
+        onMsg(on ? `${c.displayName} can open the desk.` : `${c.displayName} is a customer account.`);
       })
       .catch((e) => onMsg(e instanceof Error ? e.message : "Could not update admin authority"))
       .finally(() => setBusyId(""));
@@ -85,6 +119,21 @@ export function CustomersPanel({
       .finally(() => setBusyId(""));
   }
 
+  function removeAccount() {
+    const c = pendingRemove;
+    if (!c) return;
+    setBusyId(c.userId);
+    void deleteCustomerAccount({ data: { userId: c.userId } })
+      .then(() => {
+        setCustomers(customers.filter((row) => row.userId !== c.userId));
+        if (openId === c.userId) setOpenId("");
+        setPendingRemove(null);
+        onMsg(`${c.displayName} was removed from the customer book.`);
+      })
+      .catch((e) => onMsg(e instanceof Error ? e.message : "Could not remove account"))
+      .finally(() => setBusyId(""));
+  }
+
   return (
     <section className="page-card">
       <h2>Customer database</h2>
@@ -106,8 +155,16 @@ export function CustomersPanel({
         <ul className="cust-list">
           {filtered.map((c) => {
             const open = openId === c.userId;
+            const staffDesk = isStaffAdminAccount(c.userId, c.email);
             return (
-              <li key={c.userId} className="cust-card" data-open={open} id={`cust-${c.userId}`}>
+              <li
+                key={c.userId}
+                className="cust-card"
+                data-open={open}
+                data-tint={String(customerTint(c.userId))}
+                data-focus={c.userId === focusId || undefined}
+                id={`cust-${c.userId}`}
+              >
                 <button
                   type="button"
                   className="cust-head"
@@ -183,7 +240,7 @@ export function CustomersPanel({
                         disabled={busyId === c.userId}
                         onChange={(e) => toggleAdmin(c, e.target.checked)}
                       />
-                      Allow Admin mode on this account
+                      Allow desk access on this account
                     </label>
                     <label className="pay-opt">
                       <input
@@ -204,6 +261,16 @@ export function CustomersPanel({
                         Open in messages
                       </button>
                     ) : null}
+                    {staffDesk ? null : (
+                      <button
+                        type="button"
+                        className="ed-btn ed-btn-danger"
+                        disabled={busyId === c.userId}
+                        onClick={() => setPendingRemove(c)}
+                      >
+                        Remove account
+                      </button>
+                    )}
                     <h3 className="settings-subhead">Order history</h3>
                     <OrderDateTrays orders={c.orders}>
                       {(o) => (
@@ -226,6 +293,30 @@ export function CustomersPanel({
           })}
         </ul>
       )}
+      {pendingRemove ? (
+        <div className="order-alert-scrim" role="dialog" aria-modal="true" aria-labelledby="remove-account-title">
+          <section className="order-alert">
+            <h2 id="remove-account-title">Remove this account?</h2>
+            <p className="ed-sub">
+              Remove {pendingRemove.displayName} from the customer book? They will not be able to sign in with this
+              account. Past tickets stay on POS.
+            </p>
+            <div className="confirm-actions">
+              <button type="button" className="ed-btn" disabled={busyId === pendingRemove.userId} onClick={() => setPendingRemove(null)}>
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="ed-btn ed-btn-danger"
+                disabled={busyId === pendingRemove.userId}
+                onClick={removeAccount}
+              >
+                {busyId === pendingRemove.userId ? "Removing…" : "Remove account"}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </section>
   );
 }

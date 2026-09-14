@@ -12,6 +12,7 @@ export const DEVICE_PERMISSIONS_POLICY = [
   "hid=*",
   "usb=*",
   "geolocation=(self)",
+  "notifications=(self)",
 ].join(", ");
 
 export const DEVICE_FEATURE_POLICY = [

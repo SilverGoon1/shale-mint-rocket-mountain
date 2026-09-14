@@ -1,6 +1,7 @@
 import type { RestaurantInfo } from "@/data/menu";
-import { buildReceiptText, jobsForPrinters, textToEscPos, type ReceiptKind } from "@/lib/receipt";
 import type { OrderView, PrinterProfile, ReceiptOptions } from "@/lib/shop-types";
+import { buildReceiptText, jobsForPrinters, textToEscPos, type ReceiptKind } from "@/lib/receipt";
+import { printLanReceipt } from "@/lib/lan-printer";
 
 const NUS = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
 const NUS_RX = "6e400002-b5a3-f393-e0a9-e50e24dcca9e";
@@ -596,7 +597,7 @@ ${slips
 }
 
 function escapeHtml(s: string) {
-  return s.replaceAll("&", "&").replaceAll("<", "<").replaceAll(">", ">");
+  return s.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
 }
 
 export async function printOrderReceipts(opts: {
@@ -625,6 +626,14 @@ export async function printOrderReceipts(opts: {
       paper: job.printer.paper,
     });
     const title = `${job.printer.name} · ${job.kind === "store" ? "Store copy" : "Customer copy"}`;
+    if (job.printer.lanHost) {
+      try {
+        await printLanReceipt(job.printer, body);
+        continue;
+      } catch (e) {
+        errors.push(`${job.printer.name}: ${e instanceof Error ? e.message : "LAN print failed"}`);
+      }
+    }
     if (job.printer.bluetoothId) {
       try {
         await printEscPos(job.printer.bluetoothId, textToEscPos(body));

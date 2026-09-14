@@ -1,6 +1,7 @@
 import { useId, useRef, useState } from "react";
 import { Minus, Plus, X } from "lucide-react";
 import { CookNoteField, cookNoteValue } from "@/components/cook-note-field";
+import { CustomizeFooter, ExtraStepChip } from "@/components/customize-chrome";
 import { itemPhoto } from "@/data/item-photos";
 import type { MenuItem } from "@/data/menu";
 import {
@@ -8,6 +9,7 @@ import {
   condimentDetail,
   condimentMax,
   condimentTotal,
+  isExtraKind,
   mergeItemDetail,
   type CondimentPick,
 } from "@/lib/condiments";
@@ -20,8 +22,20 @@ import {
   toppingCharge,
   toppingUnit,
 } from "@/lib/pizza";
-import { formatUsd, moneyNumber, type ShopSettingsPublic } from "@/lib/shop-types";
+import { formatUsd, type ShopSettingsPublic } from "@/lib/shop-types";
 import { useDialogLock } from "@/lib/dialog-lock";
+import { GROUP_BUFFALO, hasGroup } from "@/lib/modifiers";
+import {
+  BUFFALO_INCLUDED_DIPS,
+  WING_EXTRA_MAX,
+  WING_EXTRA_STEP,
+  type WingIncludedDip,
+  buffaloBuildPicks,
+  buffaloDipReady,
+  extraDipCharge,
+  extraDipUnitPrice,
+  snapExtraCups,
+} from "@/lib/wings";
 
 export type PizzaCustomizeResult = {
   size: string;
@@ -32,6 +46,15 @@ export type PizzaCustomizeResult = {
   toppings: PizzaToppingPick[];
   condiments: CondimentPick[];
 };
+
+function isDipCondiment(c: { id?: string; name?: string }) {
+  const id = String(c.id ?? "").toLowerCase();
+  return (
+    id.startsWith("wing-dip-") ||
+    isExtraKind(c, "ranch") ||
+    isExtraKind(c, "blue")
+  );
+}
 
 export function PizzaCustomize({
   item,
@@ -56,7 +79,11 @@ export function PizzaCustomize({
   const [size, setSize] = useState(initialSize || first?.label || "LG");
   const [picks, setPicks] = useState<Record<string, ToppingSide | "off">>({});
   const [condQty, setCondQty] = useState<Record<string, number>>({});
-  const condiments = item.condiments ?? [];
+  const [dip, setDip] = useState<WingIncludedDip | "">("");
+  const [extraRanch, setExtraRanch] = useState(0);
+  const [extraBlue, setExtraBlue] = useState(0);
+  const buffalo = hasGroup({ id: categoryId || "" }, item, GROUP_BUFFALO);
+  const condiments = (item.condiments ?? []).filter((c) => !buffalo || !isDipCondiment(c));
   const photo = item.hideImage ? "" : itemPhoto(item, categoryId);
   useDialogLock(onClose, panelRef);
 
@@ -79,11 +106,23 @@ export function PizzaCustomize({
     })
     .filter((p): p is CondimentPick => Boolean(p));
   const extras = condimentTotal(condPicks);
-  const unitPrice = Math.round((priced.unitPrice + extras) * 100) / 100;
-  const extraDetail = mergeItemDetail(priced.detail, condimentDetail(condPicks));
+  const ranchUnit = extraDipUnitPrice(item.condiments, "ranch");
+  const blueUnit = extraDipUnitPrice(item.condiments, "blue");
+  const dipBuilt = buffalo && buffaloDipReady(dip)
+    ? buffaloBuildPicks({
+        dip: dip as WingIncludedDip,
+        extraRanch,
+        extraBlue,
+        ranchUnit,
+        blueUnit,
+      })
+    : null;
+  const dipExtra = dipBuilt?.extras ?? extraDipCharge(extraRanch, ranchUnit) + extraDipCharge(extraBlue, blueUnit);
+  const unitPrice = Math.round((priced.unitPrice + extras + (buffalo ? dipExtra : 0)) * 100) / 100;
+  const extraDetail = mergeItemDetail(priced.detail, dipBuilt?.detail, condimentDetail(condPicks));
 
   const chosen = item.prices.find((p) => p.label === size) ?? first;
-  const toppingEach = toppingUnit(size, settings);
+  const ready = !buffalo || buffaloDipReady(dip);
 
   function setTopping(id: string, side: ToppingSide | "off") {
     setPicks((cur) => ({ ...cur, [id]: side }));
@@ -97,6 +136,7 @@ export function PizzaCustomize({
   }
 
   function confirm() {
+    if (!ready) return;
     const note = cookNoteValue(noteRef);
     onConfirm({
       size: chosen?.label || size,
@@ -105,7 +145,7 @@ export function PizzaCustomize({
       detail: extraDetail,
       toppings,
       comment: note || undefined,
-      condiments: condPicks,
+      condiments: [...(dipBuilt?.condiments ?? []), ...condPicks],
     });
   }
 
@@ -123,7 +163,6 @@ export function PizzaCustomize({
         <header className="pizza-modal-head pizza-item-head">
           {photo ? <img className="pizza-item-thumb" src={photo} alt="" decoding="async" /> : null}
           <div className="pizza-item-copy">
-            <p className="shop-brand-kicker">Customize your pizza</p>
             <h2 id={titleId}>{item.name}</h2>
             {item.description ? <p className="pizza-item-desc">{item.description}</p> : null}
           </div>
@@ -132,123 +171,151 @@ export function PizzaCustomize({
           </button>
         </header>
 
-        <fieldset className="pizza-modal-block pizza-block-tight">
-          <legend>Size</legend>
-          <div className="size-pick pizza-size-pick" role="group" aria-label="Pizza size">
-            {item.prices.map((p) => {
-              const lab = p.label || "Regular";
-              return (
-                <button key={lab} type="button" data-on={size === lab} onClick={() => setSize(lab)}>
-                  {lab}
-                  {p.inches ? <em>{p.inches}</em> : null}
-                  <span>{formatUsd(colPrice(p))}</span>
-                </button>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        <fieldset className="pizza-modal-block pizza-block-tight">
-          <legend>Extra toppings</legend>
-          <p className="ed-sub topping-hint">
-            Tap to add. {formatUsd(toppingEach)} whole · {formatUsd(toppingCharge(size, "left", settings))} half.
-          </p>
-          <div className="topping-grid">
-            {PIZZA_TOPPINGS.map((t) => {
-              const side = picks[t.id] ?? "off";
-              const on = side !== "off";
-              return (
-                <div key={t.id} className="topping-chip" data-on={on || undefined}>
-                  <button
-                    type="button"
-                    className="topping-chip-main"
-                    aria-pressed={on}
-                    onClick={() => toggleTopping(t.id)}
-                  >
-                    {t.name}
-                  </button>
-                  {on ? (
-                    <div className="topping-half" role="group" aria-label={`${t.name} side`}>
-                      {(["left", "whole", "right"] as const).map((opt) => (
-                        <button
-                          key={opt}
-                          type="button"
-                          data-on={side === opt}
-                          onClick={() => setTopping(t.id, opt)}
-                        >
-                          {opt === "whole" ? "Whole" : opt === "left" ? "L" : "R"}
-                        </button>
-                      ))}
-                    </div>
-                  ) : null}
-                </div>
-              );
-            })}
-          </div>
-        </fieldset>
-
-        {condiments.length ? (
-          <fieldset className="pizza-modal-block pizza-block-tight">
-            <legend>Condiments & extras</legend>
-            <ul className="condiment-list">
-              {condiments.map((c) => {
-                const cap = condimentMax(c.maxQty);
-                const n = condQty[c.id] ?? 0;
+        <div className="pizza-modal-body">
+          <fieldset className="pizza-modal-block pizza-block-tight pizza-size-block">
+            <legend>Size</legend>
+            <div className="size-pick pizza-size-pick" role="group" aria-label="Pizza size">
+              {item.prices.map((p) => {
+                const lab = p.label || "Regular";
                 return (
-                  <li key={c.id}>
-                    <span>
-                      <strong>{c.name}</strong>
-                      <em>
-                        {moneyNumber(c.price) > 0 ? `${formatUsd(moneyNumber(c.price))} to add` : "Included"}
-                        {moneyNumber(c.extraPrice || c.price) > 0
-                          ? ` · extra ${formatUsd(moneyNumber(c.extraPrice || c.price))}`
-                          : ""}
-                        {` · up to ${cap}`}
-                      </em>
-                    </span>
-                    <span className="qty-step">
-                      <button
-                        type="button"
-                        aria-label={`Fewer ${c.name}`}
-                        disabled={n <= 0}
-                        onClick={() => setCondQty((cur) => ({ ...cur, [c.id]: Math.max(0, n - 1) }))}
-                      >
-                        <Minus size={14} />
-                      </button>
-                      <strong>{n}</strong>
-                      <button
-                        type="button"
-                        aria-label={`More ${c.name}`}
-                        disabled={n >= cap}
-                        onClick={() => setCondQty((cur) => ({ ...cur, [c.id]: Math.min(cap, n + 1) }))}
-                      >
-                        <Plus size={14} />
-                      </button>
-                    </span>
-                  </li>
+                  <button key={lab} type="button" data-on={size === lab} onClick={() => setSize(lab)}>
+                    {lab}
+                    {p.inches ? <em>{p.inches}</em> : null}
+                    <span>{formatUsd(colPrice(p))}</span>
+                  </button>
                 );
               })}
-            </ul>
+            </div>
           </fieldset>
-        ) : null}
 
-        <CookNoteField key={item.id || item.name} id={noteId} noteRef={noteRef} placeholder="e.g. well done, light sauce, cut in squares" />
+          {buffalo ? (
+            <fieldset className="pizza-modal-block pizza-block-tight">
+              <legend>Included dressing</legend>
+              <div className="size-pick pizza-size-pick" role="radiogroup" aria-label="Included dressing">
+                {BUFFALO_INCLUDED_DIPS.map((d) => (
+                  <button key={d.id} type="button" data-on={dip === d.id} onClick={() => setDip(d.id)}>
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            </fieldset>
+          ) : null}
 
-        <footer className="pizza-modal-foot">
-          <div className="pizza-modal-total">
-            <span>This pie</span>
-            <strong>{formatUsd(unitPrice)}</strong>
+          {buffalo ? (
+            <fieldset className="pizza-modal-block pizza-block-tight pizza-extra-dressing">
+              <legend>Extra dressings</legend>
+              <div className="extra-step-row">
+                <ExtraStepChip
+                  name="Extra Ranch"
+                  qty={extraRanch}
+                  step={WING_EXTRA_STEP}
+                  max={WING_EXTRA_MAX}
+                  unit={ranchUnit}
+                  onChange={(n) => setExtraRanch(snapExtraCups(n))}
+                />
+                <ExtraStepChip
+                  name="Extra Blue cheese"
+                  qty={extraBlue}
+                  step={WING_EXTRA_STEP}
+                  max={WING_EXTRA_MAX}
+                  unit={blueUnit}
+                  onChange={(n) => setExtraBlue(snapExtraCups(n))}
+                />
+              </div>
+            </fieldset>
+          ) : null}
+
+          <div className="pizza-pane" data-pane="toppings">
+            <p className="ed-sub topping-hint">Tap a topping. Price is for this size — half is half of that topping.</p>
+            <div className="topping-grid">
+              {PIZZA_TOPPINGS.map((t) => {
+                const side = picks[t.id] ?? "off";
+                const on = side !== "off";
+                const unit = toppingUnit(size, settings, t.id);
+                const charge = toppingCharge(size, on ? (side as "whole" | "left" | "right") : "whole", settings, t.id);
+                return (
+                  <div key={t.id} className="topping-chip" data-on={on || undefined}>
+                    <button
+                      type="button"
+                      className="topping-chip-main"
+                      aria-pressed={on}
+                      onClick={() => toggleTopping(t.id)}
+                    >
+                      <span>{t.name}</span>
+                      <em>{formatUsd(on ? charge : unit)}</em>
+                    </button>
+                    {on ? (
+                      <div className="topping-half" role="group" aria-label={`${t.name} side`}>
+                        {(["left", "whole", "right"] as const).map((opt) => (
+                          <button
+                            key={opt}
+                            type="button"
+                            data-on={side === opt}
+                            onClick={() => setTopping(t.id, opt)}
+                          >
+                            {opt === "whole" ? "Whole" : opt === "left" ? "L" : "R"}
+                          </button>
+                        ))}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+            {condiments.length ? (
+              <fieldset className="pizza-modal-block pizza-block-tight">
+                <legend>Condiments & extras</legend>
+                <ul className="condiment-list">
+                  {condiments.map((c) => {
+                    const cap = condimentMax(c.maxQty);
+                    const n = condQty[c.id] ?? 0;
+                    return (
+                      <li key={c.id}>
+                        <span>
+                          <strong>{c.name}</strong>
+                        </span>
+                        <span className="qty-step">
+                          <button
+                            type="button"
+                            aria-label={`Fewer ${c.name}`}
+                            disabled={n <= 0}
+                            onClick={() => setCondQty((cur) => ({ ...cur, [c.id]: Math.max(0, n - 1) }))}
+                          >
+                            <Minus size={14} />
+                          </button>
+                          <strong>{n}</strong>
+                          <button
+                            type="button"
+                            aria-label={`More ${c.name}`}
+                            disabled={n >= cap}
+                            onClick={() => setCondQty((cur) => ({ ...cur, [c.id]: Math.min(cap, n + 1) }))}
+                          >
+                            <Plus size={14} />
+                          </button>
+                        </span>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </fieldset>
+            ) : null}
           </div>
-          {extraDetail ? <p className="ed-sub">{extraDetail}</p> : null}
-          <div className="pizza-modal-actions">
-            <button type="button" className="ed-btn" onClick={onClose}>
-              Cancel
-            </button>
-            <button type="button" className="btn-print" onClick={confirm}>
-              Add to bag
-            </button>
-          </div>
-        </footer>
+
+          <CookNoteField
+            key={item.id || item.name}
+            id={noteId}
+            noteRef={noteRef}
+            rows={1}
+          />
+        </div>
+
+        <CustomizeFooter
+          total={unitPrice}
+          ready={ready}
+          helper="Pick Ranch, Blue cheese, or none."
+          onClose={onClose}
+          onConfirm={confirm}
+        />
       </div>
     </div>
   );

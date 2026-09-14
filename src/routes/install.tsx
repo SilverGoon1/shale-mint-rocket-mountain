@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { Share, Smartphone } from "lucide-react";
 import { ShopHeader } from "@/components/shop-header";
+import { EnableAlertsButton } from "@/components/order-alerts";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { getMe } from "@/lib/shop-server";
 import type { ProfileView } from "@/lib/shop-types";
@@ -82,18 +83,21 @@ function InstallPage() {
       <ShopHeader profile={profile} />
       <main className="shop-main install-main" id="main">
         <section className="page-card install-hero">
-          <img className="install-icon" src="/icon-512.png" width={180} height={180} alt="SouthEnd" />
-          <p className="shop-brand-kicker">South End Pizza III</p>
-          <h1>SouthEnd</h1>
+          <img className="install-icon" src="/icon-512.png" width={180} height={180} alt="South End Pizza" />
+          <p className="shop-brand-kicker">Egg Harbor Township</p>
+          <h1>South End Pizza</h1>
           <p className="ed-sub">
-            Put the shop on your home screen. Same menu, same account — opens like an app.
+            Put the shop on your home screen. Same menu, same account — opens like an app named South End.
           </p>
           {standalone || done ? (
-            <p className="points-chip">SouthEnd is on this device</p>
+            <>
+              <p className="points-chip">South End is on this device</p>
+              <EnableAlertsButton />
+            </>
           ) : promptEvent ? (
             <button type="button" className="btn-print" disabled={busy} onClick={() => void install()}>
               <Smartphone size={18} strokeWidth={2.2} />
-              {busy ? "Installing…" : "Add SouthEnd"}
+              {busy ? "Installing…" : "Add South End"}
             </button>
           ) : ios ? (
             <p className="install-cta">
@@ -111,7 +115,7 @@ function InstallPage() {
             <li>Open this page in Safari.</li>
             <li>Tap the Share button.</li>
             <li>Choose Add to Home Screen, then Add.</li>
-            <li>Look for the buffalo mark named SouthEnd.</li>
+            <li>Look for the buffalo mark named South End.</li>
           </ol>
         </section>
 
@@ -121,8 +125,21 @@ function InstallPage() {
             <li>Open this page in Chrome.</li>
             <li>Tap the browser menu.</li>
             <li>Choose Install app or Add to Home screen.</li>
-            <li>Confirm SouthEnd.</li>
+            <li>Confirm South End Pizza.</li>
           </ol>
+        </section>
+
+        <section className="page-card">
+          <h2>Order alerts</h2>
+          <p className="ed-sub">
+            After you install, tap Enable order alerts so we can ping you when a ticket is ready. iPhone needs Add to
+            Home Screen first.
+          </p>
+          {ios && !standalone ? (
+            <p className="ed-sub">Add South End to the Home Screen, open it from the icon, then enable alerts.</p>
+          ) : (
+            <EnableAlertsButton compact />
+          )}
         </section>
 
         <p className="ed-sub install-back">

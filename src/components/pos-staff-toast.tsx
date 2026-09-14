@@ -25,6 +25,8 @@ export function PosStaffToast({ toast }: { toast: PosStaffToastState | null }) {
       data-kind={toast.tone}
       data-tone={toast.tone}
       role="status"
+      aria-live="polite"
+      style={{ zIndex: 400, position: "fixed" }}
     >
       <strong>{toast.title}</strong>
       <span>{toast.text}</span>

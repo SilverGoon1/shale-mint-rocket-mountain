@@ -1,15 +1,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
-import {
-  DEFAULT_FOOTER,
-  MENU,
-  RESTAURANT,
-  type CategoryKind,
-  type MenuCategory,
-  type MenuItem,
-  type PriceCol,
-  type RestaurantInfo,
-} from "@/data/menu";
+import type { CategoryKind, MenuCategory, MenuItem, PriceCol, RestaurantInfo } from "@/data/menu";
+import { DEFAULT_FOOTER, MENU, RESTAURANT } from "@/data/menu";
 
 import {
   sanitizeCardBg,
@@ -18,7 +10,11 @@ import {
   sanitizeCardTextSize,
   type CardSize,
   type CardTextSize,
+  type ShopSettingsPublic,
 } from "@/lib/shop-types";
+import { pizzaNote } from "@/lib/pizza";
+import { type ExtraKind, isExtraKind, upsertExtraCondiments } from "@/lib/condiments";
+import { GROUP_BUFFALO, GROUP_SALAD, GROUP_SAUCE_DIP, hasGroup } from "@/lib/modifiers";
 
 export type EditableItem = MenuItem & { id: string };
 
@@ -56,6 +52,9 @@ type MenuState = {
   moveCategory: (id: string, dir: -1 | 1) => void;
   patchItem: (catId: string, itemId: string, patch: Partial<EditableItem>) => void;
   setPrices: (catId: string, itemId: string, prices: PriceCol[]) => void;
+  setExtrasByLabel: (kind: ExtraKind, price: string) => void;
+  fillXlCohort: (cohort: "cheese" | "one-topping" | "gourmet", price: string) => void;
+  applyPizzaNotes: (settings: ShopSettingsPublic) => void;
   addItem: (catId: string) => void;
   duplicateItem: (catId: string, itemId: string) => void;
   deleteItem: (catId: string, itemId: string) => void;
@@ -88,9 +87,36 @@ function pizzaPrices(from?: PriceCol[]): PriceCol[] {
     byLabel.get("SM") ?? { label: "SM", inches: '12"', price: "" },
     byLabel.get("MD") ?? { label: "MD", inches: '14"', price: "" },
     byLabel.get("LG") ?? { label: "LG", inches: '16"', price: "" },
+    byLabel.get("XL") ?? { label: "XL", inches: '18"', price: "" },
   ];
-  const extras = src.filter((p) => p.label !== "SM" && p.label !== "MD" && p.label !== "LG");
+  const extras = src.filter(
+    (p) => p.label !== "SM" && p.label !== "MD" && p.label !== "LG" && p.label !== "XL",
+  );
   return [...core, ...extras];
+}
+
+function itemXlCohort(cat: EditableCategory, item: EditableItem): "cheese" | "one-topping" | "gourmet" | null {
+  if (cat.id === "gourmet") return "gourmet";
+  if (cat.id !== "pizza") return null;
+  if (/^cheese pizza$/i.test(item.name.trim())) return "cheese";
+  return "one-topping";
+}
+
+function setXlPrice(prices: PriceCol[], price: string): PriceCol[] {
+  const listed = String(price ?? "").trim();
+  const next = prices.map((p) => ({ ...p }));
+  const i = next.findIndex((p) => String(p.label ?? "").toUpperCase() === "XL");
+  const inches = next[i]?.inches || '18"';
+  const row: PriceCol = { label: "XL", inches, price: listed };
+  if (i >= 0) next[i] = { ...next[i], ...row };
+  else next.push(row);
+  return next;
+}
+
+function itemWantsExtra(cat: EditableCategory, item: EditableItem, kind: ExtraKind) {
+  if ((item.condiments ?? []).some((c) => isExtraKind(c, kind))) return true;
+  if (kind === "dressing") return hasGroup(cat, item, GROUP_SALAD);
+  return hasGroup(cat, item, GROUP_SAUCE_DIP) || hasGroup(cat, item, GROUP_BUFFALO);
 }
 
 function seedItem(item: MenuItem, cat: MenuCategory, index: number): EditableItem {
@@ -275,6 +301,32 @@ export const useMenuStore = create<MenuState>()(
       setPrices: (catId, itemId, prices) =>
         set((s) => ({
           categories: mapItem(s.categories, catId, itemId, (it) => ({ ...it, prices })),
+        })),
+      setExtrasByLabel: (kind, price) =>
+        set((s) => ({
+          categories: s.categories.map((cat) => ({
+            ...cat,
+            items: cat.items.map((it) => {
+              if (!itemWantsExtra(cat, it, kind)) return it;
+              return { ...it, condiments: upsertExtraCondiments(it.condiments, kind, price) };
+            }),
+          })),
+        })),
+      fillXlCohort: (cohort, price) =>
+        set((s) => ({
+          categories: s.categories.map((cat) => ({
+            ...cat,
+            items: cat.items.map((it) => {
+              if (itemXlCohort(cat, it) !== cohort) return it;
+              return { ...it, prices: setXlPrice(it.prices, price) };
+            }),
+          })),
+        })),
+      applyPizzaNotes: (settings) =>
+        set((s) => ({
+          categories: s.categories.map((cat) =>
+            cat.kind === "pizza" ? { ...cat, note: pizzaNote(settings, cat.items) } : cat,
+          ),
         })),
       addItem: (catId) =>
         set((s) => ({

@@ -4,11 +4,13 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { cellSetHas, CELL, MAP_CENTER, cellKey } from "@/lib/geo";
+import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, toTenDigitPhone } from "@/lib/phone";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
-import { condimentDetail, condimentTotal, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments } from "@/lib/condiments";
-import { isWingsBuild, parseWingQty, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
+import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
+import { isWingsBuild, parseWingQty, sanitizeBuffaloPicks, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
+import { GROUP_BUFFALO, GROUP_PASTA, GROUP_SALAD, GROUP_SAUCE_DIP, hasGroup, isPastaPlatter, parseGroups, pastaBreadFromPicks, pastaBreadPick, pastaDressingFromPicks, pastaDressingPick, pastaShapeFromPicks, pastaShapePick } from "@/lib/modifiers";
+import { sanitizeSaladPicks } from "@/lib/salads";
 import { isVercelProduction } from "@/lib/prod-guard.server";
 import { seedMenu } from "@/lib/menu-store";
 import { hoursSummary, isOpenNow, nyWallToDate, nyYmd, parseWeeklyHours } from "@/lib/hours";
@@ -28,7 +30,7 @@ import type {
   RewardsView,
   ShopSettingsPublic,
 } from "@/lib/shop-types";
-import { CARD_PROCESSOR_LIVE, clampTip, computeTax, moneyNumber, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
+import { CARD_PROCESSOR_LIVE, DESK_ACCOUNT_SOFT_MAX, checkoutDeliveryFee, clampTip, computeTax, moneyNumber, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
 import {
   DEFAULT_TOPPING_PRICES,
   DEFAULT_XL_ADD,
@@ -36,6 +38,7 @@ import {
   applyPizzaSizing,
   pricePizzaBuild,
   sanitizeToppings,
+  seedToppingPricesById,
 } from "@/lib/pizza";
 import {
 	STAFF_ADMIN_NAME,
@@ -65,8 +68,8 @@ async function seedIfEmpty(sql: Sql) {
 		]);
 		let j = 0;
 		for (const item of cat.items) {
-			await sql.query(`insert into menu_items (id, category_id, name, description, prices, highlight, sort_order, condiments)
-         values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb)
+			await sql.query(`insert into menu_items (id, category_id, name, description, prices, highlight, sort_order, condiments, groups)
+         values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb,$9::jsonb)
          on conflict (id) do nothing`, [
 				item.id,
 				cat.id,
@@ -75,7 +78,8 @@ async function seedIfEmpty(sql: Sql) {
 				JSON.stringify(item.prices),
 				Boolean(item.highlight),
 				j,
-				JSON.stringify(sanitizeCondiments(item.condiments))
+				JSON.stringify(sanitizeCondiments(item.condiments)),
+				parseGroups(item.groups) == null ? null : JSON.stringify(parseGroups(item.groups)),
 			]);
 			j += 1;
 		}
@@ -108,22 +112,49 @@ async function backfillSeedCondiments(sql: Sql) {
 }
 
 async function ensureWingExtraCondiments(sql: Sql) {
-	const rows = await sql.query<{ id: string; condiments: unknown }>(
-		`select id, condiments from menu_items where lower(name) like '%wing%'`,
+	const rows = await sql.query<{ id: string; name: string; condiments: unknown; groups: unknown; category_id: string }>(
+		`select id, name, condiments, groups, category_id from menu_items`,
 	);
+	let ranch = "";
+	let blue = "";
+	let dressing = "";
 	for (const row of rows) {
 		const list = sanitizeCondiments(row.condiments);
+		const r = list.find((c) => isExtraKind(c, "ranch"));
+		const b = list.find((c) => isExtraKind(c, "blue"));
+		const d = list.find((c) => isExtraKind(c, "dressing"));
+		if (!ranch && condimentListedPrice(r) > 0) ranch = String(condimentListedPrice(r));
+		if (!blue && condimentListedPrice(b) > 0) blue = String(condimentListedPrice(b));
+		if (!dressing && condimentListedPrice(d) > 0) dressing = String(condimentListedPrice(d));
+	}
+	for (const row of rows) {
+		const list = sanitizeCondiments(row.condiments);
+		const groups = parseGroups(row.groups);
+		const name = String(row.name ?? "");
+		const catId = String(row.category_id ?? "");
+		const fakeCat = { id: catId, name: "", kind: "single" as const, items: [] };
+		const item = { name, groups, condiments: list };
+		let next = list;
 		let changed = false;
-		if (!list.some((c) => c.id === "wing-extra-ranch" || /extra ranch/i.test(c.name))) {
-			list.push({ id: "wing-extra-ranch", name: "Extra Ranch", price: "1.50", extraPrice: "1.50", maxQty: "6" });
+		const wantsDip =
+			hasGroup(fakeCat, item, GROUP_SAUCE_DIP) ||
+			hasGroup(fakeCat, item, GROUP_BUFFALO) ||
+			/wing/i.test(name) ||
+			(/tender|chicken finger/i.test(name) && !/nugget|pizza/i.test(name));
+		const wantsDressing = hasGroup(fakeCat, item, GROUP_SALAD) || /salad/i.test(name);
+		function apply(kind: ExtraKind, price: string) {
+			if (!price) return;
+			if (list.some((c) => isExtraKind(c, kind) && condimentListedPrice(c) > 0)) return;
+			next = upsertExtraCondiments(next, kind, price);
 			changed = true;
 		}
-		if (!list.some((c) => c.id === "wing-extra-blue" || /extra blue/i.test(c.name))) {
-			list.push({ id: "wing-extra-blue", name: "Extra Blue cheese", price: "1.50", extraPrice: "1.50", maxQty: "6" });
-			changed = true;
+		if (wantsDip) {
+			apply("ranch", ranch);
+			apply("blue", blue);
 		}
+		if (wantsDressing) apply("dressing", dressing);
 		if (!changed) continue;
-		await sql.query(`update menu_items set condiments = $1::jsonb where id = $2`, [JSON.stringify(list), String(row.id)]);
+		await sql.query(`update menu_items set condiments = $1::jsonb where id = $2`, [JSON.stringify(next), String(row.id)]);
 	}
 }
 
@@ -502,6 +533,8 @@ const shopBoot = globalThis as typeof globalThis & {
 	__southendStaffAdmin__?: Promise<void>;
 	__southendHasMenu__?: boolean;
 	__adminModeCols__?: Promise<void>;
+	__pushSchema__?: Promise<void>;
+	__moneyLocks__?: Promise<void>;
 };
 const profileLocks = new Map<string, Promise<void>>();
 
@@ -550,9 +583,24 @@ async function applySettingsSchema(sql: Sql) {
 		/* reads catch missing columns and never 500 */
 	}
 	try {
+		await sql.query(`alter table shop_settings add column if not exists topping_prices_by_id jsonb not null default '{}'::jsonb`);
+	} catch {
+		/* reads seed a per-topping map when the column is missing */
+	}
+	try {
+		await sql.query(`alter table menu_items add column if not exists groups jsonb`);
+	} catch {
+		/* infer groups when column is missing */
+	}
+	try {
 		await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
 	} catch {
 		/* reads catch missing column */
+	}
+	try {
+		await ensurePushSchema(sql);
+	} catch {
+		/* push table is optional until alerts ship */
 	}
 	const cols = await sql.query(
 		`select table_name, column_name from information_schema.columns
@@ -614,10 +662,10 @@ async function applySettingsSchema(sql: Sql) {
 	await sql.query(`alter table shop_settings add column if not exists xl_enabled boolean not null default false`);
 	await sql.query(`alter table shop_settings add column if not exists xl_inches text not null default '18"'`);
 	await sql.query(`alter table shop_settings add column if not exists xl_price_add numeric not null default 2`);
-	await sql.query(`alter table shop_settings add column if not exists topping_price_sm numeric not null default 1.5`);
-	await sql.query(`alter table shop_settings add column if not exists topping_price_md numeric not null default 1.75`);
-	await sql.query(`alter table shop_settings add column if not exists topping_price_lg numeric not null default 2`);
-	await sql.query(`alter table shop_settings add column if not exists topping_price_xl numeric not null default 2.5`);
+	await sql.query(`alter table shop_settings add column if not exists topping_price_sm numeric not null default 2.25`);
+	await sql.query(`alter table shop_settings add column if not exists topping_price_md numeric not null default 3.25`);
+	await sql.query(`alter table shop_settings add column if not exists topping_price_lg numeric not null default 4.25`);
+	await sql.query(`alter table shop_settings add column if not exists topping_price_xl numeric not null default 5.25`);
 	await sql.query(`alter table profiles add column if not exists banned boolean not null default false`);
 	await sql.query(`alter table orders add column if not exists pickup_name text not null default ''`);
 	await sql.query(`alter table shop_settings add column if not exists backdrop_data text not null default ''`);
@@ -744,8 +792,35 @@ async function ensureAdminModeColumns(sql: Sql) {
 	return shopBoot.__adminModeCols__;
 }
 
+async function applyPushSchema(sql: Sql) {
+	await sql.query(`create table if not exists push_subscriptions (
+    endpoint text primary key,
+    user_id text not null default '',
+    p256dh text not null default '',
+    auth text not null default '',
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists push_subscriptions_user_idx on push_subscriptions (user_id)`);
+	try {
+		await sql.query(`alter table shop_settings add column if not exists vapid_public text not null default ''`);
+		await sql.query(`alter table shop_settings add column if not exists vapid_private text not null default ''`);
+	} catch {
+		/* */
+	}
+}
+
+async function ensurePushSchema(sql: Sql) {
+	if (!shopBoot.__pushSchema__) {
+		shopBoot.__pushSchema__ = applyPushSchema(sql).catch((err) => {
+			shopBoot.__pushSchema__ = undefined;
+			throw err;
+		});
+	}
+	return shopBoot.__pushSchema__;
+}
+
 function deskOnFrom(row: Record<string, unknown> | undefined) {
-	return bool(row?.admin_mode) && bool(row?.admin_mode_allowed);
+	return bool(row?.admin_mode_allowed) || row?.role === "admin";
 }
 
 async function ensureTicketNumbers(sql: Sql) {
@@ -759,6 +834,50 @@ async function ensureTicketNumbers(sql: Sql) {
     update orders o set ticket_no = numbered.n from numbered where o.id = numbered.id
   `);
 }
+function moneyEq(v: unknown, n: number) {
+	return Math.round(num(v) * 100) === Math.round(n * 100);
+}
+
+/** Lift original SQL money defaults to Silver's live locks. Skip any value an admin already saved. */
+async function applyLiveMoneyLocks(sql: Sql) {
+	if (!shopBoot.__moneyLocks__) {
+		shopBoot.__moneyLocks__ = (async () => {
+			const row = (
+				await sql.query(
+					`select topping_price_sm, topping_price_md, topping_price_lg, topping_price_xl, min_order_delivery, delivery_fee from shop_settings where id = 1`,
+				)
+			)[0] as Record<string, unknown> | undefined;
+			if (!row) return;
+			const bits: string[] = [];
+			const params: unknown[] = [];
+			const add = (col: string, value: number) => {
+				params.push(value);
+				bits.push(`${col} = $${params.length}`);
+			};
+			if (
+				moneyEq(row.topping_price_sm, 1.5) &&
+				moneyEq(row.topping_price_md, 1.75) &&
+				moneyEq(row.topping_price_lg, 2) &&
+				moneyEq(row.topping_price_xl, 2.5)
+			) {
+				add("topping_price_sm", DEFAULT_TOPPING_PRICES.SM);
+				add("topping_price_md", DEFAULT_TOPPING_PRICES.MD);
+				add("topping_price_lg", DEFAULT_TOPPING_PRICES.LG);
+				add("topping_price_xl", DEFAULT_TOPPING_PRICES.XL);
+			}
+			if (moneyEq(row.min_order_delivery, 15)) add("min_order_delivery", 5);
+			if (moneyEq(row.delivery_fee, 3.5)) add("delivery_fee", 4);
+			if (!bits.length) return;
+			await sql.query(`update shop_settings set ${bits.join(", ")} where id = 1`, params);
+			bustStorefrontCache();
+		})().catch((err) => {
+			shopBoot.__moneyLocks__ = undefined;
+			throw err;
+		});
+	}
+	return shopBoot.__moneyLocks__;
+}
+
 async function runShopPatches(sql: Sql) {
 	await seedIfEmpty(sql);
 	await backfillSeedCondiments(sql);
@@ -771,6 +890,7 @@ async function runShopPatches(sql: Sql) {
 }
 async function bootShop(sql: Sql) {
 	await ensureSettingsSchema(sql);
+	await applyLiveMoneyLocks(sql);
 	if (!shopBoot.__southendStaffAdmin__) {
 		shopBoot.__southendStaffAdmin__ = ensureStaffAdmin(sql).catch((err) => {
 			shopBoot.__southendStaffAdmin__ = undefined;
@@ -795,7 +915,7 @@ async function bootShop(sql: Sql) {
 }
 async function loadCategories(sql: Sql): Promise<MenuCategory[]> {
 	const cats = await sql`select id, name, note, kind, icon from menu_categories order by sort_order, name`;
-	const items = await sql`select id, category_id, name, description, prices, highlight, image_data, condiments, hide_image from menu_items order by sort_order, name`;
+	const items = await sql`select id, category_id, name, description, prices, highlight, image_data, condiments, hide_image, groups from menu_items order by sort_order, name`;
 	const byCat = new Map<string, MenuItem[]>();
 	for (const it of items) {
 		const catId = String(it.category_id ?? "");
@@ -811,7 +931,8 @@ async function loadCategories(sql: Sql): Promise<MenuCategory[]> {
 			highlight: bool(it.highlight),
 			image: it.image_data ? String(it.image_data) : undefined,
 			hideImage: bool(it.hide_image),
-			condiments: sanitizeCondiments(it.condiments)
+			condiments: sanitizeCondiments(it.condiments),
+			groups: parseGroups(it.groups)
 		});
 		byCat.set(catId, list);
 	}
@@ -846,6 +967,7 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		inviteeBonus: Math.max(0, Math.round(num(row.invitee_bonus) || 50)),
 		minOrderDelivery: num(row.min_order_delivery),
 		deliveryFee: num(row.delivery_fee),
+		deliveryFeeOn: row.delivery_fee_on === void 0 || row.delivery_fee_on === null ? true : bool(row.delivery_fee_on),
 		hasZones,
 		taxRate: row.tax_rate === void 0 || row.tax_rate === null || row.tax_rate === "" ? 6.625 : Math.max(0, num(row.tax_rate)),
 		prepMinutes: Math.max(5, Math.round(num(row.prep_minutes) || 25)),
@@ -862,6 +984,7 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		toppingPriceMd: row.topping_price_md === void 0 || row.topping_price_md === null || row.topping_price_md === "" ? DEFAULT_TOPPING_PRICES.MD : Math.max(0, num(row.topping_price_md)),
 		toppingPriceLg: row.topping_price_lg === void 0 || row.topping_price_lg === null || row.topping_price_lg === "" ? DEFAULT_TOPPING_PRICES.LG : Math.max(0, num(row.topping_price_lg)),
 		toppingPriceXl: row.topping_price_xl === void 0 || row.topping_price_xl === null || row.topping_price_xl === "" ? DEFAULT_TOPPING_PRICES.XL : Math.max(0, num(row.topping_price_xl)),
+		toppingPricesById: seedToppingPricesById(row.topping_prices_by_id),
 		backdropData: sanitizeBackdropData(row.backdrop_data),
 		logoData: sanitizeBackdropData(row.logo_data),
 		seasonEffect: sanitizeSeasonEffect(row.season_effect),
@@ -1353,7 +1476,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 	const hasModeCol = Boolean(p && "admin_mode" in p);
 	const silver = silverAccountMatch(String(userRow?.email ?? ""), String(userRow?.name ?? ""), String(p?.display_name ?? ""));
 	const adminModeAllowed = hasModeCol ? bool(p?.admin_mode_allowed) || silver : p?.role === "admin" || silver;
-	const adminMode = hasModeCol ? bool(p?.admin_mode) && adminModeAllowed : Boolean(p?.role === "admin" || silver);
+	const adminMode = adminModeAllowed;
 	const deskGrant = hasModeCol ? bool(p?.desk_grant) || silver : Boolean(p?.role === "admin" || silver);
 	if (silver && hasModeCol && (!bool(p?.admin_mode_allowed) || !bool(p?.desk_grant))) {
 		void sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${context.userId}`.catch(() => undefined);
@@ -1362,7 +1485,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 	let adminInbox = 0;
 	try {
 		unreadChats = Math.round(num((await sql`select coalesce(sum(unread_customer), 0)::int as n from chat_threads where user_id = ${context.userId} and status <> 'solved'`)[0]?.n));
-		if (adminMode) {
+		if (adminModeAllowed) {
 			adminInbox = Math.round(num((await sql`select count(*)::int as n from chat_threads where unread_admin > 0 and status <> 'solved'`)[0]?.n));
 		}
 	} catch {
@@ -1370,7 +1493,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 	}
 	const me: ProfileView = {
 		userId: context.userId,
-		role: adminMode && adminModeAllowed ? "admin" : "customer",
+		role: adminModeAllowed ? "admin" : "customer",
 		phone: String(p?.phone ?? ""),
 		displayName: String(p?.display_name ?? ""),
 		addressLine: String(p?.address_line ?? ""),
@@ -1708,13 +1831,18 @@ async function assertTwoFactor(sql: Sql, userId: string) {
 export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: data.query.trim() })).handler(async ({ data }) => {
 	if (!data.query) throw new Error("Enter a street address.");
 	const cells = await zoneCells(await getSql());
-	const q = /nj|new jersey|northfield|pleasantville|absecon|linwood|somers point|egg harbor/i.test(data.query)
-		? data.query
-		: `${data.query}, Egg Harbor Township, NJ`;
-	const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(q)}`;
-	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
-	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
-	const hits = await res.json();
+	const original = data.query;
+	let q = expandDeliveryQuery(original);
+	const lookup = async (query: string) => {
+		const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+		const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+		if (!res.ok) throw new Error("Address lookup is unavailable right now.");
+		return (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+	};
+	let hits = await lookup(q);
+	if (!hits[0] && q === original && !isNorthfieldDelivery({ query: original })) {
+		hits = await lookup(`${original}, Egg Harbor Township, NJ`);
+	}
 	if (!hits[0]) return {
 		found: false,
 		deliverable: false,
@@ -1722,10 +1850,17 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 	};
 	const lat = Number(hits[0].lat);
 	const lng = Number(hits[0].lon);
+	const label = String(hits[0].display_name ?? "");
+	const zipMatch = label.match(/\b(\d{5})(?:-\d{4})?\b/);
+	const northfield = isNorthfieldDelivery({
+		query: original,
+		label,
+		zip: zipMatch?.[1],
+	});
 	return {
 		found: true,
-		deliverable: cells.length > 0 && cellSetHas(cells, lat, lng),
-		label: hits[0].display_name,
+		deliverable: !northfield && cells.length > 0 && cellSetHas(cells, lat, lng),
+		label,
 		lat,
 		lng,
 		mapsUrl: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
@@ -1771,7 +1906,7 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 	if (String(data.paymentMethod) === "pay_card") throw new Error("Card payments are not live yet. Pay at pickup or with cash.");
 	const pickupName = String(data.pickupName ?? "").trim().slice(0, 80);
 	if (data.fulfillment === "pickup" && !pickupName) throw new Error("Enter the name for pickup.");
-	const menuItems = await sql`select id, category_id, name, prices, condiments from menu_items`;
+	const menuItems = await sql`select id, category_id, name, prices, condiments, groups from menu_items`;
 	const byId = new Map(menuItems.map((m) => [String(m.id), m]));
 	const cats = await loadCategories(sql);
 	const kindByCat = new Map(cats.map((c) => [c.id, c.kind]));
@@ -1792,35 +1927,111 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 			id: String(item.id ?? ""),
 			name: String(item.name ?? ""),
 			prices,
+			groups: parseGroups(item.groups),
 		};
 		const catMeta = cats.find((c) => c.id === String(item.category_id ?? ""));
-		if (catMeta && isWingsBuild(catMeta, catalogItem)) {
+		if (catMeta && hasGroup(catMeta, catalogItem, GROUP_SAUCE_DIP)) {
 			const catalog = sanitizeCondiments(item.condiments);
 			const built = sanitizeWingPicks(line.condiments, catalog);
-			if (!built) throw new Error("Pick a sauce and included dips for wings.");
-			const pieceQty = parseWingQty(wantSize) || parseWingQty(col?.label) || WING_QTY_MIN;
-			const baseCol =
-				prices.find((p) => parseWingQty(p.label) === WING_QTY_MIN) ??
-				prices.find((p) => p.price) ??
-				col;
-			const bags = pieceQty / WING_QTY_MIN;
+			if (!built) throw new Error("Pick a sauce and included dressings.");
+			if (isWingsBuild(catMeta, catalogItem)) {
+				const pieceQty = parseWingQty(wantSize) || parseWingQty(col?.label) || WING_QTY_MIN;
+				const baseCol =
+					prices.find((p) => parseWingQty(p.label) === WING_QTY_MIN) ??
+					prices.find((p) => p.price) ??
+					col;
+				const bags = pieceQty / WING_QTY_MIN;
+				priced.push({
+					itemId: String(item.id ?? ""),
+					categoryId: String(item.category_id ?? ""),
+					name: String(item.name ?? ""),
+					size: `${pieceQty} pc`,
+					detail: built.detail,
+					comment,
+					condiments: built.condiments,
+					unitPrice: Math.round((num(baseCol?.price) * bags + built.extras) * 100) / 100,
+					qty
+				});
+			} else {
+				priced.push({
+					itemId: String(item.id ?? ""),
+					categoryId: String(item.category_id ?? ""),
+					name: String(item.name ?? ""),
+					size: col?.label ? String(col.label) : wantSize || undefined,
+					detail: built.detail,
+					comment,
+					condiments: built.condiments,
+					unitPrice: Math.round((num(col?.price) + built.extras) * 100) / 100,
+					qty
+				});
+			}
+			continue;
+		}
+		if (catMeta && hasGroup(catMeta, catalogItem, GROUP_SALAD)) {
+			const catalog = sanitizeCondiments(item.condiments);
+			const built = sanitizeSaladPicks(line.condiments, catalog);
+			if (!built) throw new Error("Pick a dressing.");
 			priced.push({
 				itemId: String(item.id ?? ""),
 				categoryId: String(item.category_id ?? ""),
 				name: String(item.name ?? ""),
-				size: `${pieceQty} pc`,
+				size: col?.label ? String(col.label) : wantSize || undefined,
 				detail: built.detail,
 				comment,
 				condiments: built.condiments,
-				unitPrice: Math.round((num(baseCol?.price) * bags + built.extras) * 100) / 100,
+				unitPrice: Math.round((num(col?.price) + built.extras) * 100) / 100,
+				qty
+			});
+			continue;
+		}
+		if (catMeta && (hasGroup(catMeta, catalogItem, GROUP_PASTA) || isPastaPlatter(catMeta, catalogItem))) {
+			const shapeRequired = hasGroup(catMeta, catalogItem, GROUP_PASTA);
+			const shape = pastaShapeFromPicks(line.condiments);
+			if (shapeRequired && !shape) throw new Error("Pick Penne or Spaghetti.");
+			const platter = isPastaPlatter(catMeta, catalogItem);
+			const dressing = pastaDressingFromPicks(line.condiments);
+			if (platter && !dressing) throw new Error("Pick a salad dressing.");
+			const bread = pastaBreadFromPicks(line.condiments);
+			const catalog = sanitizeCondiments(item.condiments);
+			const extras = sanitizeCondimentPicks(line.condiments, catalog);
+			const extra = condimentTotal(extras);
+			const condiments = [
+				...(shape ? [pastaShapePick(shape)] : []),
+				...(dressing ? [pastaDressingPick(dressing)] : []),
+				...(platter ? [pastaBreadPick(bread)] : []),
+				...extras,
+			];
+			priced.push({
+				itemId: String(item.id ?? ""),
+				categoryId: String(item.category_id ?? ""),
+				name: String(item.name ?? ""),
+				size: col?.label ? String(col.label) : wantSize || undefined,
+				detail: mergeItemDetail(
+					shape,
+					dressing,
+					platter ? (bread === "none" ? "No bread" : "Keep bread") : "",
+					condimentDetail(extras),
+				) || undefined,
+				comment,
+				condiments,
+				unitPrice: Math.round((num(col?.price) + extra) * 100) / 100,
 				qty
 			});
 			continue;
 		}
 		const catalog = sanitizeCondiments(item.condiments);
-		const condiments = sanitizeCondimentPicks(line.condiments, catalog);
-		const extra = condimentTotal(condiments);
-		const extrasDetail = condimentDetail(condiments);
+		const rawCondiments = sanitizeCondimentPicks(line.condiments, catalog);
+		const buffalo = kind === "pizza" && catMeta && hasGroup(catMeta, catalogItem, GROUP_BUFFALO);
+		const dipBuilt = buffalo ? sanitizeBuffaloPicks(line.condiments, catalog) : null;
+		if (buffalo && !dipBuilt) throw new Error("Pick Ranch, Blue cheese, or none.");
+		const condiments = rawCondiments.filter((c) => {
+			if (!buffalo) return true;
+			const id = String(c.id ?? "").toLowerCase();
+			if (id.startsWith("wing-dip-") || isExtraKind(c, "ranch") || isExtraKind(c, "blue")) return false;
+			return true;
+		});
+		const extra = condimentTotal(condiments) + (dipBuilt?.extras ?? 0);
+		const extrasDetail = mergeItemDetail(dipBuilt?.detail, condimentDetail(condiments));
 		if (kind === "pizza") {
 			const toppings = sanitizeToppings(line.toppings);
 			const halfId = String(line.halfItemId ?? "");
@@ -1854,7 +2065,9 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 				comment,
 				toppings,
 				halfItemId: halfId || undefined,
-				condiments: condiments.length ? condiments : undefined,
+				condiments: [...(dipBuilt?.condiments ?? []), ...condiments].length
+					? [...(dipBuilt?.condiments ?? []), ...condiments]
+					: undefined,
 				unitPrice: Math.round((built.unitPrice + extra) * 100) / 100,
 				qty
 			});
@@ -1883,13 +2096,29 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 	const discount = spent / redeemRate;
 	const lat = data.lat;
 	const lng = data.lng;
-	const deliveryFee = data.fulfillment === "delivery" ? num(settings.delivery_fee) : 0;
+	const deliveryFee = checkoutDeliveryFee(
+		{
+			deliveryFee: num(settings.delivery_fee),
+			deliveryFeeOn: settings.delivery_fee_on === void 0 || settings.delivery_fee_on === null ? true : bool(settings.delivery_fee_on),
+		},
+		String(data.fulfillment ?? ""),
+	);
 	if (data.fulfillment === "delivery") {
 		const min = num(settings.min_order_delivery);
-		if (subtotal < min) throw new Error(`Delivery minimum is $${min.toFixed(2)}.`);
+		if (subtotal < min) {
+			const need = Math.max(0, Math.round((min - subtotal) * 100) / 100);
+			throw new Error(`Add $${need.toFixed(2)} more for delivery (minimum $${min.toFixed(2)}).`);
+		}
 		const cells = await zoneCells(sql);
 		if (!cells.length) throw new Error("Delivery zones are not set yet. Please choose pickup.");
 		if (lat == null || lng == null) throw new Error("Check the delivery address first.");
+		if (isNorthfieldDelivery({
+			query: String(data.addressLine ?? ""),
+			city: String(data.city ?? ""),
+			zip: String(data.zip ?? ""),
+		})) {
+			throw new Error("That address is outside our delivery zone.");
+		}
 		if (!cellSetHas(cells, Number(lat), Number(lng))) throw new Error("That address is outside our delivery zone.");
 	}
 	const weeklyHours = parseWeeklyHours(settings.weekly_hours);
@@ -1996,12 +2225,15 @@ export const listMyOrders = createServerFn({ method: "GET" }).middleware([authMi
 });
 export const saveShopMenu = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
 	await sql`delete from menu_items`;
 	await sql`delete from menu_categories`;
+	const settingsRow = await loadSettingsRow(sql);
+	const sized = applyPizzaSizing((data.categories ?? []) as MenuCategory[], publicSettings(settingsRow, true));
 	let i = 0;
-	for (const cat of data.categories) {
+	for (const cat of sized) {
 		await sql.query(`insert into menu_categories (id, name, note, kind, icon, sort_order) values ($1,$2,$3,$4,$5,$6)`, [
 			cat.id,
 			cat.name,
@@ -2012,8 +2244,8 @@ export const saveShopMenu = createServerFn({ method: "POST" }).middleware([authM
 		]);
 		let j = 0;
 		for (const item of cat.items) {
-			await sql.query(`insert into menu_items (id, category_id, name, description, prices, highlight, sort_order, image_data, condiments, hide_image)
-           values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9::jsonb,$10)`, [
+			await sql.query(`insert into menu_items (id, category_id, name, description, prices, highlight, sort_order, image_data, condiments, hide_image, groups)
+           values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8,$9::jsonb,$10,$11::jsonb)`, [
 				item.id ?? `${cat.id}-${j}`,
 				cat.id,
 				item.name,
@@ -2023,7 +2255,8 @@ export const saveShopMenu = createServerFn({ method: "POST" }).middleware([authM
 				j,
 				typeof item.image === "string" && item.image.startsWith("data:image/") && item.image.length <= 420000 ? item.image : "",
 				JSON.stringify(sanitizeCondiments(item.condiments)),
-				Boolean(item.hideImage)
+				Boolean(item.hideImage),
+				parseGroups(item.groups) == null ? null : JSON.stringify(parseGroups(item.groups)),
 			]);
 			j += 1;
 		}
@@ -2036,6 +2269,7 @@ export const saveShopMenu = createServerFn({ method: "POST" }).middleware([authM
 });
 export const saveShopSettings = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	await ensureSettingsSchema(sql);
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
 	const sets: string[] = [];
@@ -2058,6 +2292,7 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("invitee_bonus", data.inviteeBonus === void 0 ? void 0 : Math.max(0, Math.round(data.inviteeBonus)));
 	add("min_order_delivery", data.minOrderDelivery);
 	add("delivery_fee", data.deliveryFee);
+	add("delivery_fee_on", data.deliveryFeeOn === void 0 ? void 0 : Boolean(data.deliveryFeeOn));
 	add("tax_rate", data.taxRate === void 0 ? void 0 : Math.max(0, Math.min(25, Number(data.taxRate))));
 	add("prep_minutes", data.prepMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.prepMinutes)));
 	add("delivery_minutes", data.deliveryMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.deliveryMinutes)));
@@ -2070,6 +2305,10 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("topping_price_md", data.toppingPriceMd === void 0 ? void 0 : Math.max(0, Math.min(20, Number(data.toppingPriceMd))));
 	add("topping_price_lg", data.toppingPriceLg === void 0 ? void 0 : Math.max(0, Math.min(20, Number(data.toppingPriceLg))));
 	add("topping_price_xl", data.toppingPriceXl === void 0 ? void 0 : Math.max(0, Math.min(20, Number(data.toppingPriceXl))));
+	if (data.toppingPricesById !== void 0) {
+		params.push(JSON.stringify(seedToppingPricesById(data.toppingPricesById)));
+		sets.push(`topping_prices_by_id = $${params.length}::jsonb`);
+	}
 	if (data.backdropData !== void 0) {
 		const raw = String(data.backdropData ?? "").trim();
 		if (!raw) add("backdrop_data", "");
@@ -2186,6 +2425,103 @@ export const saveWebsite = createServerFn({ method: "POST" }).middleware([authMi
 	bustStorefrontCache();
 	return { ok: true };
 });
+
+async function loadOrCreateVapid(sql: Sql) {
+	await ensurePushSchema(sql);
+	const row = (await sql`select vapid_public, vapid_private from shop_settings limit 1`)[0] as
+		| { vapid_public?: string; vapid_private?: string }
+		| undefined;
+	if (row?.vapid_public && row?.vapid_private) {
+		return { publicKey: String(row.vapid_public), privateKey: String(row.vapid_private) };
+	}
+	const webpush = await import("web-push");
+	const keys = webpush.generateVAPIDKeys();
+	try {
+		await sql`update shop_settings set vapid_public = ${keys.publicKey}, vapid_private = ${keys.privateKey}`;
+	} catch {
+		/* columns missing */
+	}
+	return keys;
+}
+
+async function notifyOrderPush(sql: Sql, order: OrderView, status: string) {
+	await ensurePushSchema(sql);
+	const userId = String(order.userId ?? "");
+	if (!userId) return;
+	const subs = await sql`select endpoint, p256dh, auth from push_subscriptions where user_id = ${userId}`;
+	if (!subs.length) return;
+	let keys: { publicKey: string; privateKey: string };
+	try {
+		keys = await loadOrCreateVapid(sql);
+	} catch {
+		return;
+	}
+	const ticket = `#${String(order.ticketNo || 0).padStart(6, "0")}`;
+	const body =
+		status === "out_for_delivery"
+			? `Ticket ${ticket} is out for delivery.`
+			: status === "accepted"
+				? `Ticket ${ticket} is in the kitchen.`
+				: `Ticket ${ticket} is ready.`;
+	const payload = JSON.stringify({
+		title: "South End Pizza",
+		body,
+		url: "/account",
+	});
+	try {
+		const webpush = await import("web-push");
+		webpush.setVapidDetails("mailto:hello@southendpizza.app", keys.publicKey, keys.privateKey);
+		await Promise.all(
+			subs.map((row) =>
+				webpush
+					.sendNotification(
+						{
+							endpoint: String(row.endpoint),
+							keys: { p256dh: String(row.p256dh), auth: String(row.auth) },
+						},
+						payload,
+					)
+					.catch(async (err: { statusCode?: number }) => {
+						if (err?.statusCode === 404 || err?.statusCode === 410) {
+							await sql`delete from push_subscriptions where endpoint = ${String(row.endpoint)}`;
+						}
+					}),
+			),
+		);
+	} catch {
+		/* push is best-effort — never block the ticket */
+	}
+}
+
+export const getVapidPublicKey = createServerFn({ method: "GET" }).handler(async () => {
+	const sql = await getSql();
+	try {
+		const keys = await loadOrCreateVapid(sql);
+		return { publicKey: keys.publicKey };
+	} catch {
+		return { publicKey: "" };
+	}
+});
+
+export const savePushSubscription = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { subscription?: { endpoint?: string; keys?: { p256dh?: string; auth?: string } } }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensurePushSchema(sql);
+		const endpoint = String(data?.subscription?.endpoint ?? "").trim();
+		const p256dh = String(data?.subscription?.keys?.p256dh ?? "").trim();
+		const auth = String(data?.subscription?.keys?.auth ?? "").trim();
+		if (!endpoint || !p256dh || !auth) throw new Error("That device could not subscribe to alerts.");
+		await sql.query(
+			`insert into push_subscriptions (endpoint, user_id, p256dh, auth)
+       values ($1, $2, $3, $4)
+       on conflict (endpoint) do update set user_id = $2, p256dh = $3, auth = $4`,
+			[endpoint, context.userId, p256dh, auth],
+		);
+		return { ok: true };
+	});
+
 export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
 	await bootShop(sql);
@@ -2193,13 +2529,14 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 	await requireAdmin(sql, context.userId);
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
-	const categories = await loadCategories(sql);
+	const settings = publicSettings(row, cells.length > 0);
+	const categories = applyPizzaSizing(await loadCategories(sql), settings);
 	const desk = await (await import("@/lib/staff-credential.server")).diagnosticDeskAuthStatus(sql);
 	return {
 		restaurant: restaurantFrom(row),
 		footer: String(row.footer || "Ask about extra toppings, wing sauces, and dressing. Prices may change."),
 		categories,
-		settings: publicSettings(row, cells.length > 0),
+		settings,
 		printers: parsePrinters(row.printers),
 		receiptOptions: parseReceiptOptions(row.receipt_options),
 		cells,
@@ -2267,9 +2604,13 @@ export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([
 		actorId: context.userId,
 	});
 	const rows = await sql`select * from orders where id = ${id}`;
+	const order = rows[0] ? toOrder(rows[0]) : null;
+	if (order && (next === "ready" || next === "out_for_delivery" || next === "accepted")) {
+		void notifyOrderPush(sql, order, next).catch(() => undefined);
+	}
 	return {
 		ok: true,
-		order: rows[0] ? toOrder(rows[0]) : null
+		order,
 	};
 });
 export const acceptOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
@@ -2293,7 +2634,9 @@ export const acceptOrder = createServerFn({ method: "POST" }).middleware([authMi
 			toStatus: "accepted",
 			actorId: context.userId,
 		});
-		return toOrder(taken[0]);
+		const order = toOrder(taken[0]);
+		void notifyOrderPush(sql, order, "accepted").catch(() => undefined);
+		return order;
 	}
 	const rows = await sql`select * from orders where id = ${id}`;
 	if (!rows[0]) throw new Error("Order not found.");
@@ -2601,7 +2944,7 @@ export const setAccountRole = createServerFn({ method: "POST" }).middleware([aut
 	};
 });
 
-const DESK_GRANT_MAX = 12;
+const DESK_GRANT_MAX = DESK_ACCOUNT_SOFT_MAX;
 
 function maskDeskEmail(email: string) {
 	const trimmed = email.trim().toLowerCase();
@@ -2670,7 +3013,7 @@ export const setDeskAllowed = createServerFn({ method: "POST" })
 		const allowed = Boolean(data.allowed);
 		if (allowed) {
 			const n = num((await sql`select count(*)::int as n from profiles where admin_mode_allowed is true`)[0]?.n);
-			if (n >= DESK_GRANT_MAX) throw new Error(`Desk roster is full (${DESK_GRANT_MAX}). Revoke someone first.`);
+			if (n >= DESK_GRANT_MAX) throw new Error(`14 accounts, 12 extra bots. Existing grants stay.`);
 			await sql`update profiles set admin_mode_allowed = true where user_id = ${userId}`;
 		} else {
 			await sql`update profiles set admin_mode_allowed = false, admin_mode = false, role = 'customer' where user_id = ${userId}`;
@@ -2706,6 +3049,72 @@ export const setAccountBanned = createServerFn({ method: "POST" }).middleware([a
 		ok: true,
 		banned
 	};
+});
+export const deleteCustomerAccount = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	await ensureProfile(sql, context.userId);
+	await requireAdmin(sql, context.userId);
+	const userId = String(data.userId || "").trim();
+	if (!userId) throw new Error("Choose an account.");
+	if (userId === context.userId) throw new Error("You cannot remove your own account.");
+	const target = await sql`select p.role, p.admin_mode_allowed, u.email
+    from profiles p
+    left join "user" u on u.id = p.user_id
+    where p.user_id = ${userId}`;
+	if (!target[0]) throw new Error("Account not found.");
+	if (isStaffAdminAccount(userId, String(target[0].email ?? ""))) {
+		throw new Error("The shop desk login cannot be removed.");
+	}
+	if (target[0].role === "admin" || bool(target[0].admin_mode_allowed)) {
+		let remaining = 1;
+		try {
+			remaining = num((await sql`select count(*)::int as n from profiles where (role = 'admin' or admin_mode_allowed is true) and user_id <> ${userId}`)[0]?.n);
+		} catch (err) {
+			if (!String(err).includes("admin_mode_allowed")) throw err;
+			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin' and user_id <> ${userId}`)[0]?.n);
+		}
+		if (remaining < 1) throw new Error("Keep at least one admin account.");
+	}
+	const threads = await sql`select id from chat_threads where user_id = ${userId}`;
+	for (const row of threads) {
+		await sql`delete from chat_messages where thread_id = ${String(row.id)}`;
+	}
+	await sql`delete from chat_threads where user_id = ${userId}`;
+	await sql`delete from two_factor_unlocks where user_id = ${userId}`;
+	try {
+		await sql`delete from rewards_ledger where user_id = ${userId}`;
+	} catch {
+		/* older shops */
+	}
+	try {
+		await sql`delete from push_subscriptions where user_id = ${userId}`;
+	} catch {
+		/* older shops */
+	}
+	try {
+		await sql`delete from password_reset_codes where user_id = ${userId}`;
+	} catch {
+		/* older shops */
+	}
+	try {
+		await sql`delete from email_signup_codes where user_id = ${userId}`;
+	} catch {
+		/* older shops */
+	}
+	await sql.query(`delete from "session" where "userId" = $1`, [userId]);
+	await sql.query(`delete from "account" where "userId" = $1`, [userId]);
+	const email = String(target[0].email ?? "").trim();
+	if (email) {
+		try {
+			await sql.query(`delete from "verification" where lower("identifier") = lower($1)`, [email]);
+		} catch {
+			/* verification is optional */
+		}
+	}
+	await sql.query(`delete from "user" where id = $1`, [userId]);
+	await sql`delete from profiles where user_id = ${userId}`;
+	return { ok: true, userId };
 });
 export const adjustCustomerPoints = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();

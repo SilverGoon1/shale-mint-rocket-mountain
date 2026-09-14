@@ -1,18 +1,14 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { Link, useNavigate } from "@tanstack/react-router";
-import { Ban, Flag, FlagOff, MessageCircle, Search, Trash2, Volume2, VolumeX } from "lucide-react";
-import { printOrderReceipts } from "@/lib/bluetooth-printer";
+import { Ban, Flag, FlagOff, Search, Trash2, Volume2, VolumeX } from "lucide-react";
 import { emitAdminInbox } from "@/lib/admin-inbox";
 import { formatShopClock, formatShopWhen } from "@/lib/hours";
 import { formatPhone, looksLikePhone } from "@/lib/phone";
 import {
-  acceptOrder,
   attachChatOrder,
   deleteChatMessage,
   deleteChatThread,
-  deleteOrder,
   getAdminInboxCount,
-  getAdminInsights,
   getAdminShop,
   listAdminChats,
   listAllOrders,
@@ -26,42 +22,23 @@ import {
   setChatResolution,
   setChatStaffNote,
   startAdminChat,
-  updateOrderStatus,
 } from "@/lib/shop-server";
 import {
   formatUsd,
   formatTicketNo,
-  payMethodLabel,
   type ChatMessageView,
   type ChatThreadView,
   type CustomerRecord,
   type OrderView,
-  type PrinterProfile,
-  type ReceiptOptions,
   type ShopSettingsPublic,
-  DEFAULT_RECEIPT_OPTIONS,
 } from "@/lib/shop-types";
-import type { RestaurantInfo } from "@/data/menu";
-import { RESTAURANT } from "@/data/menu";
 import { OrderTicketCard } from "@/components/customer-chat";
 import { CustomersPanel } from "@/components/customers-panel";
 import { OrderDateTrays } from "@/components/order-trays";
 import { RewardsPanel } from "@/components/shop-ops-panels";
 import { SaveToast, useSaveFlash } from "@/components/save-toast";
-import { AnalyticsPanel, EMPTY_INSIGHTS } from "@/routes/admin/settings";
 
-export type CenterTab = "messages" | "orders" | "customers" | "rewards";
-
-const ORDER_STATUSES = [
-  "placed",
-  "accepted",
-  "awaiting_payment",
-  "preparing",
-  "ready",
-  "out_for_delivery",
-  "completed",
-  "canceled",
-];
+export type CenterTab = "messages" | "customers" | "rewards";
 
 type Filter = "open" | "unread" | "flagged" | "solved" | "all";
 
@@ -87,15 +64,11 @@ export function CustomerCenter({
   }
 
   const [unread, setUnread] = useState(0);
-  const [orderCount, setOrderCount] = useState(0);
   const [custCount, setCustCount] = useState(0);
 
   useEffect(() => {
     void getAdminInboxCount()
       .then((r) => setUnread(r.unread))
-      .catch(() => undefined);
-    void listAllOrders()
-      .then((list) => setOrderCount(list.filter((o) => o.status !== "canceled" && o.status !== "completed").length))
       .catch(() => undefined);
     void listCustomers()
       .then((list) => setCustCount(list.length))
@@ -108,14 +81,11 @@ export function CustomerCenter({
         <div>
           <p className="shop-brand-kicker">Admin</p>
           <h1>Customer Center</h1>
-          <p className="ed-sub">Messages, tickets, the customer book, and rewards in one place.</p>
+          <p className="ed-sub">Messages, the customer book, and rewards in one place.</p>
         </div>
         <div className="seg center-tabs" role="tablist" aria-label="Customer Center">
           <button type="button" role="tab" aria-selected={tab === "messages"} data-on={tab === "messages"} onClick={() => go({ tab: "messages" })}>
             Messages{unread > 0 ? <em>{unread}</em> : null}
-          </button>
-          <button type="button" role="tab" aria-selected={tab === "orders"} data-on={tab === "orders"} onClick={() => go({ tab: "orders" })}>
-            Orders{orderCount > 0 ? <em>{orderCount}</em> : null}
           </button>
           <button type="button" role="tab" aria-selected={tab === "customers"} data-on={tab === "customers"} onClick={() => go({ tab: "customers" })}>
             Customers{custCount > 0 ? <em>{custCount}</em> : null}
@@ -129,14 +99,8 @@ export function CustomerCenter({
         <CenterMessages
           wantedThread={thread}
           wantedCustomer={customer}
-          onOpenOrder={() => go({ tab: "orders" })}
           onOpenCustomer={(id) => go({ tab: "customers", customer: id })}
           onThread={(id) => go({ tab: "messages", thread: id })}
-        />
-      ) : null}
-      {tab === "orders" ? (
-        <CenterOrders
-          onMessage={(userId) => go({ tab: "messages", customer: userId })}
         />
       ) : null}
       {tab === "customers" ? (
@@ -153,13 +117,11 @@ export function CustomerCenter({
 function CenterMessages({
   wantedThread,
   wantedCustomer,
-  onOpenOrder,
   onOpenCustomer,
   onThread,
 }: {
   wantedThread?: string;
   wantedCustomer?: string;
-  onOpenOrder: () => void;
   onOpenCustomer: (id: string) => void;
   onThread: (id: string) => void;
 }) {
@@ -468,7 +430,7 @@ function CenterMessages({
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
                   disabled={current.status === "solved"}
-                  placeholder="Write a new reply to the customer…"
+                  placeholder="What's happening?"
                   onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
                     if (e.key === "Enter" && !e.shiftKey) {
                       e.preventDefault();
@@ -568,6 +530,7 @@ function CenterMessages({
                 maxLength={800}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
+                placeholder="What's happening?"
                 onBlur={() => {
                   if (note === (current.staffNote ?? "")) return;
                   void setChatStaffNote({ data: { threadId: current.id, note } })
@@ -583,9 +546,6 @@ function CenterMessages({
             ) : null}
             <button type="button" className="ed-btn" onClick={() => onOpenCustomer(current.userId)}>
               Open in the book
-            </button>
-            <button type="button" className="ed-btn" onClick={() => onOpenOrder()}>
-              View tickets
             </button>
             <h3 className="settings-subhead">Tickets</h3>
             <OrderDateTrays orders={theirOrders} empty="No tickets on this account.">
@@ -608,196 +568,6 @@ function CenterMessages({
   );
 }
 
-function CenterOrders({ onMessage }: { onMessage: (userId: string) => void }) {
-  const [orders, setOrders] = useState<OrderView[]>([]);
-  const [query, setQuery] = useState("");
-  const [status, setStatus] = useState("live");
-  const [printers, setPrinters] = useState<PrinterProfile[]>([]);
-  const [receipt, setReceipt] = useState<ReceiptOptions>(DEFAULT_RECEIPT_OPTIONS);
-  const [restaurant, setRestaurant] = useState<RestaurantInfo>(RESTAURANT);
-  const [taxRate, setTaxRate] = useState(6.625);
-  const [autoPrint, setAutoPrint] = useState(true);
-  const [msg, setMsg] = useState("");
-  const [busyId, setBusyId] = useState("");
-
-  useEffect(() => {
-    void listAllOrders().then(setOrders);
-    void getAdminShop().then((d) => {
-      setPrinters(d.printers);
-      setReceipt(d.receiptOptions);
-      setRestaurant(d.restaurant);
-      setTaxRate(d.settings.taxRate);
-      setAutoPrint(d.receiptOptions.autoPrintOnAccept);
-    });
-  }, []);
-
-  const visible = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    return orders.filter((o) => {
-      if (status === "live" && (o.status === "completed" || o.status === "canceled")) return false;
-      if (status !== "live" && status !== "all" && o.status !== status) return false;
-      if (!q) return true;
-      return [formatTicketNo(o.ticketNo), o.id, o.fulfillment, o.pickupName, o.addressLine, o.notes, o.paymentMethod, o.status]
-        .join(" ")
-        .toLowerCase()
-        .includes(q);
-    });
-  }, [orders, query, status]);
-
-  async function runPrint(order: OrderView) {
-    if (!printers.some((p) => p.enabled && (p.customerCopy || p.storeCopy))) {
-      throw new Error("Add a printer under Settings first.");
-    }
-    await printOrderReceipts({ order, restaurant, receipt, printers, taxRate, fallback: true });
-  }
-
-  return (
-    <div className="center-orders">
-      <section className="page-card">
-        <div className="center-toolbar">
-          <label className="ed-field">
-            <span>Find a ticket</span>
-            <span className="cat-search">
-              <Search size={16} strokeWidth={2.2} aria-hidden />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Name, ticket, notes" />
-            </span>
-          </label>
-          <label className="ed-field">
-            <span>Status</span>
-            <select className="ed-input" value={status} onChange={(e) => setStatus(e.target.value)}>
-              <option value="live">Open tickets</option>
-              <option value="all">All</option>
-              {ORDER_STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {s.replaceAll("_", " ")}
-                </option>
-              ))}
-            </select>
-          </label>
-        </div>
-        {msg ? <p className="ed-sub">{msg}</p> : null}
-      </section>
-      {visible.length === 0 ? (
-        <section className="page-card">
-          <p className="ed-empty">No tickets match.</p>
-        </section>
-      ) : (
-        <ul className="center-order-grid">
-          {visible.map((o) => {
-            const canAccept = o.status === "placed" || o.status === "awaiting_payment";
-            return (
-              <li key={o.id} className="page-card center-order-card">
-                <header>
-                  <strong>#{formatTicketNo(o.ticketNo)}</strong>
-                  <span className="pos-st" data-tone={o.status === "completed" ? "completed" : o.status === "placed" ? "placed" : "accepted"}>
-                    {o.status.replaceAll("_", " ")}
-                  </span>
-                </header>
-                <p className="order-meta">
-                  {formatShopWhen(o.createdAt)} · {o.fulfillment} · {payMethodLabel(o.paymentMethod)}
-                  {o.scheduledFor ? ` · ${formatShopWhen(o.scheduledFor)}` : ""}
-                </p>
-                {o.pickupName ? <p className="ed-sub">Pickup for {o.pickupName}</p> : null}
-                {o.notes ? <p className="ed-sub">Note: {o.notes}</p> : null}
-                <ul>
-                  {o.items.map((it, i) => (
-                    <li key={i}>
-                      {it.qty}× {it.name}
-                      {it.size ? ` (${it.size})` : ""}
-                    </li>
-                  ))}
-                </ul>
-                <p className="center-order-total">{formatUsd(o.total)}</p>
-                <div className="order-actions">
-                  {canAccept ? (
-                    <button
-                      type="button"
-                      className="btn-print"
-                      disabled={busyId === o.id}
-                      onClick={() => {
-                        setBusyId(o.id);
-                        void acceptOrder({ data: { id: o.id } })
-                          .then(async (next) => {
-                            setOrders((list) => list.map((x) => (x.id === next.id ? next : x)));
-                            if (autoPrint) {
-                              try {
-                                await runPrint(next);
-                                setMsg(`Accepted #${formatTicketNo(next.ticketNo)}. Receipts sent.`);
-                              } catch (e) {
-                                setMsg(e instanceof Error ? `Accepted, but print failed: ${e.message}` : "Accepted.");
-                              }
-                            } else setMsg(`Accepted #${formatTicketNo(next.ticketNo)}.`);
-                          })
-                          .catch((e) => setMsg(e instanceof Error ? e.message : "Could not accept"))
-                          .finally(() => setBusyId(""));
-                      }}
-                    >
-                      {busyId === o.id ? "Accepting…" : "Accept"}
-                    </button>
-                  ) : (
-                    <button
-                      type="button"
-                      className="ed-btn"
-                      disabled={busyId === o.id || o.status === "canceled"}
-                      onClick={() => {
-                        setBusyId(o.id);
-                        void runPrint(o)
-                          .then(() => setMsg(`Reprinted #${formatTicketNo(o.ticketNo)}.`))
-                          .catch((e) => setMsg(e instanceof Error ? e.message : "Could not print"))
-                          .finally(() => setBusyId(""));
-                      }}
-                    >
-                      Reprint
-                    </button>
-                  )}
-                  <select
-                    className="ed-input"
-                    value={o.status}
-                    onChange={(e) => {
-                      const next = e.target.value;
-                      void updateOrderStatus({ data: { id: o.id, status: next } }).then((r) =>
-                        setOrders((list) => list.map((x) => (x.id === o.id ? (r.order ?? { ...x, status: next }) : x))),
-                      );
-                    }}
-                  >
-                    {ORDER_STATUSES.map((s) => (
-                      <option key={s} value={s}>
-                        {s.replaceAll("_", " ")}
-                      </option>
-                    ))}
-                  </select>
-                  <button type="button" className="ed-btn" onClick={() => onMessage(o.userId)}>
-                    <MessageCircle size={14} strokeWidth={2.2} />
-                    Message
-                  </button>
-                  <button
-                    type="button"
-                    className="ed-btn ed-btn-danger"
-                    disabled={busyId === o.id}
-                    onClick={() => {
-                      if (!window.confirm(`Remove ticket #${formatTicketNo(o.ticketNo)}?`)) return;
-                      setBusyId(o.id);
-                      void deleteOrder({ data: { id: o.id } })
-                        .then(() => {
-                          setOrders((list) => list.filter((x) => x.id !== o.id));
-                          setMsg(`Removed #${formatTicketNo(o.ticketNo)}.`);
-                        })
-                        .catch((e) => setMsg(e instanceof Error ? e.message : "Could not remove"))
-                        .finally(() => setBusyId(""));
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
-    </div>
-  );
-}
-
 function CenterCustomers({
   focusId,
   onMessage,
@@ -805,14 +575,10 @@ function CenterCustomers({
   focusId?: string;
   onMessage: (userId: string, threadId?: string) => void;
 }) {
-  const [insights, setInsights] = useState<Awaited<ReturnType<typeof getAdminInsights>> | null>(null);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [msg, setMsg] = useState("");
 
   useEffect(() => {
-    void getAdminInsights()
-      .then(setInsights)
-      .catch(() => setInsights(null));
     void listCustomers()
       .then(setCustomers)
       .catch(() => setCustomers([]));
@@ -821,7 +587,6 @@ function CenterCustomers({
   return (
     <div className="center-customers">
       {msg ? <p className="ed-sub">{msg}</p> : null}
-      <AnalyticsPanel insights={insights ?? EMPTY_INSIGHTS} />
       <CustomersPanel
         customers={customers}
         setCustomers={setCustomers}
@@ -841,7 +606,6 @@ function CenterCustomers({
 function CenterRewards() {
   const [settings, setSettings] = useState<ShopSettingsPublic | null>(null);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
-  const [insights, setInsights] = useState<Awaited<ReturnType<typeof getAdminInsights>> | null>(null);
   const [msg, setMsg] = useState("");
   const { toast, flashOk, flashFail } = useSaveFlash();
 
@@ -852,13 +616,7 @@ function CenterRewards() {
     void listCustomers()
       .then(setCustomers)
       .catch(() => setCustomers([]));
-    void getAdminInsights()
-      .then(setInsights)
-      .catch(() => setInsights(null));
   }, []);
-
-  const view = insights ?? EMPTY_INSIGHTS;
-  const holding = customers.reduce((n, c) => n + (c.points || 0), 0);
 
   function saveProgram() {
     if (!settings) return;
@@ -887,32 +645,6 @@ function CenterRewards() {
   return (
     <div className="center-rewards">
       <SaveToast toast={toast} />
-      <header className="page-card">
-        <p className="shop-brand-kicker">Rewards</p>
-        <h2>Points program</h2>
-        <p className="ed-sub">
-          Earn and redeem live here. Guests do not earn points — signed-in accounts do. Adjust a wallet in the book
-          below.
-        </p>
-      </header>
-      <div className="kpi-grid">
-        <div className="kpi rewards-bubble">
-          <span>Points in wallets</span>
-          <strong>{holding}</strong>
-        </div>
-        <div className="kpi rewards-bubble">
-          <span>Average wallet</span>
-          <strong>{view.customers.avgPoints}</strong>
-        </div>
-        <div className="kpi rewards-bubble">
-          <span>Welcome bonus</span>
-          <strong>{settings.welcomeBonus}</strong>
-        </div>
-        <div className="kpi rewards-bubble">
-          <span>Redeem rate</span>
-          <strong>{settings.redeemRate} / $1</strong>
-        </div>
-      </div>
       <RewardsPanel settings={settings} setSettings={setSettings} />
       <button type="button" className="btn-print" onClick={saveProgram}>
         Save rewards program

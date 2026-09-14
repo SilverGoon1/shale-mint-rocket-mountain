@@ -11,7 +11,7 @@ import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { onVisibleInterval } from "@/lib/page-visible";
 import { formatPhone } from "@/lib/phone";
 import { captureReferral, clearReferral, peekReferral } from "@/lib/referral";
-import { claimReferral, getAdminInboxCount, setAdminMode } from "@/lib/shop-server";
+import { claimReferral, getAdminInboxCount } from "@/lib/shop-server";
 import type { ProfileView } from "@/lib/shop-types";
 
 function accountLabel(profile?: ProfileView | null, user?: AppUser | null) {
@@ -78,12 +78,9 @@ function AccountMenu({
   points,
   avatarUrl,
   isAdmin,
-  adminModeAllowed,
   adminUnread,
   unreadChats,
   adminExists,
-  onAdminMode,
-  togglingMode,
 }: {
   label: string;
   email: string;
@@ -91,12 +88,9 @@ function AccountMenu({
   points: number;
   avatarUrl?: string | null;
   isAdmin: boolean;
-  adminModeAllowed: boolean;
   adminUnread: number;
   unreadChats: number;
   adminExists: boolean;
-  onAdminMode: (on: boolean) => void;
-  togglingMode: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
@@ -176,22 +170,6 @@ function AccountMenu({
               Shop admin
             </Link>
           ) : null}
-          {adminModeAllowed ? (
-            <label className="account-menu-admin" onClick={(e) => e.stopPropagation()}>
-              <span>
-                Admin mode
-                <em>{isAdmin ? "Desk is on for this account" : "Enter the shop desk"}</em>
-              </span>
-              <input
-                className="toggle"
-                type="checkbox"
-                role="menuitemcheckbox"
-                checked={isAdmin}
-                disabled={togglingMode}
-                onChange={(e) => onAdminMode(e.target.checked)}
-              />
-            </label>
-          ) : null}
           <SignOutItem />
         </div>
       ) : null}
@@ -212,11 +190,10 @@ export function ShopHeader({
   const [authReady, setAuthReady] = useState(false);
   const [adminUnread, setAdminUnread] = useState(profile?.adminInbox ?? 0);
   const [liveProfile, setLiveProfile] = useState(profile ?? null);
-  const [modeBusy, setModeBusy] = useState(false);
   const lines = useCartStore((s) => s.lines);
   const bagOpen = useCartStore((s) => s.bagOpen);
   const { count } = cartTotals(lines);
-  const isAdmin = liveProfile?.role === "admin" || Boolean(liveProfile?.adminMode);
+  const isAdmin = Boolean(liveProfile?.adminModeAllowed || liveProfile?.role === "admin" || liveProfile?.adminMode);
   const headerRef = useRef<HTMLElement>(null);
   const avatarUrl = liveProfile?.avatarUrl || user?.profileImageUrl || "";
 
@@ -287,27 +264,9 @@ export function ShopHeader({
               points={liveProfile?.points ?? 0}
               avatarUrl={avatarUrl}
               isAdmin={isAdmin}
-              adminModeAllowed={Boolean(liveProfile?.adminModeAllowed)}
               adminUnread={adminUnread}
               unreadChats={liveProfile?.unreadChats ?? 0}
               adminExists={liveProfile?.adminExists ?? true}
-              togglingMode={modeBusy}
-              onAdminMode={(on) => {
-                setModeBusy(true);
-                void setAdminMode({ data: { on } })
-                  .then((r) => {
-                    setLiveProfile((prev) =>
-                      prev
-                        ? { ...prev, adminMode: r.adminMode, adminModeAllowed: r.adminModeAllowed, role: r.role }
-                        : prev,
-                    );
-                    if (!on && typeof window !== "undefined" && window.location.pathname.startsWith("/admin")) {
-                      window.location.assign("/");
-                    }
-                  })
-                  .catch(() => undefined)
-                  .finally(() => setModeBusy(false));
-              }}
             />
           </nav>
         ) : null}

@@ -57,3 +57,30 @@ export function googleMapsSearchUrl(query: string) {
 export function googleMapsCoordUrl(lat: number, lng: number) {
   return `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`;
 }
+
+/** Northfield (08225) is outside the shop zone even if old paint still covers Tilton. */
+export function isNorthfieldDelivery(input: {
+  query?: string;
+  label?: string;
+  city?: string;
+  zip?: string;
+}) {
+  const zip = String(input.zip ?? "").replace(/\D/g, "").slice(0, 5);
+  if (zip === "08225") return true;
+  const blob = [input.query, input.label, input.city]
+    .map((s) => String(s ?? "").toLowerCase())
+    .join(" , ");
+  if (!/\bnorthfield\b/.test(blob)) return false;
+  if (/\begg harbor\b/.test(blob)) return false;
+  return true;
+}
+
+export function expandDeliveryQuery(query: string) {
+  const q = String(query ?? "").trim();
+  if (!q) return q;
+  if (isNorthfieldDelivery({ query: q })) return q;
+  if (/nj|new jersey|egg harbor|pleasantville|absecon|linwood|somers point|northfield/i.test(q)) {
+    return q;
+  }
+  return `${q}, Egg Harbor Township, NJ`;
+}

@@ -75,20 +75,30 @@ export function CustomerChat({ compact }: { compact?: boolean }) {
       .catch(() => setThreads([]));
   }
 
-  useEffect(() => {
-    void refreshThreads();
-    void listMyOrders()
+  function refreshOrders() {
+    return listMyOrders()
       .then((list) => {
         const live = list.filter((o) => isActiveOrderStatus(o.status));
         setOrders(live);
         setOrderId((cur) => (cur && live.some((o) => o.id === cur) ? cur : live[0]?.id ?? ""));
       })
       .catch(() => setOrders([]));
+  }
+
+  useEffect(() => {
+    void refreshThreads();
+    void refreshOrders();
     const t = window.setInterval(() => {
-      if (!document.hidden) void refreshThreads();
+      if (!document.hidden) {
+        void refreshThreads();
+        void refreshOrders();
+      }
     }, 8000);
     const onVis = () => {
-      if (!document.hidden) void refreshThreads();
+      if (!document.hidden) {
+        void refreshThreads();
+        void refreshOrders();
+      }
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
@@ -142,7 +152,7 @@ export function CustomerChat({ compact }: { compact?: boolean }) {
   const current = threads.find((t) => t.id === active);
   const blank = fresh || !active;
   const chosenTicket = current?.order?.id || orderId;
-  const canSend = Boolean(draft.trim()) && !busy && Boolean(chosenTicket);
+  const canSend = Boolean(draft.trim()) && !busy && Boolean(chosenTicket || (active && !blank));
 
   function send(e?: FormEvent) {
     e?.preventDefault();
@@ -202,7 +212,7 @@ export function CustomerChat({ compact }: { compact?: boolean }) {
         <label className="ed-field">
           <span>About this order</span>
           <select className="ed-input" value={orderId} onChange={(e) => setOrderId(e.target.value)}>
-            <option value="">No ticket yet</option>
+            <option value="">{orders.length ? "Choose a ticket" : "No ticket yet"}</option>
             {orders.slice(0, 12).map((o) => (
                 <option key={o.id} value={o.id}>
                   #{formatTicketNo(o.ticketNo)} · {o.fulfillment} · {formatUsd(o.total)} · {formatShopWhen(o.createdAt)}
@@ -275,7 +285,7 @@ export function CustomerChat({ compact }: { compact?: boolean }) {
             maxLength={1000}
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            placeholder="Write your new message to the shop…"
+            placeholder="What's happening?"
             aria-label="Type a new message to the shop"
             onKeyDown={(e: KeyboardEvent<HTMLTextAreaElement>) => {
               if (e.key === "Enter" && !e.shiftKey) {

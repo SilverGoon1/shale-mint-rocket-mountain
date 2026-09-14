@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight, Clock, MapPin, Minus, Phone, Plus, Search, X
 import { ItemConfirm } from "@/components/item-confirm";
 import { PizzaCustomize } from "@/components/pizza-customize";
 import { WingsCustomize } from "@/components/wings-customize";
+import { SaladCustomize } from "@/components/salad-customize";
 import { StaleCartPrompt } from "@/components/stale-cart";
 import { iconFor } from "@/data/icons";
 import { itemPhoto } from "@/data/item-photos";
@@ -12,6 +13,7 @@ import { useCartStore, cartTotals } from "@/lib/cart-store";
 import { useDialogLock } from "@/lib/dialog-lock";
 import { cardTypeStyle, formatUsd, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
 import { isWingsBuild } from "@/lib/wings";
+import { GROUP_SAUCE_DIP, GROUP_SALAD, hasGroup } from "@/lib/modifiers";
 
 function priceNum(p: string) {
   const n = Number(String(p).replace(/^\$/, ""));
@@ -163,7 +165,7 @@ function CartPop({
             className="ed-input ed-area"
             rows={3}
             maxLength={500}
-            placeholder="e.g. extra napkins, gate code"
+            placeholder="What's happening?"
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
             suppressHydrationWarning
@@ -205,6 +207,7 @@ export function Storefront({
   const [custom, setCustom] = useState<{ cat: MenuCategory; item: MenuItem; size: string } | null>(null);
   const [confirm, setConfirm] = useState<{ cat: MenuCategory; item: MenuItem } | null>(null);
   const [wings, setWings] = useState<{ cat: MenuCategory; item: MenuItem } | null>(null);
+  const [salad, setSalad] = useState<{ cat: MenuCategory; item: MenuItem } | null>(null);
   const [query, setQuery] = useState("");
   const [searchOpen, setSearchOpen] = useState(false);
   const [hitId, setHitId] = useState("");
@@ -299,8 +302,12 @@ export function Storefront({
       setCustom({ cat, item, size: item.prices[0]?.label || "" });
       return;
     }
-    if (isWingsBuild(cat, item)) {
+    if (hasGroup(cat, item, GROUP_SAUCE_DIP)) {
       setWings({ cat, item });
+      return;
+    }
+    if (hasGroup(cat, item, GROUP_SALAD)) {
+      setSalad({ cat, item });
       return;
     }
     setConfirm({ cat, item });
@@ -649,6 +656,7 @@ export function Storefront({
         <WingsCustomize
           item={wings.item}
           categoryId={wings.cat.id}
+          tens={isWingsBuild(wings.cat, wings.item)}
           onClose={() => setWings(null)}
           onConfirm={(result) => {
             add({
@@ -662,6 +670,26 @@ export function Storefront({
               unitPrice: result.unitPrice,
             });
             setWings(null);
+          }}
+        />
+      ) : null}
+      {salad ? (
+        <SaladCustomize
+          item={salad.item}
+          categoryId={salad.cat.id}
+          onClose={() => setSalad(null)}
+          onConfirm={(result) => {
+            add({
+              itemId: salad.item.id ?? salad.item.name,
+              categoryId: salad.cat.id,
+              name: salad.item.name,
+              size: result.size,
+              detail: result.detail,
+              comment: result.comment,
+              condiments: result.condiments,
+              unitPrice: result.unitPrice,
+            });
+            setSalad(null);
           }}
         />
       ) : null}

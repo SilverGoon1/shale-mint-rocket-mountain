@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
-import { createFileRoute, Navigate } from "@tanstack/react-router";
+import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
 import {
   Bar,
   BarChart,
@@ -15,7 +15,6 @@ import { getAdminInsights, listAllOrders, listCustomers } from "@/lib/shop-serve
 import {
   formatUsd,
   formatTicketNo,
-  payMethodLabel,
   type AdminInsights,
   type CustomerRecord,
   type OrderView,
@@ -66,14 +65,10 @@ export const EMPTY_INSIGHTS: AdminInsights = {
 };
 
 export function AdminCustomersPage() {
-  const [insights, setInsights] = useState<AdminInsights | null>(null);
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const { toast, flashOk, flashFail } = useSaveFlash();
 
   useEffect(() => {
-    void getAdminInsights()
-      .then(setInsights)
-      .catch(() => setInsights(EMPTY_INSIGHTS));
     void listCustomers()
       .then(setCustomers)
       .catch(() => setCustomers([]));
@@ -84,17 +79,14 @@ export function AdminCustomersPage() {
     else flashOk(true);
   }
 
-  const insightsView = insights ?? EMPTY_INSIGHTS;
-
   return (
     <div className="settings-page">
       <SaveToast toast={toast} />
       <header className="page-card">
         <p className="shop-brand-kicker">Admin</p>
         <h1>Customers</h1>
-        <p className="ed-sub">Ledger, analytics, and the customer book. Grant admin or ban an account here.</p>
+        <p className="ed-sub">The customer book. Grant admin or ban an account here.</p>
       </header>
-      <AnalyticsPanel insights={insightsView} />
       <CustomersPanel customers={customers} setCustomers={setCustomers} onMsg={setMsg} />
     </div>
   );
@@ -120,19 +112,8 @@ export function AdminFinancialsPage() {
       <header className="page-card">
         <p className="shop-brand-kicker">Admin</p>
         <h1>Financials</h1>
-        <p className="ed-sub">
-          Today, this week, and tips live here — the till mix, tax, and ticket history follow. Tips stay off the New
-          Jersey sales-tax line.
-        </p>
+        <p className="ed-sub">Sales and recent tickets.</p>
       </header>
-      <div className="kpi-grid kpi-hero">
-        <Kpi label="Today" value={formatUsd(insightsView.sales.today)} />
-        <Kpi label="This week" value={formatUsd(insightsView.sales.week)} />
-        <Kpi label="Tips" value={formatUsd(insightsView.financials.tips)} />
-        <Kpi label="Collected" value={formatUsd(insightsView.financials.collected)} />
-        <Kpi label="Outstanding" value={formatUsd(insightsView.financials.awaitingPayment)} />
-      </div>
-      <FinancialsPanel insights={insightsView} />
       <SalesPanel insights={insightsView} orders={orders} />
     </div>
   );
@@ -172,79 +153,26 @@ export function AnalyticsPanel({ insights }: { insights: AdminInsights }) {
   );
 }
 
-function FinancialsPanel({ insights }: { insights: AdminInsights }) {
-  const f = insights.financials;
-  const s = insights.sales;
-  return (
-    <>
-      <div className="kpi-grid">
-        <Kpi label="Food" value={formatUsd(f.food)} />
-        <Kpi label="Tax collected" value={formatUsd(f.tax)} />
-        <Kpi label="Discounts" value={formatUsd(f.discounts)} />
-        <Kpi label="Delivery fees" value={formatUsd(f.deliveryFees)} />
-      </div>
-      <section className="page-card">
-        <h2>Till mix</h2>
-        <div className="mix-track" aria-hidden>
-          <span className="mix-seg mix-food" style={{ flexGrow: Math.max(f.food, 0), flexBasis: 0 }} />
-          <span className="mix-seg mix-tax" style={{ flexGrow: Math.max(f.tax, 0), flexBasis: 0 }} />
-          <span className="mix-seg mix-fee" style={{ flexGrow: Math.max(f.deliveryFees, 0), flexBasis: 0 }} />
-          <span className="mix-seg mix-disc" style={{ flexGrow: Math.max(f.discounts, 0), flexBasis: 0 }} />
-        </div>
-        <p className="mix-legend ed-sub">Tomato is food · cream is tax · muted is delivery fees · dark is discounts</p>
-        <dl className="totals">
-          <div>
-            <dt>Food (before tax)</dt>
-            <dd>{formatUsd(f.food)}</dd>
-          </div>
-          <div>
-            <dt>Tips (not taxed)</dt>
-            <dd>{formatUsd(f.tips)}</dd>
-          </div>
-          <div>
-            <dt>Pickup</dt>
-            <dd>{formatUsd(f.pickup)}</dd>
-          </div>
-          <div>
-            <dt>Delivery</dt>
-            <dd>{formatUsd(f.delivery)}</dd>
-          </div>
-          <div>
-            <dt>Awaiting card</dt>
-            <dd>{formatUsd(f.awaitingPayment)}</dd>
-          </div>
-          <div>
-            <dt>Canceled tickets</dt>
-            <dd>{s.canceled}</dd>
-          </div>
-          <div>
-            <dt>Tickets counted</dt>
-            <dd>{s.tickets}</dd>
-          </div>
-        </dl>
-        <h3 className="settings-subhead">Payment mix</h3>
-        {f.byPay.length === 0 ? (
-          <p className="ed-empty">No payments yet.</p>
-        ) : (
-          <ul className="rank-list">
-            {f.byPay.map((p) => (
-              <li key={p.method}>
-                <span>
-                  {payMethodLabel(p.method)} <em>{p.count} tickets</em>
-                </span>
-                <strong>{formatUsd(p.total)}</strong>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </>
-  );
+function ticketSearchHay(o: OrderView) {
+  const no = formatTicketNo(o.ticketNo);
+  const n = String(Math.round(Number(o.ticketNo) || 0));
+  return `${no} ${n} ${no.replace(/^0+/, "") || "0"}`;
 }
 
 function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: OrderView[] }) {
   const s = insights.sales;
-  const recent = useMemo(() => orders.slice(0, 12), [orders]);
+  const [ticketQuery, setTicketQuery] = useState("");
+  const tickets = useMemo(() => {
+    const q = ticketQuery.trim().replace(/^#/, "").replace(/\s/g, "");
+    if (!q) return orders.slice(0, 20);
+    const needle = q.toLowerCase();
+    const compact = needle.replace(/^0+/, "") || "0";
+    return orders.filter((o) => {
+      const hay = ticketSearchHay(o).toLowerCase();
+      return hay.includes(needle) || hay.includes(compact);
+    });
+  }, [orders, ticketQuery]);
+
   return (
     <>
       <section className="page-card">
@@ -288,8 +216,20 @@ function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: Ord
       </section>
       <section className="page-card">
         <h2>Recent tickets</h2>
-        {recent.length === 0 ? (
-          <p className="ed-empty">No tickets yet.</p>
+        <label className="ed-field">
+          <span>Search ticket number</span>
+          <input
+            className="ed-input"
+            value={ticketQuery}
+            onChange={(e) => setTicketQuery(e.target.value)}
+            placeholder="e.g. 42 or 000042"
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="Search ticket number"
+          />
+        </label>
+        {tickets.length === 0 ? (
+          <p className="ed-empty">{ticketQuery.trim() ? "No tickets match that number." : "No tickets yet."}</p>
         ) : (
           <div className="table-wrap">
             <table className="plain-table">
@@ -300,16 +240,26 @@ function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: Ord
                   <th>Name</th>
                   <th>Total</th>
                   <th>Status</th>
+                  <th>Customer</th>
                 </tr>
               </thead>
               <tbody>
-                {recent.map((o) => (
+                {tickets.map((o) => (
                   <tr key={o.id}>
                     <td>#{formatTicketNo(o.ticketNo)}</td>
                     <td>{o.createdAt ? new Date(o.createdAt).toLocaleString() : "—"}</td>
                     <td>{o.pickupName || "Guest"}</td>
                     <td>{formatUsd(o.total)}</td>
                     <td>{o.status.replaceAll("_", " ")}</td>
+                    <td>
+                      {o.userId ? (
+                        <Link to="/admin/center" search={{ tab: "customers", customer: o.userId }} className="ed-btn">
+                          Profile
+                        </Link>
+                      ) : (
+                        "—"
+                      )}
+                    </td>
                   </tr>
                 ))}
               </tbody>

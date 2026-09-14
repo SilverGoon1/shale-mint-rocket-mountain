@@ -1,4 +1,7 @@
 {
   "title": "South End Pizza III",
-  "card": "custom"
+  "pwaName": "South End Pizza",
+  "shortName": "South End",
+  "card": "custom",
+  "color": "fbf6ec"
 }

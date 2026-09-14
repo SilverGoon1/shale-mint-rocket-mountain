@@ -4,8 +4,14 @@ import { BrandMark } from "@/components/brand-mark";
 import { CATEGORY_ICONS } from "@/data/icons";
 import type { MenuCategory, MenuItem, PriceCol, RestaurantInfo } from "@/data/menu";
 import { useMenuStore } from "@/lib/menu-store";
+import { pizzaNote } from "@/lib/pizza";
+import type { ShopSettingsPublic } from "@/lib/shop-types";
 
-export type PaperSize = "letter" | "tabloid" | "poster";
+export type PaperSize = "letter" | "tabloid" | "poster" | "letter4p" | "letter4l";
+
+export function isLetterPack(paper: PaperSize) {
+  return paper === "letter4p" || paper === "letter4l";
+}
 
 const LETTER_GROUPS = [
   ["pizza", "gourmet", "appetizers", "salads", "sides", "wings"],
@@ -128,6 +134,26 @@ function PizzaRow({
   );
 }
 
+function BeverageRow({ item }: { item: MenuItem }) {
+  const prices = usefulPrices(item.prices);
+  return (
+    <div className="item-row" data-kind="split" data-bev="true">
+      <span className="bullet" aria-hidden />
+      <div className="item-copy">
+        <div className="item-name">{item.name}</div>
+      </div>
+      <div className="split-prices">
+        {prices.map((p, i) => (
+          <div className="pair" key={i}>
+            {p.label ? <span className="lbl">{p.label}</span> : null}
+            <span className="price">{money(p.price)}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function ItemRow({
   item,
   cat,
@@ -166,21 +192,32 @@ function ItemRow({
   );
 }
 
-function Section({ cat, showDesc }: { cat: MenuCategory; showDesc: boolean }) {
+function Section({
+  cat,
+  showDesc,
+  settings,
+  anchor = true,
+}: {
+  cat: MenuCategory;
+  showDesc: boolean;
+  settings?: ShopSettingsPublic;
+  anchor?: boolean;
+}) {
   const Icon: LucideIcon = CATEGORY_ICONS[cat.icon ?? cat.id] ?? Pizza;
   const pizza = cat.kind === "pizza";
   const xl = pizza && cat.items.some(pizzaHasXl);
   const xlInches = cat.items.flatMap((it) => it.prices).find((p) => p.label === "XL")?.inches || '18"';
+  const note = pizza && settings ? pizzaNote(settings, cat.items) : cat.note;
 
   return (
-    <section className="menu-section" id={cat.id}>
+    <section className="menu-section" id={anchor ? cat.id : undefined}>
       <div className="section-head">
         <span className="section-icon" aria-hidden>
           <Icon strokeWidth={2.2} />
         </span>
         <h2 className="section-title">{cat.name || "Untitled"}</h2>
       </div>
-      {cat.note ? <p className="section-note">{cat.note}</p> : null}
+      {note ? <p className="section-note">{note}</p> : null}
       {pizza ? (
         <div className="pizza-cols" data-xl={xl ? "true" : undefined} aria-hidden>
           <span />
@@ -208,6 +245,8 @@ function Section({ cat, showDesc }: { cat: MenuCategory; showDesc: boolean }) {
       {cat.items.map((item, i) =>
         pizza ? (
           <PizzaRow key={item.id ?? `${item.name}-${i}`} item={item} cat={cat} showDesc={showDesc} xl={xl} />
+        ) : cat.id === "beverages" ? (
+          <BeverageRow key={item.id ?? `${item.name}-${i}`} item={item} />
         ) : (
           <ItemRow key={item.id ?? `${item.name}-${i}`} item={item} cat={cat} showDesc={showDesc} />
         ),
@@ -237,28 +276,53 @@ function layoutColumns(paper: PaperSize, cats: MenuCategory[]): MenuCategory[][]
   return cols.filter((col) => col.length > 0);
 }
 
-export function MenuBoard({
+const LETTER4_QUADS = [
+  { id: "tl", x: 0, y: 0 },
+  { id: "tr", x: 1, y: 0 },
+  { id: "bl", x: 0, y: 1 },
+  { id: "br", x: 1, y: 1 },
+] as const;
+
+function pageCss(paper: PaperSize, printScale: number) {
+  const scale = Math.max(0.9, Math.min(1.6, printScale / 100));
+  if (paper === "letter4p") return `@media print { @page { size: letter portrait; margin: 0; } :root { --print-scale: ${scale}; } }`;
+  if (paper === "letter4l") return `@media print { @page { size: letter landscape; margin: 0; } :root { --print-scale: ${scale}; } }`;
+  const page =
+    paper === "letter" ? "letter portrait" : paper === "poster" ? "18in 24in landscape" : "11in 17in landscape";
+  return `@media print { @page { size: ${page}; margin: 0.38in; } :root { --print-scale: ${scale}; } }`;
+}
+
+function BoardFace({
   paper,
   showDesc,
-  showMark = true,
+  showMark,
+  settings,
+  printScale,
+  anchor = true,
 }: {
   paper: PaperSize;
   showDesc: boolean;
-  showMark?: boolean;
+  showMark: boolean;
+  settings?: ShopSettingsPublic;
+  printScale: number;
+  anchor?: boolean;
 }) {
   const restaurant = useMenuStore((s) => s.restaurant);
   const footer = useMenuStore((s) => s.footer);
   const categories = useMenuStore((s) => s.categories);
-  const page =
-    paper === "letter" ? "letter portrait" : paper === "poster" ? "18in 24in landscape" : "11in 17in landscape";
+  const face = isLetterPack(paper) ? "poster" : paper;
   const groups = layoutColumns(paper, categories);
   const xl = categories.some((c) => c.kind === "pizza" && c.items.some(pizzaHasXl));
   const xlInches =
     categories.flatMap((c) => c.items).flatMap((it) => it.prices).find((p) => p.label === "XL")?.inches || '18"';
 
   return (
-    <article className="paper" data-paper={paper}>
-      <style>{`@media print { @page { size: ${page}; margin: 0.38in; } }`}</style>
+    <article
+      className="paper"
+      data-paper={face}
+      data-pack={isLetterPack(paper) ? paper : undefined}
+      style={{ ["--print-scale" as string]: String(Math.max(0.9, Math.min(1.6, printScale / 100))) }}
+    >
       <header className="masthead">
         {showMark ? <BrandMark variant="mast" /> : null}
         <div className="mast-kicker">
@@ -278,7 +342,7 @@ export function MenuBoard({
         {groups.map((col) => (
           <div className="menu-col" key={col.map((c) => c.id).join("-")}>
             {col.map((cat) => (
-              <Section key={cat.id} cat={cat} showDesc={showDesc} />
+              <Section key={cat.id} cat={cat} showDesc={showDesc} settings={settings} anchor={anchor} />
             ))}
           </div>
         ))}
@@ -289,6 +353,56 @@ export function MenuBoard({
         <span>Wall menu · {restaurant.name}</span>
       </footer>
     </article>
+  );
+}
+
+export function MenuBoard({
+  paper,
+  showDesc,
+  showMark = true,
+  settings,
+  printScale = 100,
+}: {
+  paper: PaperSize;
+  showDesc: boolean;
+  showMark?: boolean;
+  settings?: ShopSettingsPublic;
+  printScale?: number;
+}) {
+  const face = (
+    <BoardFace paper={paper} showDesc={showDesc} showMark={showMark} settings={settings} printScale={printScale} />
+  );
+
+  if (!isLetterPack(paper)) {
+    return (
+      <>
+        <style>{pageCss(paper, printScale)}</style>
+        {face}
+      </>
+    );
+  }
+
+  const landscape = paper === "letter4l";
+  return (
+    <div className="letter-pack" data-orient={landscape ? "landscape" : "portrait"}>
+      <style>{pageCss(paper, printScale)}</style>
+      {LETTER4_QUADS.map((q) => (
+        <section className="letter-sheet" key={q.id} data-quad={q.id}>
+          <div className="letter-sheet-clip">
+            <div className="letter-sheet-shift">
+              <BoardFace
+                paper={paper}
+                showDesc={showDesc}
+                showMark={showMark}
+                settings={settings}
+                printScale={printScale}
+                anchor={q.id === "tl"}
+              />
+            </div>
+          </div>
+        </section>
+      ))}
+    </div>
   );
 }
 

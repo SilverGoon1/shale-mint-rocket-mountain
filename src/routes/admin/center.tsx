@@ -1,7 +1,7 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { CustomerCenter, type CenterTab } from "@/components/customer-center";
 
-const TABS = new Set<CenterTab>(["messages", "orders", "customers", "rewards"]);
+const TABS = new Set<CenterTab>(["messages", "customers", "rewards"]);
 
 export type CenterSearch = {
   tab?: CenterTab;

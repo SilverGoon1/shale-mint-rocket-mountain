@@ -21,6 +21,8 @@ export type MenuItem = {
   image?: string;
   hideImage?: boolean;
   condiments?: ItemCondiment[];
+  /** Explicit modifier groups. Missing = infer from name/category. [] = detached. */
+  groups?: string[];
 };
 
 export type CategoryKind = "pizza" | "split" | "single";
@@ -60,29 +62,34 @@ export const DEFAULT_FOOTER =
   "Ask about extra toppings, wing sauces, and dressing. Prices may change.";
 
 function extras(...rows: [string, string, string?][]): ItemCondiment[] {
-  return rows.map(([name, price, extra], i) => ({
-    id: `${name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cond"}-${i + 1}`,
-    name,
-    price,
-    extraPrice: extra ?? price,
-    maxQty: "9",
-  }));
+  return rows.map(([name, price, extra], i) => {
+    const slug = name.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "cond";
+    const id = /extra ranch/i.test(name)
+      ? "wing-extra-ranch"
+      : /extra blue/i.test(name)
+        ? "wing-extra-blue"
+        : /extra dressing/i.test(name)
+          ? "salad-extra"
+          : `${slug}-${i + 1}`;
+    return {
+      id,
+      name,
+      price,
+      extraPrice: extra ?? price,
+      maxQty: "9",
+    };
+  });
 }
 
 const DIP_CUPS = extras(["Ranch", "0.75"], ["Blue cheese", "0.75"], ["BBQ", "0.75"], ["Honey mustard", "0.75"]);
-const SALAD_DRESSING = extras(
-  ["Italian", "0"],
-  ["Ranch", "0"],
-  ["Blue cheese", "0"],
-  ["Extra dressing", "0.75"],
-);
+const SALAD_DRESSING = extras(["Extra dressing", "0.75"]);
 const MARINARA = extras(["Extra marinara", "0.75"]);
 
 export const MENU: MenuCategory[] = [
   {
     id: "pizza",
     name: "Pizza",
-    note: "12\" small \u00b7 14\" medium \u00b7 16\" large. Extra toppings $2.00 each.",
+    note: "",
     kind: "pizza",
     items: [
       {
@@ -155,7 +162,7 @@ export const MENU: MenuCategory[] = [
   {
     id: "gourmet",
     name: "Gourmet Pizza",
-    note: "12\" small \u00b7 14\" medium \u00b7 16\" large.",
+    note: "",
     kind: "pizza",
     items: [
       {
@@ -173,6 +180,8 @@ export const MENU: MenuCategory[] = [
         description: "Chicken, hot or mild sauce & mozzarella",
         highlight: true,
         prices: [{ label: "SM", inches: "12\"", price: "19.00" }, { label: "MD", inches: "14\"", price: "21.00" }, { label: "LG", inches: "16\"", price: "23.00" }],
+        condiments: extras(["Extra Ranch", "0.75"], ["Extra Blue cheese", "0.75"]),
+        groups: ["buffalo_dip"],
       },
       {
         name: "BBQ Chicken Pizza",
@@ -266,7 +275,8 @@ export const MENU: MenuCategory[] = [
         name: "Chicken Fingers",
         description: "With french fries. Breaded and fried chicken strips",
         prices: [{ price: "14.95" }],
-        condiments: DIP_CUPS,
+        condiments: extras(["Extra Ranch", "0.75"], ["Extra Blue cheese", "0.75"]),
+        groups: ["sauce_dip"],
       },
       {
         name: "Buffalo Fries",
@@ -276,7 +286,8 @@ export const MENU: MenuCategory[] = [
         name: "Buffalo Chicken Tenders",
         description: "Tossed in hot sauce or Mild sauce",
         prices: [{ label: "6 pc", price: "11.50" }, { label: "12 pc", price: "16.50" }, { label: "18 pc", price: "24.50" }],
-        condiments: extras(["Ranch", "0.75"], ["Blue cheese", "0.75"], ["Extra sauce", "0.75"]),
+        condiments: extras(["Extra Ranch", "0.75"], ["Extra Blue cheese", "0.75"]),
+        groups: ["sauce_dip"],
       },
       {
         name: "Pizza Bread",
@@ -288,32 +299,38 @@ export const MENU: MenuCategory[] = [
   {
     id: "salads",
     name: "Salads",
+    note: "Pick a dressing. Extra dressings sell in 2s at the editor price.",
     kind: "single",
     items: [
       {
         name: "Antipasto Salad",
         description: "Genoa salami, capicola, provolone cheese, and ham. Served with lettuce, tomatoes, onions, cucumbers, green peppers, and black olives",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Chef Salad",
         description: "Crispy greens with sliced ham, turkey, cheese, tomato, cucumber, and hard-boiled egg",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Tuna Salad",
         description: "House salad with a big scoop of white tuna",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Caesar Salad",
         description: "Crisp romaine tossed with croutons, Caesar dressing, and grated cheese",
         prices: [{ label: "LG", price: "10.00" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Grilled Chicken Caesar Salad",
         description: "Romaine lettuce, croutons, red onions & Romano cheese in Roma Caesar dressing",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Tossed Salad",
@@ -324,23 +341,28 @@ export const MENU: MenuCategory[] = [
       {
         name: "Turkey & Cheese Salad",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Greek Salad",
         description: "Feta cheese, olives",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Blackened Chicken Caesar Salad",
         prices: [{ label: "LG", price: "14.75" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Cajun Chicken Caesar Salad",
         prices: [{ label: "LG", price: "14.75" }],
+        condiments: SALAD_DRESSING,
       },
       {
         name: "Chicken Tender Salad",
         prices: [{ label: "LG", price: "14.95" }],
+        condiments: SALAD_DRESSING,
       },
     ],
   },
@@ -378,14 +400,14 @@ export const MENU: MenuCategory[] = [
   {
     id: "wings",
     name: "Wings",
-    note: "Tossed in Hot, Mild, Dry, or BBQ. Includes 2 Ranch, 2 Blue cheese, or none. Extra dips priced per 2 cups.",
+    note: "Tossed in Hot, Mild, Dry, or BBQ. Includes 2 Ranch, 2 Blue cheese, or none. Extra dressings priced per 2 cups.",
     kind: "split",
     items: [
       {
         name: "Fresh Wings",
         description: "Deep-fried chicken wings with your choice of sauce",
         prices: [{ label: "10 pc", price: "14.00" }],
-        condiments: extras(["Extra Ranch", "1.50"], ["Extra Blue cheese", "1.50"]),
+        condiments: extras(["Extra Ranch", "0.75"], ["Extra Blue cheese", "0.75"]),
       },
       {
         name: "Chicken Nuggets with Fries",
@@ -737,7 +759,7 @@ export const MENU: MenuCategory[] = [
   {
     id: "pasta",
     name: "Pasta Dishes",
-    note: "Platters served with salad, bread & butter.",
+    note: "Platters served with salad, bread & butter. Pick Penne or Spaghetti and a salad dressing — stuffed pastas skip the shape.",
     kind: "single",
     items: [
       {

@@ -178,9 +178,9 @@ function AdminBots() {
       <section className="page-card">
         <h2>Team / desk accounts</h2>
         <p className="ed-sub">
-          Each bot uses its own email and password. Silver grants Admin mode here (soft max {desk.max}). Then that
-          person turns <strong>Admin mode</strong> on from the header name menu. Desk path is{" "}
-          <code>/admin/pos</code>. Temp Admin cannot grant others.
+          Each bot uses its own email and password. Silver grants desk access here (soft max 14 accounts, 12 extra bots.
+          Existing grants stay). A granted account opens Admin and POS — there is no Admin mode switch. Temp Admin cannot
+          grant others.
         </p>
         {desk.accounts.length === 0 ? (
           <p className="ed-empty">No signed-up accounts yet.</p>
@@ -204,13 +204,13 @@ function AdminBots() {
                         <span className="bot-agent-state">{row.displayName}</span>
                       ) : null}
                     </td>
-                    <td>{row.adminModeAllowed ? (row.adminMode ? "On" : "Granted") : "—"}</td>
+                    <td>{row.adminModeAllowed ? "Desk" : "—"}</td>
                     <td>
                       {desk.canGrant ? (
                         <button
                           type="button"
                           className={row.adminModeAllowed ? "ed-btn ed-btn-danger" : "ed-btn"}
-                          disabled={Boolean(busy)}
+                          disabled={Boolean(busy) || (!row.adminModeAllowed && desk.granted >= desk.max)}
                           onClick={() => {
                             setBusy(row.userId);
                             setMsg("");
@@ -231,8 +231,8 @@ function AdminBots() {
           </div>
         )}
         <p className="ed-sub">
-          {desk.granted}/{desk.max} granted
-          {desk.canGrant ? "" : " · Ask Silver to grant your account, then use Admin mode in the header."}
+          {desk.granted}/{desk.max} granted · 14 accounts, 12 extra bots. Existing grants stay.
+          {desk.canGrant ? "" : " · Ask Silver to grant your account."}
         </p>
       </section>
 

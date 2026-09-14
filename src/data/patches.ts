@@ -7,6 +7,162 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-13-menu-item-subdropdown",
+    date: "September 13, 2026",
+    title: "Menu items sit in their own drop-downs",
+    added: [
+      "Open a section on Menu, then tap an item name to edit it. Only one item is open at a time. Move up/down still works on the closed row.",
+    ],
+  },
+
+  {
+    id: "2026-09-13-note-placeholder",
+    date: "September 13, 2026",
+    title: "Note fields say What's happening?",
+    added: [
+      "Cook notes, bag notes, checkout kitchen notes, and customer/admin chat boxes no longer show example copy. The placeholder is What's happening?",
+    ],
+  },
+
+  {
+    id: "2026-09-13-extra-dressing-visible",
+    date: "September 13, 2026",
+    title: "Extra dressings sit above toppings",
+    added: [
+      "Buffalo Chicken Pizza shows Extra Ranch and Extra Blue cheese in the same pop-up as toppings — above the topping list, so they stay on screen.",
+      "Guest copy says dressing, not dip. Wings and tenders use the same word. Prices still add in 2s from the menu.",
+    ],
+  },
+  {
+    id: "2026-09-13-toppings-tab-noscroll",
+    date: "September 13, 2026",
+    title: "Per-topping prices and Shop details accordions",
+    added: [
+      "Menu is items only. Toppings is its own tab: each topping has SM / MD / LG / XL prices, seeded at $2.25 / $3.25 / $4.25 / $5.25.",
+      "Shop details opens one accordion at a time for extra-topping defaults, Bulk XL fill, Shared extras, and shop identity.",
+      "Customize a pie: size, toppings, and a cook note sit in the same pop-up. Add with the live total stays at the bottom.",
+    ],
+  },
+  {
+    id: "2026-09-13-guest-pizza-blurb-off",
+    date: "September 13, 2026",
+    title: "Guest pizza headers are the title only",
+    added: [
+      "Pizza and Gourmet Pizza on the guest menu show the section name only. Extra topping prices stay on Admin notes and the wall board.",
+    ],
+  },
+  {
+    id: "2026-09-13-patch-1020",
+    date: "September 13, 2026",
+    title: "Grant opens the desk, wall print reflow",
+    added: [
+      "A granted account opens Admin and POS with no Admin mode switch. Guests still cannot.",
+      "Long emails ellipsis in the account menu. Menu & Shop Details tabs scroll on a narrow phone instead of overlapping.",
+      "Pizza and Gourmet headers on the guest menu show extra topping prices for SM, MD, LG, and XL.",
+      "If the desk sign-in expires, Accept freezes on POS and Incoming and asks you to sign in again. Complete toast is unchanged.",
+      "Wall menu print scale 110–150% reflows so names and prices do not overlap. Beverages on the wall are size and price only.",
+    ],
+  },
+  {
+    id: "2026-09-13-letter4-no-quad-marks",
+    date: "September 13, 2026",
+    title: "Four-sheet PDF has no corner labels",
+    added: [
+      "Four-sheet wall PDF pages have no 1 / 2 / 3 / 4 or top-left corner labels — those marks are gone from the screen and from Print / Save PDF.",
+    ],
+  },
+  {
+    id: "2026-09-12-financials-tickets",
+    date: "September 12, 2026",
+    title: "Financials is sales and tickets",
+    added: [
+      "Financials keeps Sales and Recent tickets. Till mix, tax, and the extra totals left the page.",
+      "Search recent tickets by number. Profile opens that person in the customer book.",
+    ],
+  },
+  {
+    id: "2026-09-12-customer-book-tints",
+    date: "September 12, 2026",
+    title: "Remove accounts, distinct customer cards",
+    added: [
+      "Admins can remove an account from the customer book after a confirmation pop-up. Past tickets stay on POS.",
+      "Customer cards each have their own color. Opening Profile on POS puts that person at the top of the book search.",
+      "Pizza and Gourmet Pizza headers on the guest menu no longer show the extra-topping description.",
+    ],
+  },
+  {
+    id: "2026-09-12-center-wall-letter4",
+    date: "September 12, 2026",
+    title: "Leaner Customer Center, four-sheet wall PDF",
+    added: [
+      "Customer Center is Messages, Customers, and Rewards. Analytics left the customer book. Tickets stay on POS.",
+      "Rewards opens on the program settings — the extra Points program card is gone.",
+      "Wall menu Print / Save PDF can tile the board across four 8.5×11 sheets, portrait or landscape, for taping up.",
+    ],
+  },
+  {
+    id: "2026-09-12-hotfix-blurb-accept-toast",
+    date: "September 12, 2026",
+    title: "Pizza blurb follows the ladder, POS Accept toast",
+    added: [
+      "Pizza and Gourmet headers on the guest menu show extra topping prices for SM, MD, LG, and XL.",
+      "Admin pizza section notes follow those prices and cannot be typed stale. Save writes the live blurb.",
+      "Accepting a ticket on POS shows that it went to the kitchen. Completing still shows the complete toast.",
+    ],
+  },
+  {
+    id: "2026-09-12-patch-update-1528",
+    date: "September 12, 2026",
+    title: "Admin bulk prices, wall print scale, signed-in Review",
+    added: [
+      "One Admin panel sets SM/MD/LG/XL topping add-ons and the pizza blurb follows those dollars. Cheese and one-topping XL fill in one click; Gourmet XL stays blank until you type a price.",
+      "One Extra Ranch, Extra Blue, and Extra dressing field writes every matching item. Chips show the menu price and Add includes it in food.",
+      "Wall menu Print scale presets 100 / 110 / 125 / 150% (90–160% slider) for Print / Save PDF. Screen preview stays full size.",
+      "Review order keeps a signed-in account. Desk grants stop at 14 accounts and 12 extra bots — existing grants stay.",
+    ],
+  },
+  {
+    id: "2026-09-11-menu-customize",
+    date: "September 11, 2026",
+    title: "Cleaner customize sheet, pasta salad, buffalo dips",
+    added: [
+      "Customize sheets keep one running price on Add and one helper when a pick is still required. Extra dressings and dips add in 2s from the menu price.",
+      "Pasta platters pick a salad dressing and Keep bread (or No bread, no charge). Buffalo chicken pizza asks Ranch, Blue cheese, or none, with optional extra cups like wings.",
+      "Add sits flush at the bottom of the sheet. Long emails in the name menu ellipsis instead of stretching the menu.",
+    ],
+  },
+  {
+    id: "2026-09-11-patch-update-2010",
+    date: "September 11, 2026",
+    title: "Tenders, salads, pasta shape, optional delivery fee",
+    added: [
+      "Chicken tenders use the same sauce and dip builder as wings. Salads require a dressing, extra dressings sell in 2s, and pasta platters ask Penne or Spaghetti — Admin can detach stuffed pastas.",
+      "Extra dip and dressing prices come from the menu editor. Missing prices stay blank instead of inventing a dollar amount. Cart keeps the price from when you add the item.",
+      "Delivery fee is a toggle plus a price. Off hides the Delivery line and taxes food after rewards only. On still taxes the fee. Delivery minimum stays $15 on food.",
+    ],
+  },
+  {
+    id: "2026-09-11-patch-update-1822",
+    date: "September 11, 2026",
+    title: "Admin tabs scroll, Northfield stays out",
+    added: [
+      "Admin tabs scroll on a phone instead of stacking Payments over Tax. Admin mode stays on one line in the name menu, and category arrows sit 4px from the edge.",
+      "A wrong password stays on sign-in and never opens the desk. Sign-out is one step to guest. Signed-in checkout keeps the account through Review, and Delivery / POS keep the desk while the account refreshes.",
+      "Northfield 08225 is outside delivery even if old paint still covers Tilton — the paint is not erased. Short Egg Harbor addresses pick up the township before the zone check.",
+      "Chat lists the new ticket after you place. Under the delivery minimum, checkout says how much more to add. Blank cook notes stay blank.",
+    ],
+  },
+  {
+    id: "2026-09-11-app-transition",
+    date: "September 11, 2026",
+    title: "South End on the home screen, order alerts, LAN print",
+    added: [
+      "Add to Home Screen is named South End Pizza — cream theme, full icon set, not Grok App.",
+      "After checkout or install, Enable order alerts for Ready / out-for-delivery pings. iPhone needs the home-screen icon first.",
+      "Printer settings take a shop Wi-Fi IP and Test print over Epson ePOS. Bluetooth is a labeled fallback and hides where the browser cannot pair. Completes never wait on print.",
+    ],
+  },
+  {
     id: "2026-09-11-update-auth-isolation-continuity",
     date: "September 11, 2026",
     title: "Wrong password stays on sign-in",

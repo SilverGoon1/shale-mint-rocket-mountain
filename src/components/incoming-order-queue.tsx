@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import { Link } from "@tanstack/react-router";
 import { Bell, Volume2, VolumeX, X } from "lucide-react";
 import { acceptOrder, getAdminShop, listIncomingOrders } from "@/lib/shop-server";
 import { formatShopWhen } from "@/lib/hours";
 import { formatUsd, formatTicketNo, type PosTicket } from "@/lib/shop-types";
 import { lineSummary, payStatusLabel } from "@/lib/ticket-line";
 import { onVisibleInterval } from "@/lib/page-visible";
+import { isUnauthorizedError } from "@/lib/fetch-retry";
 import { PosStaffToast, type PosStaffToastState } from "@/components/pos-staff-toast";
 import { formatAcceptedToast, POS_TOAST_MS } from "@/lib/pos-toast";
 
@@ -53,6 +55,7 @@ export function IncomingOrderQueue() {
   const [muted, setMuted] = useState(false);
   const [src, setSrc] = useState(DEFAULT_ALARM);
   const [toast, setToast] = useState<PosStaffToastState | null>(null);
+  const [authLost, setAuthLost] = useState(false);
   const seen = useRef(new Set<string>());
   const snoozed = useRef(loadSnooze());
   const taken = useRef(new Set<string>());
@@ -120,7 +123,12 @@ export function IncomingOrderQueue() {
     return onVisibleInterval(4000, () => {
       void listIncomingOrders()
         .then(applyIncoming)
-        .catch(() => undefined);
+        .catch((e) => {
+          if (isUnauthorizedError(e)) {
+            setAuthLost(true);
+            setError("Your desk sign-in expired. Sign in again to Accept tickets.");
+          }
+        });
     });
   }, [src]);
 
@@ -134,6 +142,7 @@ export function IncomingOrderQueue() {
   const place = current ? queue.findIndex((t) => t.id === current.id) + 1 : 0;
 
   function take() {
+    if (authLost) return;
     if (!current || busy || taken.current.has(current.id)) return;
     const ticket = current;
     taken.current.add(ticket.id);
@@ -166,6 +175,11 @@ export function IncomingOrderQueue() {
           return;
         }
         taken.current.delete(ticket.id);
+        if (isUnauthorizedError(e)) {
+          setAuthLost(true);
+          setError("Your desk sign-in expired. Sign in again to Accept tickets.");
+          return;
+        }
         setError(msg);
         setQueue((list) => {
           if (list.some((t) => t.id === ticket.id)) return list;
@@ -277,14 +291,26 @@ export function IncomingOrderQueue() {
               <dd>{formatUsd(current.total)}</dd>
             </div>
           </dl>
-          {error ? <p className="form-error">{error}</p> : null}
+          {error ? (
+            <p className="form-error">
+              {error}
+              {authLost ? (
+                <>
+                  {" "}
+                  <Link to="/login" search={{ next: "/admin/pos" }}>
+                    Sign in again
+                  </Link>
+                </>
+              ) : null}
+            </p>
+          ) : null}
           <div className="confirm-actions">
             {current.status === "accepted" || current.status === "preparing" || current.status === "ready" || taken.current.has(current.id) ? (
               <button type="button" className="btn-print" disabled>
                 Accepted
               </button>
             ) : (
-              <button type="button" className="btn-print" disabled={busy} onClick={take}>
+              <button type="button" className="btn-print" disabled={busy || authLost} onClick={take}>
                 {busy ? "Accepting…" : "Accept order"}
               </button>
             )}

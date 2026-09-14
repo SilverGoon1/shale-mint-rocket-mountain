@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
+import { DESK_BOT_SOFT_MAX } from "@/lib/shop-types";
 import { getSql } from "@/lib/db";
 import {
   BOT_PRESETS,
@@ -132,6 +133,9 @@ export const createBotAgent = createServerFn({ method: "POST" })
     const sql = await getSql();
     const clash = await sql.query(`select id from bot_agents where name = $1 limit 1`, [name]);
     if (clash[0]) throw new Error("A bot with that name already exists. Rotate its token instead.");
+    const live = await sql`select count(*)::int as n from bot_agents where enabled is true`;
+    const taken = Number(live[0]?.n || 0);
+    if (taken >= DESK_BOT_SOFT_MAX) throw new Error("14 accounts, 12 extra bots. Existing grants stay.");
     await sql.query(
       `insert into bot_agents (id, name, role, token_hash, scopes, enabled, created_by)
        values ($1,$2,$3,$4,$5::text[], true, $6)`,

@@ -6,10 +6,10 @@ export type PizzaSize = (typeof PIZZA_SIZE_ORDER)[number];
 export type ToppingSide = "whole" | "left" | "right";
 
 export const DEFAULT_TOPPING_PRICES: Record<PizzaSize, number> = {
-  SM: 1.5,
-  MD: 1.75,
-  LG: 2,
-  XL: 2.5,
+  SM: 2.25,
+  MD: 3.25,
+  LG: 4.25,
+  XL: 5.25,
 };
 
 export const DEFAULT_XL_INCHES = '18"';
@@ -79,23 +79,76 @@ export function sanitizeToppings(raw: unknown): PizzaToppingPick[] {
   return out;
 }
 
+export type ToppingPriceRow = { SM: number; MD: number; LG: number; XL: number };
+export type ToppingPricesById = Record<string, ToppingPriceRow>;
+
+export function defaultToppingRow(overrides?: Partial<ToppingPriceRow>): ToppingPriceRow {
+  return {
+    SM: money2(overrides?.SM ?? DEFAULT_TOPPING_PRICES.SM),
+    MD: money2(overrides?.MD ?? DEFAULT_TOPPING_PRICES.MD),
+    LG: money2(overrides?.LG ?? DEFAULT_TOPPING_PRICES.LG),
+    XL: money2(overrides?.XL ?? DEFAULT_TOPPING_PRICES.XL),
+  };
+}
+
+function sizeMoney(v: unknown, fallback: number) {
+  if (v === undefined || v === null || v === "") return money2(fallback);
+  const n = Number(v);
+  if (!Number.isFinite(n)) return money2(fallback);
+  return money2(Math.max(0, Math.min(20, n)));
+}
+
+export function seedToppingPricesById(raw: unknown, defaults?: Partial<ToppingPriceRow>): ToppingPricesById {
+  let src: Record<string, unknown> = {};
+  if (typeof raw === "string") {
+    try {
+      const parsed = JSON.parse(raw) as unknown;
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) src = parsed as Record<string, unknown>;
+    } catch {
+      src = {};
+    }
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    src = raw as Record<string, unknown>;
+  }
+  const fallback = defaultToppingRow(defaults);
+  const out: ToppingPricesById = {};
+  for (const t of PIZZA_TOPPINGS) {
+    const row = src[t.id];
+    const rec = row && typeof row === "object" ? (row as Record<string, unknown>) : {};
+    out[t.id] = {
+      SM: sizeMoney(rec.SM ?? rec.sm, fallback.SM),
+      MD: sizeMoney(rec.MD ?? rec.md, fallback.MD),
+      LG: sizeMoney(rec.LG ?? rec.lg, fallback.LG),
+      XL: sizeMoney(rec.XL ?? rec.xl, fallback.XL),
+    };
+  }
+  return out;
+}
+
 export function toppingPricesFrom(settings: Pick<ShopSettingsPublic, "toppingPriceSm" | "toppingPriceMd" | "toppingPriceLg" | "toppingPriceXl">) {
   return {
     SM: money2(settings.toppingPriceSm || DEFAULT_TOPPING_PRICES.SM),
     MD: money2(settings.toppingPriceMd || DEFAULT_TOPPING_PRICES.MD),
     LG: money2(settings.toppingPriceLg || DEFAULT_TOPPING_PRICES.LG),
     XL: money2(settings.toppingPriceXl || DEFAULT_TOPPING_PRICES.XL),
-  } as Record<PizzaSize, number>;
+  } as ToppingPriceRow;
 }
 
-export function toppingUnit(size: string, settings: ShopSettingsPublic) {
-  const prices = toppingPricesFrom(settings);
+export function toppingRowFor(settings: ShopSettingsPublic, toppingId?: string): ToppingPriceRow {
+  if (toppingId) {
+    const row = settings.toppingPricesById?.[toppingId];
+    if (row) return defaultToppingRow(row);
+  }
+  return toppingPricesFrom(settings);
+}
+
+export function toppingUnit(size: string, settings: ShopSettingsPublic, toppingId?: string) {
   const key: PizzaSize = isPizzaSize(size) ? size : "LG";
-  return prices[key];
+  return toppingRowFor(settings, toppingId)[key];
 }
 
-export function toppingCharge(size: string, side: ToppingSide, settings: ShopSettingsPublic) {
-  const unit = toppingUnit(size, settings);
+export function toppingCharge(size: string, side: ToppingSide, settings: ShopSettingsPublic, toppingId?: string) {
+  const unit = toppingUnit(size, settings, toppingId);
   return money2(side === "whole" ? unit : unit / 2);
 }
 
@@ -120,23 +173,24 @@ export function pizzaSizesFor(item: Pick<MenuItem, "prices">, _settings?: ShopSe
 }
 export function pizzaNote(settings: ShopSettingsPublic, items?: MenuItem[]) {
 	const t = toppingPricesFrom(settings);
-	const bits: string[] = [];
-	const seen = new Set<string>();
+	const fallbackInch: Record<PizzaSize, string> = {
+		SM: '12"',
+		MD: '14"',
+		LG: '16"',
+		XL: DEFAULT_XL_INCHES,
+	};
+	const inchBySize: Partial<Record<PizzaSize, string>> = {};
 	for (const item of items ?? []) {
-		for (const p of pizzaSizesFor(item, settings)) {
-			const key = `${p.label ?? ""}|${p.inches ?? ""}`;
-			if (seen.has(key)) continue;
-			seen.add(key);
-			const name = [p.inches, p.label].filter(Boolean).join(" ");
-			if (name) bits.push(name);
+		for (const p of item.prices) {
+			const label = String(p.label ?? "").trim();
+			if (!isPizzaSize(label)) continue;
+			const inches = String(p.inches ?? "").trim();
+			if (inches && !inchBySize[label]) inchBySize[label] = inches;
 		}
 	}
-	const sizeLine = bits.length ? bits.join(" · ") : `12" small · 14" medium · 16" large`;
-	const hasXl = [...seen].some((k) => k.startsWith("XL"));
-	const tops = hasXl
-		? `${formatUsd(t.SM)} / ${formatUsd(t.MD)} / ${formatUsd(t.LG)} / ${formatUsd(t.XL)}`
-		: `${formatUsd(t.SM)} / ${formatUsd(t.MD)} / ${formatUsd(t.LG)}`;
-	return `${sizeLine}. Extra toppings ${tops} by size. Half toppings are half price.`;
+	const bits = PIZZA_SIZE_ORDER.map((sz) => `${inchBySize[sz] || fallbackInch[sz]} ${sz}`);
+	const tops = `${formatUsd(t.SM)} / ${formatUsd(t.MD)} / ${formatUsd(t.LG)} / ${formatUsd(t.XL)}`;
+	return `${bits.join(" · ")}. Extra toppings ${tops} by size. Half toppings are half price.`;
 }
 export function applyPizzaSizing(categories: MenuCategory[], settings: ShopSettingsPublic): MenuCategory[] {
 	return categories.map((cat) => {
@@ -176,7 +230,7 @@ export function pricePizzaBuild(opts: {
   const left = itemSizePrice(opts.item, size, opts.settings);
   const right = opts.other ? itemSizePrice(opts.other, size, opts.settings) : 0;
   const base = money2(Math.max(left, right));
-  const extras = opts.toppings.reduce((n, t) => n + toppingCharge(size, t.side, opts.settings), 0);
+  const extras = opts.toppings.reduce((n, t) => n + toppingCharge(size, t.side, opts.settings, t.id), 0);
   const unitPrice = money2(base + extras);
   const halfName = opts.other && opts.other.name !== opts.item.name ? opts.other.name : undefined;
   const detail = describeBuild(opts.item.name, size, opts.toppings, halfName);

@@ -6,11 +6,12 @@ import { SessionGate } from "@/components/guards";
 import { StaleCartPrompt } from "@/components/stale-cart";
 import { useCartHydrated } from "@/components/cart-hydrate";
 import { AccountLoading } from "@/components/pizza-spinner";
+import { EnableAlertsButton } from "@/components/order-alerts";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
-import { computeTax, clampTip, CARD_PROCESSOR_LIVE, formatTicketNo, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
+import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatTicketNo, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
 import { etaMinutes, formatShopWhen, isOpenNow, nextOpenSlot, nyHm, nyWallToDate, nyYmd } from "@/lib/hours";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import type { RestaurantInfo } from "@/data/menu";
@@ -266,9 +267,12 @@ function CheckoutForm({
               Create an account
             </Link>
           ) : (
-            <Link to="/account" className="btn-print">
-              View history
-            </Link>
+            <>
+              <EnableAlertsButton />
+              <Link to="/account" className="ed-btn">
+                View history
+              </Link>
+            </>
           )}
           <Link to="/" className="ed-btn">
             Back to the menu
@@ -293,7 +297,7 @@ function CheckoutForm({
   const points = profile?.points ?? 0;
   const maxRedeem = Math.min(Math.floor(points / redeemRate) * redeemRate, Math.floor(subtotal * redeemRate));
   const discount = redeem / redeemRate;
-  const deliveryFee = fulfillment === "delivery" ? settings.deliveryFee : 0;
+  const deliveryFee = checkoutDeliveryFee(settings, fulfillment);
   const { tax, total: preTip } = computeTax(subtotal, discount, deliveryFee, settings.taxRate);
   const tip =
     tipMode === "custom"
@@ -314,7 +318,8 @@ function CheckoutForm({
         return false;
       }
       if (subtotal < settings.minOrderDelivery) {
-        setError(`Delivery minimum is ${formatUsd(settings.minOrderDelivery)}.`);
+        const need = Math.max(0, settings.minOrderDelivery - subtotal);
+        setError(`Add ${formatUsd(need)} more for delivery.`);
         return false;
       }
     }
@@ -380,7 +385,7 @@ function CheckoutForm({
     setError("");
     const payload = {
       fulfillment,
-      notes,
+      notes: notes.trim() || undefined,
       addressLine: address,
       city,
       zip,
@@ -393,7 +398,7 @@ function CheckoutForm({
         qty: l.qty,
         toppings: l.toppings,
         halfItemId: l.halfItemId,
-        comment: l.comment,
+        comment: String(l.comment ?? "").trim() || undefined,
         condiments: l.condiments,
       })),
       redeemPoints: guest ? 0 : redeem,
@@ -498,7 +503,7 @@ function CheckoutForm({
           ) : null}
           <dl className="totals">
             <div>
-              <dt>Subtotal</dt>
+              <dt>Food</dt>
               <dd>{formatUsd(subtotal)}</dd>
             </div>
             {discount ? (
@@ -549,7 +554,7 @@ function CheckoutForm({
         e.preventDefault();
         if (!validateCheckout()) return;
         setError("");
-        onLockGuest?.();
+        if (guest) onLockGuest?.();
         setStep("review");
       }}
     >
@@ -691,8 +696,11 @@ function CheckoutForm({
         {fulfillment === "delivery" ? (
           <div className="ed-shop">
             <p className="ed-sub">
-              Delivery minimum {formatUsd(settings.minOrderDelivery)}. Fee {formatUsd(settings.deliveryFee)}. We
-              check the painted zone after you look up the address.
+              Delivery minimum {formatUsd(settings.minOrderDelivery)}
+              {settings.deliveryFeeOn !== false && settings.deliveryFee > 0
+                ? `. Fee ${formatUsd(settings.deliveryFee)}`
+                : ""}
+              . We check the painted zone after you look up the address.
             </p>
             <label className="ed-field">
               <span>Street</span>
@@ -756,7 +764,7 @@ function CheckoutForm({
             maxLength={500}
             value={notes}
             onChange={(e) => setNotes(e.target.value)}
-            placeholder="e.g. extra napkins, doorbell is broken"
+            placeholder="What's happening?"
             suppressHydrationWarning
           />
         </label>
