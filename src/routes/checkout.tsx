@@ -8,7 +8,7 @@ import { useCartHydrated } from "@/components/cart-hydrate";
 import { AccountLoading } from "@/components/pizza-spinner";
 import { EnableAlertsButton } from "@/components/order-alerts";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
-import { needsEmailOtp } from "@/lib/phone";
+import { needsSignupOtp } from "@/lib/phone";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
@@ -100,7 +100,7 @@ function CheckoutPage() {
           )}
         >
           {({ profile }) =>
-            needsEmailOtp(profile.email) && !profile.emailVerified ? (
+            needsSignupOtp(profile.email) && !profile.emailVerified ? (
               <Navigate to="/login" search={{ next: "/checkout" }} replace />
             ) : (
               <>

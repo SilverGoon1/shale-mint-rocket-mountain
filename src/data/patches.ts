@@ -7,6 +7,16 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-phone-sms-otp",
+    date: "September 14, 2026",
+    title: "Phone signup needs a texted 6-digit code",
+    added: [
+      "Create account with a US phone opens the code screen. We text a 6-digit code that expires in 10 minutes. Email still uses the inbox code. Desk Admin, Google, and X skip this.",
+      "Refreshing while the phone is unverified stays on the code screen. Checkout and Place order wait until the number is verified.",
+      "If SMS is not set up on the live shop, the page says so instead of letting a phone account through with only a password.",
+    ],
+  },
+  {
     id: "2026-09-14-email-otp-social",
     date: "September 14, 2026",
     title: "Email signup needs a 6-digit code",

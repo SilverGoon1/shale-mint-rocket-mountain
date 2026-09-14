@@ -5,7 +5,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
 import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery } from "@/lib/geo";
-import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, toTenDigitPhone } from "@/lib/phone";
+import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
 import { isWingsBuild, parseWingQty, sanitizeBuffaloPicks, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
@@ -571,6 +571,19 @@ async function applySettingsSchema(sql: Sql) {
   )`);
 	await sql.query(`create index if not exists email_signup_codes_user_idx on email_signup_codes (user_id, created_at desc)`);
 	await sql.query(`create index if not exists email_signup_codes_email_idx on email_signup_codes (email, created_at desc)`);
+	await sql.query(`create table if not exists phone_signup_codes (
+    id text primary key,
+    user_id text not null,
+    phone text not null,
+    code_hash text not null,
+    salt text not null,
+    expires_at timestamptz not null,
+    attempts integer not null default 0,
+    consumed_at timestamptz,
+    created_at timestamptz not null default now()
+  )`);
+	await sql.query(`create index if not exists phone_signup_codes_user_idx on phone_signup_codes (user_id, created_at desc)`);
+	await sql.query(`create index if not exists phone_signup_codes_phone_idx on phone_signup_codes (phone, created_at desc)`);
 	const { ensureStaffAdminLoginColumns } = await import("@/lib/staff-credential.server");
 	try {
 		await ensureStaffAdminLoginColumns(sql);
@@ -1836,11 +1849,14 @@ async function assertTwoFactor(sql: Sql, userId: string) {
 async function assertEmailVerifiedForOrder(sql: Sql, userId: string) {
 	const rows = await sql.query(`select email, "emailVerified" as verified from "user" where id = $1 limit 1`, [userId]);
 	const email = String(rows[0]?.email ?? "");
-	if (!needsEmailOtp(email)) return;
 	const verified = rows[0]?.verified === true || rows[0]?.verified === "t" || rows[0]?.verified === "true";
 	if (verified) return;
+	if (!needsEmailOtp(email) && !needsPhoneOtp(email)) return;
 	const credential = await loadCredentialAccount(sql, userId);
 	if (!credential) return;
+	if (needsPhoneOtp(email)) {
+		throw new Error("Verify your phone before placing an order. Check your texts for the 6-digit code.");
+	}
 	throw new Error("Verify your email before placing an order. Check your inbox for the 6-digit code.");
 }
 export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: data.query.trim() })).handler(async ({ data }) => {
@@ -3118,6 +3134,11 @@ export const deleteCustomerAccount = createServerFn({ method: "POST" }).middlewa
 	} catch {
 		/* older shops */
 	}
+	try {
+		await sql`delete from phone_signup_codes where user_id = ${userId}`;
+	} catch {
+		/* older shops */
+	}
 	await sql.query(`delete from "session" where "userId" = $1`, [userId]);
 	await sql.query(`delete from "account" where "userId" = $1`, [userId]);
 	const email = String(target[0].email ?? "").trim();
@@ -3173,8 +3194,10 @@ export const deleteOrder = createServerFn({ method: "POST" }).middleware([authMi
 });
 const RECOVER_FAIL = "We could not recover that account. Check the email or phone, and the name or phone on file.";
 const OTP_TTL_MS = 60_000;
+const SMS_OTP_TTL_MS = 10 * 60_000;
 const OTP_MAX_ATTEMPTS = 5;
 const OTP_HOUR_CAP = 8;
+const TWILIO_VERIFY_SALT = "twilio-verify";
 
 function hashOtp(salt: string, code: string) {
 	return createHash("sha256").update(`southend-otp:${salt}:${code}`).digest();
@@ -3407,6 +3430,141 @@ export const verifySignupEmailCode = createServerFn({ method: "POST" }).validato
 	}
 	await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
 	await sql.query(`update email_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
+	return { ok: true as const };
+});
+
+export const sendSignupPhoneCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const rawPhone = String(data.phone ?? "").trim();
+	const rawEmail = String(data.email ?? "").trim().toLowerCase();
+	const ten = toTenDigitPhone(rawPhone) || phoneFromAuthEmail(rawEmail) || toTenDigitPhone(rawEmail);
+	if (!ten) throw new Error("Enter a 10-digit US phone number.");
+	const email = `${ten}@phone.southend.pizza`;
+	const e164 = toE164(ten);
+	const masked = maskPhone(ten);
+	if (isStaffAdminAccount(undefined, email)) {
+		return { alreadyVerified: true as const, skipped: true as const, phone: masked, expiresIn: 0, resendIn: 0 };
+	}
+	const users = await sql.query(`select id, email, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
+	const user = users[0];
+	if (!user) throw new Error("We could not send a code for that phone. Check the number and try again.");
+	const userId = String(user.id);
+	if (isStaffAdminAccount(userId, email)) {
+		return { alreadyVerified: true as const, skipped: true as const, phone: masked, expiresIn: 0, resendIn: 0 };
+	}
+	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
+	if (verified) {
+		return { alreadyVerified: true as const, phone: masked, expiresIn: 0, resendIn: 0 };
+	}
+	const credential = await loadCredentialAccount(sql, userId);
+	if (!credential) {
+		await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+		return { alreadyVerified: true as const, phone: masked, expiresIn: 0, resendIn: 0 };
+	}
+	const recent = await sql.query(
+		`select created_at from phone_signup_codes where user_id = $1 and created_at > now() - interval '1 hour' order by created_at desc`,
+		[userId],
+	);
+	if (recent.length >= OTP_HOUR_CAP) throw new Error("Too many verification texts. Try again in an hour.");
+	const last = recent[0]?.created_at ? new Date(String(recent[0].created_at)).getTime() : 0;
+	if (last && Date.now() - last < OTP_TTL_MS) throw new Error("A code is already on the way. Wait 60 seconds to send another.");
+	await sql.query(`update phone_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
+
+	const { smsChannel, startTwilioVerify, sendTwilioMessage } = await import("@/lib/sms/twilio.server");
+	const channel = smsChannel();
+	if (channel === "none" && isVercelProduction()) {
+		throw new Error("SMS is not configured for this shop.");
+	}
+
+	const id = `psc-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
+	const expires = new Date(Date.now() + SMS_OTP_TTL_MS);
+	let previewCode: string | undefined;
+
+	if (channel === "verify") {
+		await startTwilioVerify(e164);
+		await sql.query(
+			`insert into phone_signup_codes (id, user_id, phone, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
+			[id, userId, ten, TWILIO_VERIFY_SALT, TWILIO_VERIFY_SALT, expires],
+		);
+	} else {
+		const code = String(randomInt(0, 1_000_000)).padStart(6, "0");
+		const salt = randomBytes(16).toString("hex");
+		const digest = hashOtp(salt, code).toString("hex");
+		await sql.query(
+			`insert into phone_signup_codes (id, user_id, phone, code_hash, salt, expires_at) values ($1,$2,$3,$4,$5,$6)`,
+			[id, userId, ten, digest, salt, expires],
+		);
+		if (channel === "message") {
+			await sendTwilioMessage(e164, `South End Pizza code: ${code} (expires in 10 min).`);
+		} else {
+			console.info(`[sms] Twilio missing — preview send for ${masked}`);
+		}
+		if (channel === "none" || dbSource === "pglite") previewCode = code;
+	}
+
+	return {
+		sent: true as const,
+		alreadyVerified: false as const,
+		phone: masked,
+		expiresIn: 600,
+		resendIn: 60,
+		previewCode,
+	};
+});
+
+export const verifySignupPhoneCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
+	const sql = await getSql();
+	await ensureSettingsSchema(sql);
+	const rawPhone = String(data.phone ?? "").trim();
+	const rawEmail = String(data.email ?? "").trim().toLowerCase();
+	const ten = toTenDigitPhone(rawPhone) || phoneFromAuthEmail(rawEmail) || toTenDigitPhone(rawEmail);
+	const code = String(data.code ?? "").replace(/\D/g, "");
+	if (!ten) throw new Error("Enter a 10-digit US phone number.");
+	const email = `${ten}@phone.southend.pizza`;
+	if (isStaffAdminAccount(undefined, email)) {
+		return { ok: true as const, skipped: true as const };
+	}
+	if (!/^\d{6}$/.test(code)) throw new Error("Enter the 6-digit code we texted you.");
+	const users = await sql.query(`select id, "emailVerified" as verified from "user" where lower(email) = $1 limit 1`, [email]);
+	const user = users[0];
+	if (!user) throw new Error("We could not verify that phone. Try signing up again.");
+	const userId = String(user.id);
+	const verified = user.verified === true || user.verified === "t" || user.verified === "true";
+	if (verified) return { ok: true as const, alreadyVerified: true as const };
+	const rows = await sql.query(
+		`select id, code_hash, salt, expires_at, attempts, consumed_at from phone_signup_codes
+     where user_id = $1 and consumed_at is null order by created_at desc limit 1`,
+		[userId],
+	);
+	const row = rows[0];
+	if (!row) throw new Error("Send a new one-time code first.");
+	if (new Date(String(row.expires_at)).getTime() < Date.now()) {
+		await sql.query(`update phone_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("That code expired. Send a new one.");
+	}
+	const attempts = Math.round(num(row.attempts));
+	if (attempts >= OTP_MAX_ATTEMPTS) {
+		await sql.query(`update phone_signup_codes set consumed_at = now() where id = $1`, [String(row.id)]);
+		throw new Error("Too many tries. Send a new code.");
+	}
+
+	const salt = String(row.salt);
+	let match = false;
+	if (salt === TWILIO_VERIFY_SALT || String(row.code_hash) === TWILIO_VERIFY_SALT) {
+		const { checkTwilioVerify } = await import("@/lib/sms/twilio.server");
+		match = await checkTwilioVerify(toE164(ten), code);
+	} else {
+		const expected = Buffer.from(String(row.code_hash), "hex");
+		const got = hashOtp(salt, code);
+		match = expected.length === got.length && timingSafeEqual(expected, got);
+	}
+	if (!match) {
+		await sql.query(`update phone_signup_codes set attempts = attempts + 1 where id = $1`, [String(row.id)]);
+		throw new Error("That code does not match. Try again.");
+	}
+	await sql.query(`update "user" set "emailVerified" = true, "updatedAt" = now() where id = $1`, [userId]);
+	await sql.query(`update phone_signup_codes set consumed_at = now() where user_id = $1 and consumed_at is null`, [userId]);
 	return { ok: true as const };
 });
 

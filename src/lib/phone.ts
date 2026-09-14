@@ -16,6 +16,11 @@ export function toTenDigitPhone(value: string) {
   return "";
 }
 
+export function toE164(value: string) {
+  const d = toTenDigitPhone(value);
+  return d ? `+1${d}` : "";
+}
+
 export function formatPhone(value: string) {
   const d = toTenDigitPhone(value);
   if (d.length !== 10) return value;
@@ -53,11 +58,30 @@ export function maskEmail(email: string) {
   return `${head}***@${domain}`;
 }
 
-/** Real guest emails must verify. Phone, desk Admin, and empty-skip callers stay off OTP. */
+export function maskPhone(value: string) {
+  const d = toTenDigitPhone(value) || phoneFromAuthEmail(value);
+  if (d.length !== 10) return "••••";
+  return `••••${d.slice(6)}`;
+}
+
+/** Real guest emails must verify. Phone, desk Admin, and empty-skip callers stay off email OTP. */
 export function needsEmailOtp(email: string | null | undefined) {
   const e = String(email ?? "").trim().toLowerCase();
   if (!e) return false;
   if (isPhoneAuthEmail(e)) return false;
   if (isStaffAdminAccount(undefined, e) || isStaffAdminUsername(e)) return false;
   return true;
+}
+
+/** Phone credential accounts must verify by SMS. Staff / empty skip. */
+export function needsPhoneOtp(email: string | null | undefined) {
+  const e = String(email ?? "").trim().toLowerCase();
+  if (!e) return false;
+  if (!isPhoneAuthEmail(e)) return false;
+  if (isStaffAdminAccount(undefined, e) || isStaffAdminUsername(e)) return false;
+  return true;
+}
+
+export function needsSignupOtp(email: string | null | undefined) {
+  return needsEmailOtp(email) || needsPhoneOtp(email);
 }

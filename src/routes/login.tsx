@@ -1,10 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { createFileRoute, Link, Navigate, useNavigate } from "@tanstack/react-router";
 import { X } from "lucide-react";
 import { GROK_PROVIDERS, authClient, authEnabled, dropClientSession } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
-import { identifierToEmail, maskEmail, needsEmailOtp } from "@/lib/phone";
+import { identifierToEmail, maskEmail, maskPhone, needsEmailOtp, needsPhoneOtp } from "@/lib/phone";
 import { captureReferral, peekReferral } from "@/lib/referral";
 import {
   claimReferral,
@@ -12,8 +12,10 @@ import {
   getSocialSignIn,
   getStorefront,
   sendSignupEmailCode,
+  sendSignupPhoneCode,
   updateProfile,
   verifySignupEmailCode,
+  verifySignupPhoneCode,
 } from "@/lib/shop-server";
 import { isStaffAdminAccount, isStaffAdminUsername } from "@/lib/staff-admin";
 import { noteStaffDeskLogin } from "@/lib/shop-server";
@@ -72,6 +74,7 @@ type VerifyStep = {
   email: string;
   masked: string;
   previewCode?: string;
+  channel: "email" | "phone";
 };
 
 function Login() {
@@ -90,9 +93,12 @@ function Login() {
   const [verifyStep, setVerifyStep] = useState<VerifyStep | null>(null);
   const [signupOtp, setSignupOtp] = useState("");
   const [otpLeft, setOtpLeft] = useState(0);
+  const [otpExpires, setOtpExpires] = useState(0);
   const [gatePending, setGatePending] = useState(false);
   const [gateChecked, setGateChecked] = useState(false);
   const [socialConfigured, setSocialConfigured] = useState<boolean | null>(null);
+  const verifyStepRef = useRef<VerifyStep | null>(null);
+  verifyStepRef.current = verifyStep;
 
   const closeTo = (next || "/") as "/";
 
@@ -109,8 +115,8 @@ function Login() {
       .catch(() => setSocialConfigured(false));
   }, []);
 
-  // If a credential email session exists but is unverified, force the OTP step
-  // (blocks refresh / deep-link skip). Phone + OAuth + desk Admin skip.
+  // If a credential session exists but is unverified, force the OTP step
+  // (blocks refresh / deep-link skip). OAuth + desk Admin skip. Phone uses SMS.
   useEffect(() => {
     if (isPending) return;
     if (!user) {
@@ -134,42 +140,60 @@ function Login() {
           .trim()
           .toLowerCase();
         if (!email) {
-          setError("Could not confirm your email. Try signing in again.");
+          setError("Could not confirm your account. Try signing in again.");
           return;
         }
-        if (!needsEmailOtp(email) || me.emailVerified) return;
-        let masked = maskEmail(email);
+        const phone = needsPhoneOtp(email);
+        const mail = needsEmailOtp(email);
+        if ((!phone && !mail) || me.emailVerified) return;
+        let masked = phone ? maskPhone(email) : maskEmail(email);
         let previewCode: string | undefined;
-        let expiresIn = 60;
+        let expiresIn = phone ? 600 : 60;
+        let resendIn = 60;
         try {
-          const sent = await sendSignupEmailCode({ data: { email } });
+          const sent = phone
+            ? await sendSignupPhoneCode({ data: { email } })
+            : await sendSignupEmailCode({ data: { email } });
           if (cancelled) return;
           if (sent.alreadyVerified) return;
-          masked = sent.email;
+          if ("phone" in sent && sent.phone) masked = sent.phone;
+          else if ("email" in sent) masked = sent.email;
           previewCode = sent.previewCode;
-          expiresIn = sent.expiresIn || 60;
+          expiresIn = sent.expiresIn || expiresIn;
+          resendIn = "resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || 60;
         } catch (sendErr) {
           if (cancelled) return;
           const msg = sendErr instanceof Error ? sendErr.message : "Could not send a verification code.";
           if (!/already on the way|wait 60/i.test(msg)) setError(msg);
         }
         if (cancelled) return;
+        if (verifyStepRef.current) return;
         setVerifyStep({
           email,
           masked,
           previewCode,
+          channel: phone ? "phone" : "email",
         });
         setSignupOtp("");
-        setOtpLeft(expiresIn);
+        setOtpLeft(resendIn);
+        setOtpExpires(expiresIn);
       } catch {
+        if (cancelled || verifyStepRef.current) return;
         const email = String(user.primaryEmail ?? "")
           .trim()
           .toLowerCase();
-        if (email && needsEmailOtp(email)) {
-          setVerifyStep({ email, masked: maskEmail(email) });
+        if (email && (needsEmailOtp(email) || needsPhoneOtp(email))) {
+          const phone = needsPhoneOtp(email);
+          setVerifyStep({
+            email,
+            masked: phone ? maskPhone(email) : maskEmail(email),
+            channel: phone ? "phone" : "email",
+          });
           setSignupOtp("");
+          setOtpLeft(60);
+          setOtpExpires(phone ? 600 : 60);
         } else {
-          setError("Could not confirm your email. Try signing in again.");
+          setError("Could not confirm your account. Try signing in again.");
         }
       } finally {
         if (!cancelled) {
@@ -188,6 +212,12 @@ function Login() {
     const t = window.setInterval(() => setOtpLeft((n) => Math.max(0, n - 1)), 1000);
     return () => window.clearInterval(t);
   }, [otpLeft]);
+
+  useEffect(() => {
+    if (otpExpires <= 0) return;
+    const t = window.setInterval(() => setOtpExpires((n) => Math.max(0, n - 1)), 1000);
+    return () => window.clearInterval(t);
+  }, [otpExpires]);
 
   // Keep the form up while a submit is in flight so a session refetch cannot
   // trap the visitor on "Checking sign-in…" after email login.
@@ -208,7 +238,21 @@ function Login() {
   }
   if (user && !isPending && !busy && !verifyStep && !gatePending && gateChecked && !error) return <Navigate to={closeTo} replace />;
 
-  async function beginEmailVerify(email: string) {
+  async function beginVerify(email: string) {
+    if (needsPhoneOtp(email)) {
+      const sent = await sendSignupPhoneCode({ data: { email } });
+      if (sent.alreadyVerified) return true;
+      setVerifyStep({
+        email,
+        masked: sent.phone,
+        previewCode: sent.previewCode,
+        channel: "phone",
+      });
+      setSignupOtp("");
+      setOtpLeft(sent.resendIn || 60);
+      setOtpExpires(sent.expiresIn || 600);
+      return false;
+    }
     if (!needsEmailOtp(email)) return true;
     const sent = await sendSignupEmailCode({ data: { email } });
     if (sent.alreadyVerified) return true;
@@ -216,9 +260,11 @@ function Login() {
       email,
       masked: sent.email,
       previewCode: sent.previewCode,
+      channel: "email",
     });
     setSignupOtp("");
     setOtpLeft(sent.expiresIn || 60);
+    setOtpExpires(sent.expiresIn || 60);
     return false;
   }
 
@@ -263,8 +309,8 @@ function Login() {
         if (invite) {
           void claimReferral({ data: { code: invite } }).catch(() => undefined);
         }
-        if (needsEmailOtp(parsed.email)) {
-          const ok = await beginEmailVerify(parsed.email);
+        if (needsEmailOtp(parsed.email) || needsPhoneOtp(parsed.email)) {
+          const ok = await beginVerify(parsed.email);
           if (!ok) {
             setBusy(false);
             return;
@@ -281,8 +327,8 @@ function Login() {
         if (isStaffAdminAccount(undefined, parsed.email) || isStaffAdminUsername(identifier)) {
           void noteStaffDeskLogin().catch(() => undefined);
         }
-        if (needsEmailOtp(parsed.email)) {
-          const ok = await beginEmailVerify(parsed.email);
+        if (needsEmailOtp(parsed.email) || needsPhoneOtp(parsed.email)) {
+          const ok = await beginVerify(parsed.email);
           if (!ok) {
             setBusy(false);
             return;
@@ -304,7 +350,11 @@ function Login() {
     setError("");
     setBusy(true);
     try {
-      await verifySignupEmailCode({ data: { email: verifyStep.email, code: signupOtp } });
+      if (verifyStep.channel === "phone") {
+        await verifySignupPhoneCode({ data: { email: verifyStep.email, code: signupOtp } });
+      } else {
+        await verifySignupEmailCode({ data: { email: verifyStep.email, code: signupOtp } });
+      }
       setVerifyStep(null);
       void navigate({ to: closeTo, replace: true });
     } catch (err) {
@@ -318,7 +368,10 @@ function Login() {
     setError("");
     setBusy(true);
     try {
-      const sent = await sendSignupEmailCode({ data: { email: verifyStep.email } });
+      const sent =
+        verifyStep.channel === "phone"
+          ? await sendSignupPhoneCode({ data: { email: verifyStep.email } })
+          : await sendSignupEmailCode({ data: { email: verifyStep.email } });
       if (sent.alreadyVerified) {
         setVerifyStep(null);
         void navigate({ to: closeTo, replace: true });
@@ -326,11 +379,13 @@ function Login() {
       }
       setVerifyStep({
         email: verifyStep.email,
-        masked: sent.email,
+        masked: "phone" in sent && sent.phone ? sent.phone : "email" in sent ? sent.email : verifyStep.masked,
         previewCode: sent.previewCode,
+        channel: verifyStep.channel,
       });
       setSignupOtp("");
-      setOtpLeft(sent.expiresIn || 60);
+      setOtpLeft("resendIn" in sent && sent.resendIn ? sent.resendIn : sent.expiresIn || 60);
+      setOtpExpires(sent.expiresIn || (verifyStep.channel === "phone" ? 600 : 60));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Could not send another code.");
     } finally {
@@ -371,24 +426,39 @@ function Login() {
         <p className="shop-brand-kicker">South End Pizza III</p>
         {verifyStep ? (
           <>
-            <h1 id="login-title">Check your inbox</h1>
+            <h1 id="login-title">{verifyStep.channel === "phone" ? "Check your texts" : "Check your inbox"}</h1>
             <p className="ed-sub">
-              We sent a 6-digit code to {verifyStep.masked}. Enter it below to finish setting up your South End Pizza
-              account.
+              {verifyStep.channel === "phone"
+                ? `We sent a 6-digit code to ${verifyStep.masked}. Enter it below to finish setting up your South End Pizza account.`
+                : `We sent a 6-digit code to ${verifyStep.masked}. Enter it below to finish setting up your South End Pizza account.`}
             </p>
             <form className="login-form" onSubmit={(e) => void submitVerify(e)}>
               <div className="mail-slip" role="status">
-                <p className="slip-kind">Inbox · {verifyStep.masked}</p>
-                <strong>Your South End Pizza signup code</strong>
-                {verifyStep.previewCode && otpLeft > 0 ? (
+                <p className="slip-kind">
+                  {verifyStep.channel === "phone" ? `Text · ${verifyStep.masked}` : `Inbox · ${verifyStep.masked}`}
+                </p>
+                <strong>
+                  {verifyStep.channel === "phone"
+                    ? "Your South End Pizza signup code"
+                    : "Your South End Pizza signup code"}
+                </strong>
+                {verifyStep.previewCode && otpExpires > 0 ? (
                   <p className="otp-code">{verifyStep.previewCode}</p>
                 ) : (
                   <p className="ed-sub">
-                    {otpLeft > 0 ? `Enter the 6-digit code. ${otpLeft}s left.` : "That code expired. Send a new one."}
+                    {otpExpires > 0
+                      ? verifyStep.channel === "phone"
+                        ? `Enter the 6-digit code. ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min left.` : `${otpExpires}s left.`}`
+                        : `Enter the 6-digit code. ${otpExpires}s left.`
+                      : "That code expired. Send a new one."}
                   </p>
                 )}
-                {verifyStep.previewCode && otpLeft > 0 ? (
-                  <p className="ed-sub">This shop preview shows the message here. It expires in {otpLeft}s.</p>
+                {verifyStep.previewCode && otpExpires > 0 ? (
+                  <p className="ed-sub">
+                    {verifyStep.channel === "phone"
+                      ? `This shop preview shows the text here. It expires in ${otpExpires >= 60 ? `${Math.ceil(otpExpires / 60)} min` : `${otpExpires}s`}.`
+                      : `This shop preview shows the message here. It expires in ${otpExpires}s.`}
+                  </p>
                 ) : null}
               </div>
               <label className="ed-field">
