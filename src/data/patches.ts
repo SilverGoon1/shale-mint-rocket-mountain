@@ -7,6 +7,14 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-admin-friendlyneigh",
+    date: "September 14, 2026",
+    title: "friendlyneigh is on the desk",
+    added: [
+      "friendlyneigh@proton.me opens Admin and POS after sign-in. No extra grant step.",
+    ],
+  },
+  {
     id: "2026-09-14-phone-sms-otp",
     date: "September 14, 2026",
     title: "Phone signup needs a texted 6-digit code",

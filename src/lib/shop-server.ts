@@ -44,6 +44,7 @@ import {
 	STAFF_ADMIN_NAME,
 	isStaffAdminAccount,
 } from "@/lib/staff-admin";
+import { isShopAdminEmail, SHOP_ADMIN_EMAILS } from "@/lib/shop-admins";
 
 function num(v: unknown) {
 	return moneyNumber(v as string | number | null | undefined);
@@ -594,6 +595,11 @@ async function applySettingsSchema(sql: Sql) {
 		await ensureAdminModeColumns(sql);
 	} catch {
 		/* reads catch missing columns and never 500 */
+	}
+	try {
+		await grantListedShopAdmins(sql);
+	} catch {
+		/* listed emails may not have signed up yet */
 	}
 	try {
 		await sql.query(`alter table shop_settings add column if not exists topping_prices_by_id jsonb not null default '{}'::jsonb`);
@@ -1259,12 +1265,27 @@ async function profileDeskOn(sql: Sql, userId: string) {
 	}
 }
 function silverAccountMatch(email: string, name: string, displayName: string) {
+	if (isShopAdminEmail(email)) return true;
 	const local = email.split("@")[0]?.trim().toLowerCase() ?? "";
 	const labels = [name, displayName].map((s) => s.trim().toLowerCase());
 	const handles = new Set(["silver", "silvergoon", "silvergoonist"]);
 	if (handles.has(local)) return true;
 	if (labels.some((n) => handles.has(n))) return true;
 	return `${email} ${name} ${displayName}`.toLowerCase().includes("silvergoon");
+}
+async function grantListedShopAdmins(sql: Sql) {
+	for (const email of SHOP_ADMIN_EMAILS) {
+		const users = await sql.query(`select id from "user" where lower(email) = $1 limit 1`, [email]);
+		const id = users[0]?.id ? String(users[0].id) : "";
+		if (!id) continue;
+		await ensureProfile(sql, id);
+		try {
+			await sql`update profiles set role = 'admin', admin_mode = true, admin_mode_allowed = true, desk_grant = true where user_id = ${id}`;
+		} catch (err) {
+			if (!isMissingAdminModeColumn(err)) throw err;
+			await sql`update profiles set role = 'admin' where user_id = ${id}`;
+		}
+	}
 }
 async function grantSilverAdmin(sql: Sql, userId?: string) {
 	try {
