@@ -109,9 +109,16 @@ export function AddressSuggest({
               <button
                 type="button"
                 role="option"
+                draggable={false}
                 aria-selected={i === active}
                 data-on={i === active ? "true" : undefined}
                 onMouseEnter={() => setActive(i)}
+                onDragStart={(e) => e.preventDefault()}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                }}
+                onPointerDown={(e) => e.stopPropagation()}
                 onClick={() => pick(hit)}
               >
                 <strong>{hit.street || hit.label.split(",")[0]}</strong>

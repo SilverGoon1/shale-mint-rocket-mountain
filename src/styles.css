@@ -2082,5 +2082,24 @@ body:has(.mobile-bag) .support-dock {
   }
 }
 
+.addr-suggest-list,
+.addr-suggest-list button,
+.account-menu-pop,
+.account-menu-pop a,
+.account-menu-pop button,
+.seg button,
+.ed-btn,
+.btn-print {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
+.addr-suggest-list button,
+.account-menu-pop a,
+.account-menu-pop button {
+  touch-action: manipulation;
+}
+
 
 

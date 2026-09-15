@@ -43,6 +43,14 @@ export function AccountAvatar({
   );
 }
 
+function noDragProps() {
+  return {
+    draggable: false as const,
+    onDragStart: (e: { preventDefault: () => void }) => e.preventDefault(),
+    onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+  };
+}
+
 function SignOutItem() {
   const [signingOut, setSigningOut] = useState(false);
   const [outMsg, setOutMsg] = useState("");
@@ -54,6 +62,7 @@ function SignOutItem() {
         role="menuitem"
         className="account-menu-out"
         disabled={signingOut}
+        {...noDragProps()}
         onClick={() => {
           setSigningOut(true);
           setOutMsg("");
@@ -140,33 +149,33 @@ function AccountMenu({
             </div>
           </div>
           {isAdmin ? (
-            <Link to="/admin/pos" role="menuitem" onClick={() => setOpen(false)}>
+            <Link to="/admin/pos" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
               <Monitor size={16} strokeWidth={2.2} aria-hidden />
               POS
             </Link>
           ) : null}
-          <Link to="/account" role="menuitem" onClick={() => setOpen(false)}>
+          <Link to="/account" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
             <UserRound size={16} strokeWidth={2.2} aria-hidden />
             Your account
           </Link>
-          <Link to="/install" role="menuitem" className="account-menu-app" onClick={() => setOpen(false)}>
+          <Link to="/install" role="menuitem" className="account-menu-app" {...noDragProps()} onClick={() => setOpen(false)}>
             <img src="/icon-180.png" alt="" width={20} height={20} className="account-menu-app-icon" />
             Download App
           </Link>
-          <Link to="/help" role="menuitem" onClick={() => setOpen(false)}>
+          <Link to="/help" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
             <CircleHelp size={16} strokeWidth={2.2} aria-hidden />
             Help
             {unreadChats > 0 ? <span className="nav-pip">{unreadChats}</span> : null}
           </Link>
           {isAdmin ? (
-            <Link to="/admin/menu" search={{}} role="menuitem" onClick={() => setOpen(false)}>
+            <Link to="/admin/menu" search={{}} role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
               <Monitor size={16} strokeWidth={2.2} aria-hidden />
               Admin
               {adminUnread > 0 ? <span className="nav-pip">{adminUnread}</span> : null}
             </Link>
           ) : null}
           {!isAdmin && !adminExists ? (
-            <Link to="/admin/menu" search={{}} role="menuitem" onClick={() => setOpen(false)}>
+            <Link to="/admin/menu" search={{}} role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
               Shop admin
             </Link>
           ) : null}

@@ -27,6 +27,7 @@ export function ZoneMap({
   const modeRef = useRef<Mode>("paint");
   const zoneModeRef = useRef(zoneMode);
   const drawing = useRef(false);
+  const stopDrawRef = useRef<() => void>(() => {});
   const [mode, setMode] = useState<Mode>("paint");
   const [brush, setBrush] = useState(1);
   const [query, setQuery] = useState("");
@@ -94,6 +95,16 @@ export function ZoneMap({
       drawCells(L, layer, cellsRef.current, tomatoColor());
       drawRadius(L, map, radius, zoneMode, radiusMiles);
 
+      let paintRaf = 0;
+      let paintPending: string[] | null = null;
+      const flushPaint = () => {
+        paintRaf = 0;
+        if (paintPending) {
+          onChange(paintPending);
+          paintPending = null;
+        }
+      };
+
       const apply = (lat: number, lng: number) => {
         if (zoneModeRef.current === "radius") return;
         if (modeRef.current === "move") return;
@@ -108,19 +119,28 @@ export function ZoneMap({
             }
           } else if (set.delete(k)) changed = true;
         }
-        if (changed) {
-          drawCells(L, layer, set, tomatoColor());
-          onChange([...set]);
-        }
+        if (!changed) return;
+        drawCells(L, layer, set, tomatoColor());
+        paintPending = [...set];
+        if (!paintRaf) paintRaf = window.requestAnimationFrame(flushPaint);
+      };
+
+      const mapTarget = (e: { originalEvent?: Event }) => {
+        const t = e.originalEvent?.target as Element | null;
+        if (!t) return false;
+        if (t.closest("button, input, select, textarea, a, .addr-suggest, .zone-lookup, .zone-tools")) return false;
+        return Boolean(t.closest(".leaflet-pane, .leaflet-container"));
       };
 
       map.on("mousedown", (e) => {
+        if (!mapTarget(e)) return;
         if (modeRef.current === "move") return;
         drawing.current = true;
         map.dragging.disable();
         apply(e.latlng.lat, e.latlng.lng);
       });
       map.on("click", (e) => {
+        if (!mapTarget(e)) return;
         if (modeRef.current === "move") return;
         apply(e.latlng.lat, e.latlng.lng);
       });
@@ -132,11 +152,21 @@ export function ZoneMap({
         drawing.current = false;
         map.dragging.enable();
       };
+      stopDrawRef.current = stop;
       map.on("mouseup", stop);
       map.on("mouseout", stop);
+      window.addEventListener("pointerup", stop);
+      window.addEventListener("pointercancel", stop);
+      window.addEventListener("mouseup", stop);
+      window.addEventListener("blur", stop);
     });
     return () => {
       dead = true;
+      const stop = stopDrawRef.current;
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
+      window.removeEventListener("mouseup", stop);
+      window.removeEventListener("blur", stop);
       mapRef.current?.remove();
       mapRef.current = null;
     };
@@ -271,6 +301,8 @@ export function ZoneMap({
           e.preventDefault();
           void lookupAddress();
         }}
+        onMouseDown={(e) => e.stopPropagation()}
+        onPointerDown={(e) => e.stopPropagation()}
       >
         <AddressSuggest
           street={query}
