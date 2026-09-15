@@ -2178,5 +2178,14 @@ body:has(.mobile-bag) .support-dock {
   }
 }
 
+.store-main .cat-panel:last-of-type .food-grid {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+}
+@media (width <= 900px) {
+  .store-main .cat-panel:last-of-type .food-grid {
+    padding-bottom: calc(5.5rem + env(safe-area-inset-bottom));
+  }
+}
+
 
 
