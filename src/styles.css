@@ -2119,5 +2119,35 @@ body:has(.mobile-bag) .support-dock {
   gap: 0.45rem;
 }
 
+.shop-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.cat-search-wrap {
+  position: sticky;
+  top: var(--shop-sticky-top, 3.6rem);
+  z-index: 28;
+  margin-bottom: 0;
+}
+@media (width <= 900px) {
+  .shop-header {
+    position: sticky;
+    top: 0;
+  }
+  .cat-search-wrap {
+    top: var(--shop-sticky-top, 4.2rem);
+    padding-top: 0.45rem;
+  }
+}
+.cat-rail,
+.cat-sorter .cat-rail {
+  position: relative;
+  top: auto;
+}
+.store-main .cat-panel {
+  scroll-margin-top: calc(var(--shop-sticky-top, 3.6rem) + 3.6rem);
+}
+
 
 
