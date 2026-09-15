@@ -1,10 +1,10 @@
 import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { Bell, Volume2, VolumeX, X } from "lucide-react";
+import { Bell, Volume2, VolumeX } from "lucide-react";
 import { acceptOrder, getAdminShop, listIncomingOrders } from "@/lib/shop-server";
 import { formatShopWhen } from "@/lib/hours";
 import { formatUsd, formatTicketNo, type PosTicket } from "@/lib/shop-types";
-import { lineSummary, payStatusLabel } from "@/lib/ticket-line";
+import { lineSummary } from "@/lib/ticket-line";
 import { onVisibleInterval } from "@/lib/page-visible";
 import { isUnauthorizedError } from "@/lib/fetch-retry";
 import { PosStaffToast, type PosStaffToastState } from "@/components/pos-staff-toast";
@@ -22,14 +22,6 @@ function loadSnooze() {
     return new Set(Array.isArray(list) ? list : []);
   } catch {
     return new Set<string>();
-  }
-}
-
-function saveSnooze(ids: Set<string>) {
-  try {
-    sessionStorage.setItem(SNOOZE_KEY, JSON.stringify([...ids]));
-  } catch {
-    /* ignore */
   }
 }
 
@@ -139,7 +131,6 @@ export function IncomingOrderQueue() {
   }, [queue.length, muted, src]);
 
   const current = queue.find((t) => t.id === currentId) ?? queue[0];
-  const place = current ? queue.findIndex((t) => t.id === current.id) + 1 : 0;
 
   function take() {
     if (authLost) return;
@@ -194,13 +185,6 @@ export function IncomingOrderQueue() {
 
   if (!current) return toastEl;
 
-  const where =
-    current.fulfillment === "delivery"
-      ? `${current.addressLine}${current.city ? `, ${current.city}` : ""} ${current.zip}`.trim()
-      : current.pickupName
-        ? `Pickup for ${current.pickupName}`
-        : "Pickup at the counter";
-
   return (
     <>
       {toastEl}
@@ -211,13 +195,6 @@ export function IncomingOrderQueue() {
               <Bell size={14} strokeWidth={2.4} /> Incoming · oldest first
             </p>
             <h2 id="order-alert-title">Ticket #{formatTicketNo(current.ticketNo)}</h2>
-            {queue.length > 1 ? (
-              <em className="order-alert-q">
-                {queue.length} tickets waiting for the kitchen · showing {place} of {queue.length}, oldest first
-              </em>
-            ) : (
-              <em className="order-alert-q">Oldest ticket waiting for the kitchen</em>
-            )}
             <button
               type="button"
               className="ed-icon-btn"
@@ -244,8 +221,6 @@ export function IncomingOrderQueue() {
               ? ` · promised ${formatShopWhen(current.scheduledFor)}`
               : " · as soon as ready"}
           </p>
-          <p className="ed-sub">{where}</p>
-          <p className="ed-sub">{payStatusLabel(current.paymentMethod, current.status)}</p>
           <ul className="cart-lines">
             {current.items.slice(0, 8).map((it, i) => (
               <li key={`${it.itemId}-${i}`}>
@@ -306,11 +281,11 @@ export function IncomingOrderQueue() {
           ) : null}
           <div className="confirm-actions">
             {current.status === "accepted" || current.status === "preparing" || current.status === "ready" || taken.current.has(current.id) ? (
-              <button type="button" className="btn-print" disabled>
+              <button type="button" className="btn-print order-alert-accept" disabled>
                 Accepted
               </button>
             ) : (
-              <button type="button" className="btn-print" disabled={busy || authLost} onClick={take}>
+              <button type="button" className="btn-print order-alert-accept" disabled={busy || authLost} onClick={take}>
                 {busy ? "Accepting…" : "Accept order"}
               </button>
             )}
@@ -329,24 +304,6 @@ export function IncomingOrderQueue() {
               </button>
             ) : null}
           </div>
-          <p className="ed-sub">
-            Accept sends this ticket to the kitchen and cannot be tapped twice. Other waiting tickets stay in this
-            pop-up, oldest first.
-          </p>
-          <button
-            type="button"
-            className="order-alert-hide"
-            aria-label="Hide incoming pop-ups for now. Tickets stay on the Open board."
-            onClick={() => {
-              for (const t of queue) snoozed.current.add(t.id);
-              saveSnooze(snoozed.current);
-              setQueue([]);
-              setCurrentId("");
-              audioRef.current?.pause();
-            }}
-          >
-            <X size={14} strokeWidth={2.4} /> Hide pop-ups — tickets stay on Open
-          </button>
         </section>
       </div>
     </>

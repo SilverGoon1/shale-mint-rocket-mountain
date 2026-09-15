@@ -1927,6 +1927,29 @@ body:has(.mobile-bag) .support-dock {
   scroll-margin-top: 1.25rem;
 }
 
+.order-alert .confirm-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-top: 0.85rem;
+}
+
+.order-alert-accept {
+  width: 100%;
+  justify-content: center;
+  min-height: 56px;
+  font-size: 1rem;
+  background: #2f7d4a;
+}
+
+.order-alert-accept:hover:not(:disabled) {
+  background: #25633b;
+}
+
+.order-alert-accept:disabled {
+  background: #2f7d4a;
+}
+
 @media (width <= 420px) {
   .order-recv-actions {
     grid-template-columns: 1fr;
