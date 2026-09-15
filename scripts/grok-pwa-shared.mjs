@@ -7,6 +7,10 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 export const DEFAULT_APP_NAME = "Grok App";
+export const SOUTHEND_PWA_NAME = "South End Pizza";
+export const SOUTHEND_PWA_SHORT = "South End";
+export const SOUTHEND_THEME = "#fbf6ec";
+export const SOUTHEND_BG = "#fbf6ec";
 export const OG_SERVICE_URL_DEFAULT = "https://og.grok.me";
 export const OG_SITE_REL_PATH = "src/lib/og/site.json";
 
@@ -81,6 +85,49 @@ export function appNameFromHost(hostHeader) {
   );
 }
 
+function isOgSite(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function themeFromSite(site = {}) {
+  const raw = String(site.color ?? "").trim();
+  if (!raw) return SOUTHEND_THEME;
+  const hex = raw.startsWith("#") ? raw : `#${raw}`;
+  return /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : SOUTHEND_THEME;
+}
+
+/**
+ * Install name for the web manifest / Apple home-screen title.
+ * site.pwaName wins, then site.title, then a real host slug, then South End.
+ */
+export function resolvePwaIdentity(hostHeader, cwdOrSite) {
+  let site = {};
+  if (typeof cwdOrSite === "string") {
+    site = readOgSite(cwdOrSite);
+  } else if (isOgSite(cwdOrSite)) {
+    site = cwdOrSite;
+  } else {
+    site = readOgSite(process.cwd());
+  }
+
+  const fromSitePwa = String(site.pwaName ?? "").trim();
+  const fromSiteTitle = String(site.title ?? "").trim();
+  const fromHost = appNameFromHost(hostHeader);
+  const name =
+    fromSitePwa ||
+    fromSiteTitle ||
+    (fromHost && fromHost !== DEFAULT_APP_NAME ? fromHost : "") ||
+    SOUTHEND_PWA_NAME;
+  const shortName = String(site.shortName ?? "").trim() || name;
+  const themeColor = themeFromSite(site);
+  return {
+    name,
+    shortName,
+    themeColor,
+    backgroundColor: themeColor || SOUTHEND_BG,
+  };
+}
+
 /** True for Vercel system domains. Envoy rewrites origin Host to these; they SSO-protect `/og.jpg`. */
 function isVercelSystemHost(host) {
   return (
@@ -152,37 +199,45 @@ export function stripInstallParams(url) {
 }
 
 export function renderInstallPageHtml(template, { host, url } = {}) {
+  const identity = resolvePwaIdentity(host);
   return String(template)
-    .replaceAll("{{APP_NAME}}", escapeHtml(appNameFromHost(host)))
+    .replaceAll("{{APP_NAME}}", escapeHtml(identity.name))
     .replaceAll("{{APP_URL}}", escapeHtml(stripInstallParams(url)));
 }
 
-export function renderWebManifest(hostHeader) {
-  const name = appNameFromHost(hostHeader);
+function pwaIcons() {
+  return [
+    { src: "/__grok/icon-180.png", sizes: "180x180", type: "image/png" },
+    { src: "/icon-180.png", sizes: "180x180", type: "image/png" },
+    { src: "/icon-192.png", sizes: "192x192", type: "image/png" },
+    { src: "/icon-512.png", sizes: "512x512", type: "image/png" },
+    { src: "/icon-maskable-192.png", sizes: "192x192", type: "image/png", purpose: "maskable" },
+    { src: "/icon-maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
+  ];
+}
+
+export function renderWebManifest(hostHeader, cwdOrSite) {
+  const identity = resolvePwaIdentity(hostHeader, cwdOrSite);
   return JSON.stringify(
     {
-      name,
-      short_name: name,
+      name: identity.name,
+      short_name: identity.shortName,
       id: "/",
       start_url: "/",
       scope: "/",
       display: "standalone",
-      background_color: "#000000",
-      theme_color: "#000000",
-      icons: [
-        {
-          src: "/__grok/icon-180.png",
-          sizes: "180x180",
-          type: "image/png",
-        },
-      ],
+      background_color: identity.backgroundColor || SOUTHEND_BG,
+      theme_color: identity.themeColor || SOUTHEND_THEME,
+      icons: pwaIcons(),
     },
     null,
     2,
   );
 }
 
-export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
+export function grokPwaHeadTags(appName = DEFAULT_APP_NAME, themeColor = SOUTHEND_THEME) {
+  const title = String(appName ?? "").trim() || DEFAULT_APP_NAME;
+  const theme = String(themeColor ?? "").trim() || SOUTHEND_THEME;
   return [
     // Standalone display comes from the manifest ("display": "standalone");
     // the legacy *-web-app-capable metas it replaces are deliberately absent.
@@ -190,13 +245,13 @@ export function grokPwaHeadTags(appName = DEFAULT_APP_NAME) {
     ["apple-touch-icon", '<link rel="apple-touch-icon" href="/__grok/icon-180.png">'],
     [
       "apple-mobile-web-app-title",
-      `<meta name="apple-mobile-web-app-title" content="${escapeHtml(appName)}">`,
+      `<meta name="apple-mobile-web-app-title" content="${escapeHtml(title)}">`,
     ],
     [
       "apple-mobile-web-app-status-bar-style",
       '<meta name="apple-mobile-web-app-status-bar-style" content="black">',
     ],
-    ["theme-color", '<meta name="theme-color" content="#000000">'],
+    ["theme-color", `<meta name="theme-color" content="${escapeHtml(theme)}">`],
   ];
 }
 
@@ -432,9 +487,11 @@ export function injectGrokPwaHead(html, ctx = {}) {
     host,
     documentTitle,
   );
+  const identity = resolvePwaIdentity(host, site);
+  const appleTitle = String(site.shortName ?? "").trim() || appName;
   let next = stripShareMetaTags(html);
 
-  const missing = grokPwaHeadTags(appName)
+  const missing = grokPwaHeadTags(appleTitle, identity.themeColor)
     .filter(([key]) => {
       if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
       if (key === "apple-touch-icon") return !next.includes('href="/__grok/icon-180.png"');
