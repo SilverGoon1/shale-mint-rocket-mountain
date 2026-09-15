@@ -10,7 +10,9 @@ import {
   HoursPanel,
   PaymentsPanel,
   ShopDetailsAccordions,
+  SharedExtrasPanel,
   TaxPanel,
+  ToppingPricePanel,
   ToppingPricesPanel,
   VacationPanel,
 } from "@/components/shop-ops-panels";
@@ -27,15 +29,21 @@ import {
 } from "@/lib/shop-types";
 import type { RestaurantInfo } from "@/data/menu";
 
-const TABS = ["menu", "toppings", "shop", "cards", "hours", "payments", "tax", "delivery", "printers"] as const;
+const TABS = ["menu", "toppings", "shop", "look", "hours", "payments", "delivery", "printers"] as const;
 type MenuTab = (typeof TABS)[number];
+
+function asMenuTab(raw: unknown): MenuTab | undefined {
+  let s = typeof raw === "string" ? raw : "";
+  if (s === "vacation") s = "hours";
+  if (s === "cards") s = "look";
+  if (s === "tax") s = "payments";
+  return (TABS as readonly string[]).includes(s) ? (s as MenuTab) : undefined;
+}
 
 export const Route = createFileRoute("/admin/menu")({
   validateSearch: (search: Record<string, unknown>): { tab?: MenuTab } => {
-    const raw = typeof search.tab === "string" ? search.tab : undefined;
-    const tab = raw === "vacation" ? "hours" : raw;
-    const ok = tab && TABS.includes(tab as MenuTab) ? (tab as MenuTab) : undefined;
-    return ok ? { tab: ok } : {};
+    const tab = asMenuTab(search.tab);
+    return tab ? { tab } : {};
   },
   component: AdminMenu,
 });
@@ -132,17 +140,15 @@ function AdminMenu() {
       <SaveToast toast={toast} />
       <div className="page-card">
         <h1>Menu & shop details</h1>
-        <p className="ed-sub">Menu, topping prices, shop details, cards, hours, payments, tax, delivery, and printers — each tab saves on its own.</p>
         <div className="seg center-tabs menu-ops-tabs" role="tablist" aria-label="Menu and shop details">
           {(
             [
               ["menu", "Menu"],
               ["toppings", "Toppings"],
               ["shop", "Shop details"],
-              ["cards", "Card Editor"],
+              ["look", "Look"],
               ["hours", "Hours"],
               ["payments", "Payments"],
-              ["tax", "Tax"],
               ["delivery", "Delivery"],
               ["printers", "Printers"],
             ] as const
@@ -179,8 +185,10 @@ function AdminMenu() {
       ) : null}
 
       {tab === "toppings" && settings ? (
-        <div className="settings-page">
+        <div className="settings-page toppings-ops">
           <ToppingPricesPanel settings={settings} setSettings={setSettings} />
+          <SharedExtrasPanel />
+          <ToppingPricePanel settings={settings} setSettings={setSettings} />
           <button type="button" className="btn-print" onClick={() => saveMenuAndSettings("Topping prices are live.")}>
             Save toppings
           </button>
@@ -190,7 +198,6 @@ function AdminMenu() {
 
       {tab === "shop" && settings ? (
         <div className="settings-page">
-          <p className="ed-sub">Open one section at a time. Save all still publishes menu, extras, and shop copy.</p>
           <ShopDetailsAccordions settings={settings} setSettings={setSettings} />
           <button type="button" className="btn-print" onClick={() => saveMenuAndSettings("Shop details are live.")}>
             Save shop details
@@ -199,9 +206,9 @@ function AdminMenu() {
         </div>
       ) : null}
 
-      {tab !== "menu" && tab !== "cards" && !settings ? <div className="page-skel">Loading…</div> : null}
+      {tab !== "menu" && tab !== "look" && !settings ? <div className="page-skel">Loading…</div> : null}
 
-      {tab === "cards" ? (
+      {tab === "look" ? (
         <div className="settings-page">
           <CardEditor />
           <button
@@ -222,7 +229,7 @@ function AdminMenu() {
               );
             }}
           >
-            Save cards
+            Save look
           </button>
           {msg ? <p className="ed-sub">{msg}</p> : null}
         </div>
@@ -293,12 +300,6 @@ function AdminMenu() {
           >
             Save payments
           </button>
-          {msg ? <p className="ed-sub">{msg}</p> : null}
-        </div>
-      ) : null}
-
-      {tab === "tax" && settings ? (
-        <div className="settings-page">
           <TaxPanel settings={settings} setSettings={setSettings} />
           <button
             type="button"

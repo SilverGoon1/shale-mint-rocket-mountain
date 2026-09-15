@@ -215,7 +215,7 @@ export function TaxPanel({
   const feeOn = settings.deliveryFeeOn !== false;
   return (
     <section className="page-card">
-      <h2>Tax rate</h2>
+      <h2>Tax</h2>
       <p className="ed-sub">
         Applied at checkout on food after rewards{feeOn ? ", plus the delivery fee when delivery is on" : ""}. Pickup has no
         delivery fee. New Jersey prepared-food default is 6.625%. Tips are collected after tax and are not taxed.
@@ -792,12 +792,7 @@ export function RewardsPanel({
 }
 
 const SHOP_ACC_KEY = "southend-shop-accordion";
-const SHOP_SECTIONS = [
-  ["topping-defaults", "Extra topping prices"],
-  ["xl", "Bulk XL fill"],
-  ["extras", "Shared extras"],
-  ["identity", "Shop identity"],
-] as const;
+const SHOP_SECTIONS = [["identity", "Shop identity"]] as const;
 type ShopSection = (typeof SHOP_SECTIONS)[number][0];
 
 function ShopAccItem({
@@ -906,15 +901,6 @@ export function ShopDetailsAccordions({
   }
   return (
     <div className="shop-acc">
-      <ShopAccItem id="topping-defaults" title="Extra topping prices" open={open === "topping-defaults"} onToggle={toggle}>
-        <ToppingPricePanel settings={settings} setSettings={setSettings} embedded />
-      </ShopAccItem>
-      <ShopAccItem id="xl" title="Bulk XL fill" open={open === "xl"} onToggle={toggle}>
-        <BulkXlFillPanel embedded />
-      </ShopAccItem>
-      <ShopAccItem id="extras" title="Shared extras" open={open === "extras"} onToggle={toggle}>
-        <SharedExtrasPanel embedded />
-      </ShopAccItem>
       <ShopAccItem id="identity" title="Shop identity" open={open === "identity"} onToggle={toggle}>
         <ShopIdentityPanel embedded />
       </ShopAccItem>

@@ -2202,5 +2202,44 @@ body:has(.mobile-bag) .support-dock {
 }
 .update-banner { display: none; }
 
+.menu-ops-tabs.seg {
+  gap: 0.28rem;
+  padding: 0.28rem;
+  background: #f3e6d4;
+  border: 1px solid #c4a574;
+  border-radius: 999px;
+}
+.menu-ops-tabs.seg button {
+  font-family: Fraunces, Georgia, serif;
+  font-weight: 700;
+  padding: 0.38rem 0.7rem;
+  color: #4a2e1a;
+  background: transparent;
+  border-radius: 999px;
+}
+.menu-ops-tabs.seg button[data-on="true"],
+.menu-ops-tabs.seg button[aria-selected="true"] {
+  background: #8b1e1e;
+  color: #fffaf2;
+}
+.menu-ops-page > .page-card > .ed-sub { display: none; }
+.toppings-ops .plain-table th,
+.toppings-ops .plain-table td {
+  padding: 0.28rem 0.4rem;
+}
+.toppings-ops .ed-field,
+.toppings-ops .ed-input,
+.toppings-ops .ed-price {
+  padding: 0.28rem 0.4rem;
+}
+.toppings-ops .two-col,
+.toppings-ops .topping-price-grid,
+.toppings-ops tbody {
+  gap: 0.28rem;
+}
+.toppings-ops .plain-table tbody tr + tr td {
+  padding-top: 0.28rem;
+}
+
 
 
