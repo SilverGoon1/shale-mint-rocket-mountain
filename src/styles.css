@@ -2131,8 +2131,9 @@ body:has(.mobile-bag) .support-dock {
   z-index: 28;
   margin-top: 0;
   margin-bottom: 0;
-  padding-top: 0 !important;
+  padding-top: 0.45rem !important;
   border-top: 0;
+  background: #161311;
 }
 @media (width <= 900px) {
   .shop-header {
@@ -2141,7 +2142,8 @@ body:has(.mobile-bag) .support-dock {
   }
   .cat-search-wrap {
     top: calc(var(--shop-sticky-top, 3.6rem) - 2px);
-    padding-top: 0 !important;
+    padding-top: 0.45rem !important;
+    background: #161311;
   }
 }
 .cat-rail,
