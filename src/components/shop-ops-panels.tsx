@@ -1,7 +1,9 @@
 import { useState, type ReactNode } from "react";
 import { ChevronDown, ChevronUp } from "lucide-react";
+import { AddressSuggest } from "@/components/address-suggest";
 import { PaymentProcessorPanel } from "@/components/payment-processor";
 import { DAY_KEYS, DAY_LABELS, etaMinutes, type DayKey, type WeeklyHours } from "@/lib/hours";
+import type { AddressSuggestion, DeliveryFailReason } from "@/lib/geo";
 import {
   DEFAULT_TOPPING_PRICES,
   PIZZA_SIZE_ORDER,
@@ -14,6 +16,7 @@ import {
 import { checkoutDeliveryFee, computeTax, formatUsd, anyProcessorLive, type ProcessorSecretStatus, type ShopSettingsPublic } from "@/lib/shop-types";
 import { isExtraKind, type ExtraKind } from "@/lib/condiments";
 import { useMenuStore } from "@/lib/menu-store";
+import { checkDeliveryAddress } from "@/lib/shop-server";
 
 export function HoursPanel({
   settings,
@@ -554,7 +557,153 @@ export function DeliveryPanel({
             : "A delivery zone is painted. Addresses outside it stay pickup-only."
           : "No zone yet — customers can only choose pickup."}
       </p>
+      {mode === "paint" ? (
+        <label className="toggle-row">
+          <input
+            className="toggle"
+            type="checkbox"
+            checked={settings.blockNorthfield !== false}
+            onChange={(e) => setSettings({ ...settings, blockNorthfield: e.target.checked })}
+          />
+          <span>Do not deliver to Northfield</span>
+        </label>
+      ) : null}
+      <TestAddressCard />
     </section>
+  );
+}
+
+function TestAddressLine({
+  street,
+  miles,
+  deliverable,
+  reason,
+}: {
+  street: string;
+  miles: string;
+  deliverable: boolean;
+  reason: string;
+}) {
+  return (
+    <p className="ed-sub">
+      <strong>{street}</strong>
+      <br />
+      {miles} mi from 443 Zion Rd
+      <br />
+      {deliverable ? "We deliver" : "Delivery unavailable"}
+      {reason ? (
+        <>
+          <br />
+          {reason}
+        </>
+      ) : null}
+    </p>
+  );
+}
+
+function TestAddressCard() {
+  const [street, setStreet] = useState("");
+  const [picked, setPicked] = useState<AddressSuggestion | null>(null);
+  const [list, setList] = useState("");
+  const [rows, setRows] = useState<AddressSuggestion[]>([]);
+  const [busy, setBusy] = useState(false);
+
+  function applyHit(hit: AddressSuggestion) {
+    setPicked(hit);
+    setStreet(hit.street || hit.label);
+  }
+
+  return (
+    <div className="page-card" style={{ margin: "0.85rem 0 0" }}>
+      <h2>Test an address</h2>
+      <label className="ed-field">
+        <span>Street</span>
+        <AddressSuggest
+          street={street}
+          onStreetChange={(v) => {
+            setStreet(v);
+            setPicked(null);
+          }}
+          onPick={applyHit}
+          placeholder="Street, town, or paste a Google Maps link"
+        />
+      </label>
+      {picked ? (
+        <TestAddressLine
+          street={picked.street || picked.label}
+          miles={(picked.miles ?? 0).toFixed(1)}
+          deliverable={picked.deliverable}
+          reason={picked.reason || (picked.deliverable ? "" : "not found")}
+        />
+      ) : null}
+      <label className="ed-field">
+        <span>Check a list</span>
+        <textarea
+          className="ed-input"
+          rows={4}
+          value={list}
+          placeholder="One address or maps link per line"
+          onChange={(e) => setList(e.target.value)}
+        />
+      </label>
+      <button
+        type="button"
+        className="ed-btn"
+        disabled={busy}
+        onClick={() => {
+          const lines = list
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+          if (!lines.length) return;
+          setBusy(true);
+          void Promise.all(
+            lines.map((query) =>
+              checkDeliveryAddress({ data: { query } })
+                .then((r) => ({
+                  label: r.label || query,
+                  street: r.street || query,
+                  city: r.city,
+                  county: r.county,
+                  zip: r.zip,
+                  lat: r.lat ?? 0,
+                  lng: r.lng ?? 0,
+                  deliverable: r.deliverable,
+                  miles: r.miles ?? 0,
+                  reason: (r.reason || (r.found ? "" : "not found")) as DeliveryFailReason,
+                }))
+                .catch(
+                  (): AddressSuggestion => ({
+                    label: query,
+                    street: query,
+                    city: "",
+                    county: "",
+                    zip: "",
+                    lat: 0,
+                    lng: 0,
+                    deliverable: false,
+                    miles: 0,
+                    reason: "not found",
+                  }),
+                ),
+            ),
+          )
+            .then(setRows)
+            .finally(() => setBusy(false));
+        }}
+      >
+        {busy ? "Checking…" : "Check"}
+      </button>
+      {rows.map((row, i) => (
+        <TestAddressLine
+          key={`${row.street}-${i}`}
+          street={row.street || row.label}
+          miles={(row.miles ?? 0).toFixed(1)}
+          deliverable={row.deliverable}
+          reason={row.reason || (row.deliverable ? "" : "not found")}
+        />
+      ))}
+    </div>
   );
 }
 

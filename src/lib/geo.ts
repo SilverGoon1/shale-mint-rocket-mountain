@@ -10,17 +10,20 @@ export const SEARCH_BOUNDS = {
   south: 39.28,
   north: 39.50,
   west: -74.78,
-  east: -74.48,
+  east: -74.32,
 };
 
 export const CELL = 0.0032;
-export const MAP_CENTER: [number, number] = [39.3787, -74.6051];
+/** 443 Zion Rd, Egg Harbor Township */
+export const MAP_CENTER: [number, number] = [39.3616, -74.62664];
 export const SHOP_LAT = MAP_CENTER[0];
 export const SHOP_LNG = MAP_CENTER[1];
 
 /** Nominatim viewbox: west,north,east,south */
 export const NOMINATIM_VIEWBOX = `${ZONE_BOUNDS.west},${ZONE_BOUNDS.north},${ZONE_BOUNDS.east},${ZONE_BOUNDS.south}`;
 export const SEARCH_VIEWBOX = `${SEARCH_BOUNDS.west},${SEARCH_BOUNDS.north},${SEARCH_BOUNDS.east},${SEARCH_BOUNDS.south}`;
+
+export type DeliveryFailReason = "outside radius" | "outside painted zone" | "Northfield blocked" | "not found" | "";
 
 export type AddressSuggestion = {
   label: string;
@@ -31,6 +34,8 @@ export type AddressSuggestion = {
   lat: number;
   lng: number;
   deliverable: boolean;
+  miles?: number;
+  reason?: DeliveryFailReason;
 };
 
 export function parseNominatimHit(hit: {
@@ -156,12 +161,44 @@ export function isAddressDeliverable(opts: {
   label?: string;
   city?: string;
   zip?: string;
+  blockNorthfield?: boolean;
 }) {
+  return !deliveryFailReason(opts);
+}
+
+export function deliveryFailReason(opts: {
+  mode: "paint" | "radius";
+  radiusMiles: number;
+  cells: string[];
+  lat: number;
+  lng: number;
+  query?: string;
+  label?: string;
+  city?: string;
+  zip?: string;
+  blockNorthfield?: boolean;
+}): DeliveryFailReason {
+  if (!Number.isFinite(opts.lat) || !Number.isFinite(opts.lng)) return "not found";
   if (opts.mode === "radius") {
-    return Number.isFinite(opts.lat) && Number.isFinite(opts.lng) && inRadius(opts.lat, opts.lng, opts.radiusMiles);
+    return inRadius(opts.lat, opts.lng, opts.radiusMiles) ? "" : "outside radius";
   }
-  if (isNorthfieldDelivery(opts)) return false;
-  return opts.cells.length > 0 && cellSetHas(opts.cells, opts.lat, opts.lng);
+  if (opts.blockNorthfield !== false && isNorthfieldDelivery(opts)) return "Northfield blocked";
+  if (!opts.cells.length || !cellSetHas(opts.cells, opts.lat, opts.lng)) return "outside painted zone";
+  return "";
+}
+
+export function isMapsQuery(query: string) {
+  return /https?:\/\/(?:www\.)?(?:maps\.google\.|google\.[^/\s]+\/maps|maps\.app\.goo\.gl)/i.test(query);
+}
+
+export function parseMapsLatLng(url: string): { lat: number; lng: number } | null {
+  const at = url.match(/@(-?\d+\.\d+),(-?\d+\.\d+)/);
+  if (at) return { lat: Number(at[1]), lng: Number(at[2]) };
+  const bang = url.match(/!3d(-?\d+\.\d+)!4d(-?\d+\.\d+)/);
+  if (bang) return { lat: Number(bang[1]), lng: Number(bang[2]) };
+  const q = url.match(/[?&](?:q|query|ll)=(-?\d+\.\d+)\s*,\s*(-?\d+\.\d+)/i);
+  if (q) return { lat: Number(q[1]), lng: Number(q[2]) };
+  return null;
 }
 
 export function nominatimViewboxForRadius(miles: number) {

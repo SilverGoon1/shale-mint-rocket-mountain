@@ -94,6 +94,15 @@ export function ZoneMap({
       radiusLayerRef.current = radius;
       drawCells(L, layer, cellsRef.current, tomatoColor());
       drawRadius(L, map, radius, zoneMode, radiusMiles);
+      L.circleMarker(MAP_CENTER, {
+        radius: 8,
+        color: creamColor(),
+        fillColor: tomatoColor(),
+        fillOpacity: 1,
+        weight: 3,
+      })
+        .bindPopup("South End Pizza III · 443 Zion Rd")
+        .addTo(map);
 
       let paintRaf = 0;
       let paintPending: string[] | null = null;
@@ -361,15 +370,6 @@ function drawRadius(
     fillColor: tomatoColor(),
     fillOpacity: 0.12,
   }).addTo(layer);
-  L.circleMarker(MAP_CENTER, {
-    radius: 8,
-    color: creamColor(),
-    fillColor: tomatoColor(),
-    fillOpacity: 1,
-    weight: 3,
-  })
-    .bindPopup("South End Pizza III")
-    .addTo(layer);
   const zoom = miles <= 3 ? 13 : miles <= 8 ? 12 : miles <= 15 ? 11 : 10;
   map.setView(MAP_CENTER, zoom, { animate: true });
 }

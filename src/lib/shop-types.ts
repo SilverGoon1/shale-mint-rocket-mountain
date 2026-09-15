@@ -198,6 +198,7 @@ export type ShopSettingsPublic = {
   hasZones: boolean;
   deliveryZoneMode: "paint" | "radius";
   deliveryRadiusMiles: number;
+  blockNorthfield: boolean;
   taxRate: number;
   prepMinutes: number;
   deliveryMinutes: number;

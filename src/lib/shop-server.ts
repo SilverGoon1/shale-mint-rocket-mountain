@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { CELL, MAP_CENTER, cellKey, isAddressDeliverable, expandDeliveryQuery, SEARCH_VIEWBOX, nominatimViewboxForRadius, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
+import { CELL, MAP_CENTER, SHOP_LAT, SHOP_LNG, cellKey, deliveryFailReason, expandDeliveryQuery, isAddressDeliverable, isMapsQuery, milesBetween, nominatimViewboxForRadius, parseMapsLatLng, parseNominatimHit, SEARCH_VIEWBOX, type AddressSuggestion, type DeliveryFailReason } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
@@ -610,6 +610,7 @@ async function applySettingsSchema(sql: Sql) {
 	try {
 		await sql.query(`alter table shop_settings add column if not exists delivery_zone_mode text not null default 'paint'`);
 		await sql.query(`alter table shop_settings add column if not exists delivery_radius_miles numeric not null default 5`);
+		await sql.query(`alter table shop_settings add column if not exists block_northfield boolean not null default true`);
 		await sql.query(`alter table shop_settings add column if not exists payment_accounts jsonb not null default '[]'::jsonb`);
 		await sql.query(`alter table shop_settings add column if not exists payment_secrets jsonb not null default '{}'::jsonb`);
 		await sql.query(`alter table orders add column if not exists voided_at timestamptz`);
@@ -1004,6 +1005,7 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		hasZones,
 		deliveryZoneMode: parseDeliveryZoneMode(row.delivery_zone_mode),
 		deliveryRadiusMiles: clampDeliveryRadius(row.delivery_radius_miles),
+		blockNorthfield: row.block_northfield === void 0 || row.block_northfield === null ? true : bool(row.block_northfield),
 		taxRate: row.tax_rate === void 0 || row.tax_rate === null || row.tax_rate === "" ? 6.625 : Math.max(0, num(row.tax_rate)),
 		prepMinutes: Math.max(5, Math.round(num(row.prep_minutes) || 25)),
 		deliveryMinutes: Math.max(5, Math.round(num(row.delivery_minutes) || 40)),
@@ -1079,7 +1081,8 @@ async function zoneCells(sql: Sql): Promise<string[]> {
 function zonePolicyFromRow(row: Record<string, unknown>, cells: string[]) {
 	const mode = parseDeliveryZoneMode(row.delivery_zone_mode);
 	const radiusMiles = clampDeliveryRadius(row.delivery_radius_miles);
-	return { mode, radiusMiles, cells, hasZones: deliveryHasZones(mode, radiusMiles, cells.length) };
+	const blockNorthfield = row.block_northfield === void 0 || row.block_northfield === null ? true : bool(row.block_northfield);
+	return { mode, radiusMiles, cells, blockNorthfield, hasZones: deliveryHasZones(mode, radiusMiles, cells.length) };
 }
 
 async function loadZonePolicy(sql: Sql) {
@@ -1927,48 +1930,34 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 	if (!data.query) throw new Error("Enter a street address.");
 	const sql = await getSql();
 	const policy = await loadZonePolicy(sql);
-	const original = data.query;
-	const q = expandDeliveryQuery(original);
-	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : SEARCH_VIEWBOX;
-	let hits = await nominatimSearch(q, viewbox, 1);
-	if (!hits[0]) {
-		for (const town of SUGGEST_FALLBACK_TOWNS) {
-			hits = await nominatimSearch(`${original}, ${town}`, viewbox, 1);
-			if (hits[0]) break;
-		}
+	const hits = await lookupDeliveryHits(data.query, policy);
+	const hit = hits[0];
+	if (!hit) {
+		return {
+			found: false,
+			deliverable: false,
+			label: "",
+			street: data.query,
+			city: "",
+			county: "",
+			zip: "",
+			miles: 0,
+			reason: "not found" as DeliveryFailReason,
+		};
 	}
-	if (!hits[0]) return {
-		found: false,
-		deliverable: false,
-		label: "",
-		street: "",
-		city: "",
-		county: "",
-		zip: "",
-	};
-	const parsed = parseNominatimHit(hits[0]);
-	const deliverable = isAddressDeliverable({
-		mode: policy.mode,
-		radiusMiles: policy.radiusMiles,
-		cells: policy.cells,
-		lat: parsed.lat,
-		lng: parsed.lng,
-		query: original,
-		label: parsed.label,
-		city: parsed.city,
-		zip: parsed.zip,
-	});
 	return {
 		found: true,
-		deliverable,
-		label: parsed.label,
-		street: parsed.street,
-		city: parsed.city,
-		county: parsed.county,
-		zip: parsed.zip,
-		lat: parsed.lat,
-		lng: parsed.lng,
-		mapsUrl: `https://www.google.com/maps/search/?api=1&query=${parsed.lat},${parsed.lng}`
+		deliverable: hit.deliverable,
+		label: hit.label,
+		street: hit.street,
+		city: hit.city,
+		county: hit.county,
+		zip: hit.zip,
+		lat: hit.lat,
+		lng: hit.lng,
+		miles: hit.miles ?? 0,
+		reason: hit.reason ?? "",
+		mapsUrl: `https://www.google.com/maps/search/?api=1&query=${hit.lat},${hit.lng}`,
 	};
 });
 
@@ -1979,91 +1968,177 @@ const SUGGEST_FALLBACK_TOWNS = [
 	"Pleasantville, NJ",
 	"Somers Point, NJ",
 	"Egg Harbor Township, NJ",
+	"Absecon, NJ",
+	"Brigantine, NJ",
 	"Atlantic County, NJ",
 ];
 
+type ZonePolicy = {
+	mode: "paint" | "radius";
+	radiusMiles: number;
+	cells: string[];
+	blockNorthfield: boolean;
+};
+
 type NominatimRow = { lat: string; lon: string; display_name: string; address?: Record<string, string> };
+
+function timedFetch(url: string, init: RequestInit = {}, ms = 4000) {
+	const ac = new AbortController();
+	const timer = setTimeout(() => ac.abort(), ms);
+	return fetch(url, { ...init, signal: ac.signal }).finally(() => clearTimeout(timer));
+}
 
 async function nominatimSearch(query: string, viewbox: string, limit: number) {
 	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}&countrycodes=us&viewbox=${encodeURIComponent(viewbox)}&q=${encodeURIComponent(query)}`;
-	const ac = new AbortController();
-	const timer = setTimeout(() => ac.abort(), 4000);
 	try {
-		const res = await fetch(url, {
-			headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" },
-			signal: ac.signal,
-		});
+		const res = await timedFetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 		if (!res.ok) return [] as NominatimRow[];
 		const data = await res.json();
 		return Array.isArray(data) ? (data as NominatimRow[]) : [];
 	} catch {
 		return [] as NominatimRow[];
-	} finally {
-		clearTimeout(timer);
 	}
 }
 
-function suggestionFromHit(
-	row: NominatimRow,
-	policy: { mode: "paint" | "radius"; radiusMiles: number; cells: string[] },
-	raw: string,
-): AddressSuggestion | null {
-	const parsed = parseNominatimHit(row);
-	if (!parsed.street || !Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lng)) return null;
+async function nominatimReverse(lat: number, lng: number): Promise<NominatimRow | null> {
+	const url = `https://nominatim.openstreetmap.org/reverse?format=json&addressdetails=1&lat=${lat}&lon=${lng}`;
+	try {
+		const res = await timedFetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+		if (!res.ok) return null;
+		const data = (await res.json()) as NominatimRow;
+		if (!data || !data.lat) return null;
+		return data;
+	} catch {
+		return null;
+	}
+}
+
+async function expandMapsUrl(url: string) {
+	if (!/maps\.app\.goo\.gl|goo\.gl\/maps/i.test(url)) return url;
+	try {
+		const res = await timedFetch(url, { method: "GET", redirect: "follow", headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+		return res.url || url;
+	} catch {
+		return url;
+	}
+}
+
+async function censusGeocode(address: string): Promise<NominatimRow | null> {
+	const url = `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress?address=${encodeURIComponent(address)}&benchmark=Public_AR_Current&format=json`;
+	try {
+		const res = await timedFetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+		if (!res.ok) return null;
+		const data = (await res.json()) as {
+			result?: { addressMatches?: Array<{ matchedAddress?: string; coordinates?: { x?: number; y?: number } }> };
+		};
+		const match = data.result?.addressMatches?.[0];
+		const lng = Number(match?.coordinates?.x);
+		const lat = Number(match?.coordinates?.y);
+		if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+		return {
+			lat: String(lat),
+			lon: String(lng),
+			display_name: String(match?.matchedAddress ?? address),
+			address: {},
+		};
+	} catch {
+		return null;
+	}
+}
+
+function decorateHit(parsed: AddressSuggestion, policy: ZonePolicy, raw: string): AddressSuggestion {
+	const reason = deliveryFailReason({
+		mode: policy.mode,
+		radiusMiles: policy.radiusMiles,
+		cells: policy.cells,
+		lat: parsed.lat,
+		lng: parsed.lng,
+		query: raw,
+		label: parsed.label,
+		city: parsed.city,
+		zip: parsed.zip,
+		blockNorthfield: policy.blockNorthfield,
+	});
+	const miles = Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng) ? milesBetween(SHOP_LAT, SHOP_LNG, parsed.lat, parsed.lng) : 0;
 	return {
 		...parsed,
-		deliverable: isAddressDeliverable({
-			mode: policy.mode,
-			radiusMiles: policy.radiusMiles,
-			cells: policy.cells,
-			lat: parsed.lat,
-			lng: parsed.lng,
-			query: raw,
-			label: parsed.label,
-			city: parsed.city,
-			zip: parsed.zip,
-		}),
+		street: parsed.street || parsed.label.split(",")[0]?.trim() || raw,
+		deliverable: !reason,
+		miles,
+		reason,
 	};
 }
 
-export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: String(data.query ?? "").trim() })).handler(async ({ data }) => {
-	const raw = data.query;
-	if (raw.length < 3) return { hits: [] as AddressSuggestion[] };
-	const key = raw.toLowerCase();
-	const cached = suggestCache.get(key);
-	if (cached && Date.now() - cached.at < 5 * 60_000) return { hits: cached.hits };
-	const policy = await loadZonePolicy(await getSql());
-	const q = expandDeliveryQuery(raw);
+function suggestionFromHit(row: NominatimRow, policy: ZonePolicy, raw: string): AddressSuggestion | null {
+	const parsed = parseNominatimHit(row);
+	if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lng)) return null;
+	return decorateHit(parsed, policy, raw);
+}
+
+async function lookupDeliveryHits(raw: string, policy: ZonePolicy): Promise<AddressSuggestion[]> {
 	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : SEARCH_VIEWBOX;
+	if (isMapsQuery(raw)) {
+		const expanded = await expandMapsUrl(raw);
+		const pin = parseMapsLatLng(expanded) ?? parseMapsLatLng(raw);
+		if (pin) {
+			const rev = await nominatimReverse(pin.lat, pin.lng);
+			const row = rev ?? {
+				lat: String(pin.lat),
+				lon: String(pin.lng),
+				display_name: `${pin.lat.toFixed(5)}, ${pin.lng.toFixed(5)}`,
+				address: {},
+			};
+			const hit = suggestionFromHit(row, policy, raw);
+			return hit ? [hit] : [];
+		}
+	}
+	const q = expandDeliveryQuery(raw);
 	const seen = new Set<string>();
 	const hits: AddressSuggestion[] = [];
 	const absorb = (rows: NominatimRow[]) => {
 		for (const row of rows) {
 			const hit = suggestionFromHit(row, policy, raw);
 			if (!hit) continue;
-			const id = `${hit.street.toLowerCase()}|${hit.city.toLowerCase()}|${hit.zip}`;
+			const id = `${hit.street.toLowerCase()}|${hit.city.toLowerCase()}|${hit.zip}|${hit.lat.toFixed(4)}|${hit.lng.toFixed(4)}`;
 			if (seen.has(id)) continue;
 			seen.add(id);
 			hits.push(hit);
 			if (hits.length >= 8) return;
 		}
 	};
-	try {
-		absorb(await nominatimSearch(q, viewbox, 12));
-		if (hits.length < 3) {
-			for (const town of SUGGEST_FALLBACK_TOWNS) {
-				if (hits.length >= 3) break;
-				absorb(await nominatimSearch(`${raw}, ${town}`, viewbox, 5));
-			}
+	absorb(await nominatimSearch(q, viewbox, 12));
+	if (hits.length < 3 && !isMapsQuery(raw)) {
+		for (const town of SUGGEST_FALLBACK_TOWNS) {
+			if (hits.length >= 3) break;
+			absorb(await nominatimSearch(`${raw}, ${town}`, viewbox, 5));
 		}
+	}
+	if (!hits.length) {
+		const census = await censusGeocode(/nj|new jersey/i.test(raw) ? raw : `${raw}, NJ`);
+		if (census) absorb([census]);
+	}
+	return hits.slice(0, 8);
+}
+
+function clearSuggestCache() {
+	suggestCache.clear();
+}
+
+export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: String(data.query ?? "").trim() })).handler(async ({ data }) => {
+	const raw = data.query;
+	if (raw.length < 3 && !isMapsQuery(raw)) return { hits: [] as AddressSuggestion[] };
+	const policy = await loadZonePolicy(await getSql());
+	const key = `${policy.mode}:${policy.radiusMiles}:${policy.blockNorthfield}:${policy.cells.length}:${raw.toLowerCase()}`;
+	const cached = suggestCache.get(key);
+	if (cached && Date.now() - cached.at < 5 * 60_000) return { hits: cached.hits };
+	try {
+		const capped = await lookupDeliveryHits(raw, policy);
+		if (suggestCache.size > 80) suggestCache.clear();
+		suggestCache.set(key, { at: Date.now(), hits: capped });
+		return { hits: capped };
 	} catch {
 		return { hits: [] as AddressSuggestion[] };
 	}
-	if (!hits.length) return { hits: [] as AddressSuggestion[] };
-	const capped = hits.slice(0, 8);
-	if (suggestCache.size > 80) suggestCache.clear();
-	suggestCache.set(key, { at: Date.now(), hits: capped });
-	return { hits: capped };
 });
 async function ensureGuestCustomer(sql: Sql, name: string, phone: string) {
 	const pretty = formatPhone(phone);
@@ -2322,6 +2397,7 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 			query: String(data.addressLine ?? ""),
 			city: String(data.city ?? ""),
 			zip: String(data.zip ?? ""),
+			blockNorthfield: policy.blockNorthfield,
 		})) {
 			throw new Error("That address is outside our delivery zone.");
 		}
@@ -2507,6 +2583,7 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("delivery_fee_on", data.deliveryFeeOn === void 0 ? void 0 : Boolean(data.deliveryFeeOn));
 	if (data.deliveryZoneMode !== void 0) add("delivery_zone_mode", parseDeliveryZoneMode(data.deliveryZoneMode));
 	if (data.deliveryRadiusMiles !== void 0) add("delivery_radius_miles", clampDeliveryRadius(data.deliveryRadiusMiles));
+	if (data.blockNorthfield !== void 0) add("block_northfield", Boolean(data.blockNorthfield));
 	add("tax_rate", data.taxRate === void 0 ? void 0 : Math.max(0, Math.min(25, Number(data.taxRate))));
 	add("prep_minutes", data.prepMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.prepMinutes)));
 	add("delivery_minutes", data.deliveryMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.deliveryMinutes)));
@@ -2577,6 +2654,13 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	if (!sets.length) return { ok: true };
 	await sql.query(`update shop_settings set ${sets.join(", ")} where id = 1`, params);
 	bustStorefrontCache();
+	if (
+		data.deliveryZoneMode !== void 0 ||
+		data.deliveryRadiusMiles !== void 0 ||
+		data.blockNorthfield !== void 0
+	) {
+		clearSuggestCache();
+	}
 	return { ok: true };
 });
 
@@ -2828,6 +2912,7 @@ export const saveDeliveryZone = createServerFn({ method: "POST" }).middleware([a
 		context.userId
 	]);
 	bustStorefrontCache();
+	clearSuggestCache();
 	return {
 		ok: true,
 		count: data.cells.length
