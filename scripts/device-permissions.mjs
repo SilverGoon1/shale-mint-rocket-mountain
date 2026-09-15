@@ -20,8 +20,8 @@ export const CUSTOMER_PERMISSIONS_POLICY =
 export const CUSTOMER_FEATURE_POLICY = "geolocation 'self'";
 
 export const ADMIN_PERMISSIONS_POLICY =
-  "bluetooth=*, serial=*, hid=*, usb=*, geolocation=(self), notifications=(self)";
-export const ADMIN_FEATURE_POLICY = "bluetooth *; usb *; serial *; hid *; geolocation 'self'";
+  "bluetooth=(self), serial=(self), hid=(self), usb=(self), geolocation=(self), notifications=(self)";
+export const ADMIN_FEATURE_POLICY = "bluetooth 'self'; usb 'self'; serial 'self'; hid 'self'; geolocation 'self'";
 
 export const DEVICE_PERMISSIONS_POLICY = CUSTOMER_PERMISSIONS_POLICY;
 export const DEVICE_FEATURE_POLICY = CUSTOMER_FEATURE_POLICY;
