@@ -252,6 +252,17 @@ export const auth = betterAuth({
     },
   },
   session: { cookieCache: { enabled: true, maxAge: 300 } },
+  rateLimit: {
+    enabled: true,
+    window: 15 * 60,
+    max: 100,
+    customRules: {
+      "/sign-in/email": { window: 15 * 60, max: 5 },
+      "/sign-up/email": { window: 15 * 60, max: 5 },
+      "/forget-password": { window: 15 * 60, max: 5 },
+      "/request-password-reset": { window: 15 * 60, max: 5 },
+    },
+  },
   ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
   advanced: {
     useSecureCookies: true,

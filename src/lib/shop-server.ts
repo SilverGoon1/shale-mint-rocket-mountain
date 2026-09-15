@@ -1720,6 +1720,18 @@ export const claimAdmin = createServerFn({ method: "POST" }).middleware([authMid
 	await ensureSettingsSchema(sql);
 	await ensureAdminModeColumns(sql);
 	await ensureProfile(sql, context.userId);
+	let me: Record<string, unknown> | undefined;
+	try {
+		me = (await sql`select role, admin_mode, admin_mode_allowed from profiles where user_id = ${context.userId}`)[0] as
+			| Record<string, unknown>
+			| undefined;
+	} catch (err) {
+		if (!isMissingAdminModeColumn(err)) throw err;
+		me = (await sql`select role from profiles where user_id = ${context.userId}`)[0] as Record<string, unknown> | undefined;
+	}
+	const alreadyAdmin =
+		String(me?.role ?? "") === "admin" || Boolean(me?.admin_mode) || Boolean(me?.admin_mode_allowed);
+	if (alreadyAdmin) return { ok: true as const };
 	let taken = 0;
 	try {
 		taken = num((await sql`select count(*)::int as n from profiles where role = 'admin' or admin_mode_allowed is true`)[0]?.n);
@@ -1734,7 +1746,7 @@ export const claimAdmin = createServerFn({ method: "POST" }).middleware([authMid
 		if (!isMissingAdminModeColumn(err)) throw err;
 		await sql`update profiles set role = 'admin' where user_id = ${context.userId}`;
 	}
-	return { ok: true };
+	return { ok: true as const };
 });
 export const setAdminMode = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
@@ -2369,6 +2381,8 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 
 export const placeOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
+	const { consumeOrderAttempt } = await import("@/lib/rate-limit.server");
+	await consumeOrderAttempt(sql, context.userId);
 	await assertTwoFactor(sql, context.userId);
 	await assertEmailVerifiedForOrder(sql, context.userId);
 	return writePlacedOrder(sql, context.userId, data);
@@ -3631,6 +3645,8 @@ export const recoverPassword = createServerFn({ method: "POST" }).validator((dat
 	const identifier = String(data.identifier ?? "").trim();
 	const proof = String(data.proof ?? "").trim();
 	const password = String(data.password ?? "");
+	const { consumeAuthAttempt } = await import("@/lib/rate-limit.server");
+	await consumeAuthAttempt(sql, identifier || "unknown");
 	if (password.length < 8) throw new Error("Use at least 8 characters for the new password.");
 	if (password.length > 128) throw new Error("That password is too long.");
 	if (!identifier || !proof) throw new Error(RECOVER_FAIL);
@@ -3664,6 +3680,8 @@ export const sendPasswordResetCode = createServerFn({ method: "POST" }).middlewa
 	await ensureProfile(sql, context.userId);
 	const users = await sql.query(`select id, email from "user" where id = $1 limit 1`, [context.userId]);
 	const email = String(users[0]?.email ?? "").trim().toLowerCase();
+	const { consumeAuthAttempt } = await import("@/lib/rate-limit.server");
+	await consumeAuthAttempt(sql, email || context.userId);
 	if (!email || !email.includes("@")) throw new Error("This account has no email on file.");
 	const credential = await loadCredentialAccount(sql, context.userId);
 	if (!credential) throw new Error("This account signs in with Google or X. Use that button on the sign-in page.");
