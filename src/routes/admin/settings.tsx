@@ -11,7 +11,8 @@ import {
 } from "recharts";
 import { CustomersPanel } from "@/components/customers-panel";
 import { SaveToast, useSaveFlash } from "@/components/save-toast";
-import { getAdminInsights, listAllOrders, listCustomers } from "@/lib/shop-server";
+import { deleteOrder, getAdminInsights, listAllOrders, listCompletedOrdersExport, listCustomers } from "@/lib/shop-server";
+import { downloadCompletedOrdersXls } from "@/lib/completed-orders-xls";
 import {
   formatUsd,
   formatTicketNo,
@@ -95,26 +96,74 @@ export function AdminCustomersPage() {
 export function AdminFinancialsPage() {
   const [insights, setInsights] = useState<AdminInsights | null>(null);
   const [orders, setOrders] = useState<OrderView[]>([]);
+  const [exporting, setExporting] = useState(false);
+  const [exportErr, setExportErr] = useState("");
+  const [deletingId, setDeletingId] = useState("");
 
-  useEffect(() => {
+  function reload() {
     void getAdminInsights()
       .then(setInsights)
       .catch(() => setInsights(EMPTY_INSIGHTS));
     void listAllOrders()
       .then(setOrders)
       .catch(() => setOrders([]));
+  }
+
+  useEffect(() => {
+    reload();
   }, []);
+
+  async function exportCompleted() {
+    setExportErr("");
+    setExporting(true);
+    try {
+      const rows = await listCompletedOrdersExport();
+      if (!rows.length) {
+        setExportErr("No completed tickets yet.");
+        return;
+      }
+      downloadCompletedOrdersXls(rows);
+    } catch (err) {
+      setExportErr(err instanceof Error ? err.message : "Could not export completed orders.");
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function removeTicket(id: string, ticketNo: number) {
+    const label = formatTicketNo(ticketNo);
+    if (!window.confirm(`Delete ticket #${label}? This cannot be undone.`)) return;
+    setDeletingId(id);
+    setExportErr("");
+    try {
+      await deleteOrder({ data: { id } });
+      setOrders((list) => list.filter((o) => o.id !== id));
+      void getAdminInsights()
+        .then(setInsights)
+        .catch(() => undefined);
+    } catch (err) {
+      setExportErr(err instanceof Error ? err.message : "Could not delete that ticket.");
+    } finally {
+      setDeletingId("");
+    }
+  }
 
   const insightsView = insights ?? EMPTY_INSIGHTS;
 
   return (
     <div className="settings-page finance-page">
-      <header className="page-card">
-        <p className="shop-brand-kicker">Admin</p>
-        <h1>Financials</h1>
-        <p className="ed-sub">Sales and recent tickets.</p>
+      <header className="page-card finance-head">
+        <div>
+          <p className="shop-brand-kicker">Admin</p>
+          <h1>Financials</h1>
+          <p className="ed-sub">Sales, tax, and recent tickets. Export is completed orders only, with food, taxable, sales tax, and tip.</p>
+        </div>
+        <button type="button" className="btn-print" disabled={exporting} onClick={() => void exportCompleted()}>
+          {exporting ? "Building spreadsheet…" : "Export completed orders"}
+        </button>
       </header>
-      <SalesPanel insights={insightsView} orders={orders} />
+      {exportErr ? <p className="form-error">{exportErr}</p> : null}
+      <SalesPanel insights={insightsView} orders={orders} deletingId={deletingId} onDelete={removeTicket} />
     </div>
   );
 }
@@ -159,7 +208,17 @@ function ticketSearchHay(o: OrderView) {
   return `${no} ${n} ${no.replace(/^0+/, "") || "0"}`;
 }
 
-function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: OrderView[] }) {
+function SalesPanel({
+  insights,
+  orders,
+  deletingId,
+  onDelete,
+}: {
+  insights: AdminInsights;
+  orders: OrderView[];
+  deletingId: string;
+  onDelete: (id: string, ticketNo: number) => void;
+}) {
   const s = insights.sales;
   const [ticketQuery, setTicketQuery] = useState("");
   const tickets = useMemo(() => {
@@ -182,6 +241,12 @@ function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: Ord
           <Kpi label="All time" value={formatUsd(s.allTime)} />
           <Kpi label="Avg ticket" value={formatUsd(s.avgTicket)} />
           <Kpi label="Tickets" value={String(s.tickets)} />
+        </div>
+        <div className="kpi-grid">
+          <Kpi label="Food" value={formatUsd(insights.financials.food)} />
+          <Kpi label="Sales tax" value={formatUsd(insights.financials.tax)} />
+          <Kpi label="Tips" value={formatUsd(insights.financials.tips)} />
+          <Kpi label="Collected" value={formatUsd(insights.financials.collected)} />
         </div>
         {s.series.length ? (
           <div className="chart-frame">
@@ -241,6 +306,7 @@ function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: Ord
                   <th>Total</th>
                   <th>Status</th>
                   <th>Customer</th>
+                  <th>Delete</th>
                 </tr>
               </thead>
               <tbody>
@@ -259,6 +325,16 @@ function SalesPanel({ insights, orders }: { insights: AdminInsights; orders: Ord
                       ) : (
                         "—"
                       )}
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="ed-btn ed-btn-quiet ticket-del"
+                        disabled={deletingId === o.id}
+                        onClick={() => onDelete(o.id, o.ticketNo)}
+                      >
+                        {deletingId === o.id ? "Deleting…" : "Delete"}
+                      </button>
                     </td>
                   </tr>
                 ))}

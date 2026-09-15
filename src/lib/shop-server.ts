@@ -6,6 +6,7 @@ import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
 import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery, NOMINATIM_VIEWBOX, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
+import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
 import { isWingsBuild, parseWingQty, sanitizeBuffaloPicks, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
@@ -2666,6 +2667,40 @@ export const listAllOrders = createServerFn({ method: "GET" }).middleware([authM
 	await requireAdmin(sql, context.userId);
 	return (await sql`select * from orders order by created_at desc limit 200`).map(toOrder);
 });
+export const listCompletedOrdersExport = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
+	const sql = await getSql();
+	await ensureProfile(sql, context.userId);
+	await requireAdmin(sql, context.userId);
+	const rows = await sql.query(
+		`select o.*, p.display_name, p.phone as customer_phone
+     from orders o
+     left join profiles p on p.user_id = o.user_id
+     where o.status = 'completed'
+     order by o.created_at asc`,
+	);
+	return rows.map((row) => {
+		const order = toOrder(row);
+		return {
+			ticketNo: order.ticketNo,
+			createdAt: order.createdAt,
+			name: String(row.pickup_name || row.display_name || "").trim() || "Guest",
+			phone: String(row.customer_phone ?? ""),
+			fulfillment: order.fulfillment,
+			paymentMethod: order.paymentMethod,
+			addressLine: order.addressLine,
+			city: order.city,
+			zip: order.zip,
+			items: order.items.map((it) => lineSummary(it)).join("; "),
+			subtotal: order.subtotal,
+			discount: order.discount,
+			deliveryFee: order.deliveryFee,
+			tax: order.tax,
+			tip: order.tip,
+			total: order.total,
+			notes: order.notes,
+		};
+	});
+});
 export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
@@ -3252,6 +3287,7 @@ export const deleteOrder = createServerFn({ method: "POST" }).middleware([authMi
 	const id = String(data.id || "").trim();
 	if (!id) throw new Error("Choose an order.");
 	if (!(await sql`select id from orders where id = ${id}`)[0]) throw new Error("Order not found.");
+	await sql.query(`delete from order_status_audit where order_id = $1`, [id]).catch(() => undefined);
 	await sql`delete from orders where id = ${id}`;
 	return {
 		ok: true,

@@ -4,7 +4,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { MessageCircle, Minus, Plus, Search, UserRound, X } from "lucide-react";
 import { printOrderReceipts } from "@/lib/bluetooth-printer";
 import { useDialogLock } from "@/lib/dialog-lock";
-import { getAdminShop, listPosOrders, patchPosOrder, updateOrderStatus } from "@/lib/shop-server";
+import { deleteOrder, getAdminShop, listPosOrders, patchPosOrder, updateOrderStatus } from "@/lib/shop-server";
 import { formatShopWhen } from "@/lib/hours";
 import { isTransientFetchError, isUnauthorizedError } from "@/lib/fetch-retry";
 import { onVisibleInterval } from "@/lib/page-visible";
@@ -76,6 +76,7 @@ function PosTicketDialog({
   onStatus,
   onSaveItems,
   onReprint,
+  onDelete,
 }: {
   ticket: PosTicket;
   itemQuery: string;
@@ -89,6 +90,7 @@ function PosTicketDialog({
   onStatus: (status: string) => void;
   onSaveItems: (items: OrderItem[]) => void;
   onReprint: () => void;
+  onDelete?: () => void;
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -298,6 +300,11 @@ function PosTicketDialog({
               Chat
               {ticket.chatUnread > 0 ? <span className="nav-pip">{ticket.chatUnread > 9 ? "9+" : ticket.chatUnread}</span> : null}
             </Link>
+          ) : null}
+          {onDelete && posBucket(ticket.status) === "completed" ? (
+            <button type="button" className="ed-btn ed-btn-quiet ticket-del" disabled={busyId === ticket.id} onClick={onDelete}>
+              Delete ticket
+            </button>
           ) : null}
         </div>
         <p className="ed-sub">
@@ -709,6 +716,19 @@ function AdminPos() {
           onStatus={(status) => setStatus(openTicket.id, status)}
           onSaveItems={(items) => saveItems(openTicket.id, items)}
           onReprint={() => reprint(openTicket)}
+          onDelete={() => {
+            const t = openTicket;
+            if (!window.confirm(`Delete ticket #${formatTicketNo(t.ticketNo)}? This cannot be undone.`)) return;
+            void deleteOrder({ data: { id: t.id } })
+              .then(() => {
+                setTickets((list) => list.filter((row) => row.id !== t.id));
+                setOpenId("");
+                setItemQuery("");
+              })
+              .catch((e) => {
+                if (lockIfUnauthorized(e, "Could not delete ticket", true)) return;
+              });
+          }}
         />
       ) : null}
       <button

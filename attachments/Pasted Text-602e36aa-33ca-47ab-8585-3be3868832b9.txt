@@ -1,0 +1,89 @@
+Fix the PWA install name on the custom domain. Chrome currently installs this app as "Grok App".
+
+AGENTS.md says not to overwrite scripts/grok-pwa-* or server/. This is an allowed surgical exception. Do not delete those files, do not strip Created with Grok / Remix / extensions.js, and do not touch PreviewHostBridge. Only change how the install name is chosen.
+
+Why it happens
+- /__grok/manifest.webmanifest is built by renderWebManifest() in scripts/grok-pwa-shared.mjs
+- that calls appNameFromHost()
+- appNameFromHost() only slugifies *.grok.me hosts
+- southendpizza.vercel.app and the Squarespace custom domain are not *.grok.me, so it falls back to DEFAULT_APP_NAME = "Grok App"
+- Live proof: https://southendpizza.vercel.app/__grok/manifest.webmanifest is name/short_name "Grok App"
+
+src/lib/og/site.json already has the brand. Keep these values:
+{
+  "title": "South End Pizza III",
+  "pwaName": "South End Pizza",
+  "shortName": "South End",
+  "card": "custom",
+  "color": "fbf6ec"
+}
+
+Do this
+
+1. In scripts/grok-pwa-shared.mjs add these exports (tests already import them):
+
+export const SOUTHEND_PWA_NAME = "South End Pizza";
+export const SOUTHEND_PWA_SHORT = "South End";
+export const SOUTHEND_THEME = "#fbf6ec";
+export const SOUTHEND_BG = "#fbf6ec";
+
+Leave DEFAULT_APP_NAME = "Grok App" so appNameFromHost("localhost:8080") stays "Grok App".
+
+2. Add resolvePwaIdentity(hostHeader, cwdOrSite) and use it from renderWebManifest.
+
+Priority for name:
+- site.pwaName
+- site.title
+- appNameFromHost(host) when that is not "Grok App"
+- SOUTHEND_PWA_NAME
+
+Priority for short_name:
+- site.shortName
+- the resolved name
+
+If the second argument is a site object, use it. If it is a string path, read site.json from that cwd via readOgSite. If omitted, read site.json from process.cwd().
+
+3. Change renderWebManifest to:
+
+export function renderWebManifest(hostHeader, cwdOrSite) {
+  const identity = resolvePwaIdentity(hostHeader, cwdOrSite);
+  return JSON.stringify(
+    {
+      name: identity.name,
+      short_name: identity.shortName,
+      id: "/",
+      start_url: "/",
+      scope: "/",
+      display: "standalone",
+      background_color: identity.backgroundColor || SOUTHEND_BG,
+      theme_color: identity.themeColor || SOUTHEND_THEME,
+      icons: [
+        { src: "/__grok/icon-180.png", sizes: "180x180", type: "image/png" }
+      ],
+    },
+    null,
+    2,
+  );
+}
+
+Keep the existing /__grok/icon-180.png icon unless the extra public icons already exist. Do not invent missing icon files.
+
+4. Vercel cannot read site.json at request time. In server/middleware/grok-pwa.ts change the manifest response to pass the baked identity:
+
+return new Response(renderWebManifest(requestHost(event), grokOgIdentity.site), { ... });
+
+Do the same in scripts/grok-pwa-plugin.mjs wherever it calls renderWebManifest(requestHost(req)).
+
+5. Apple home-screen title should be "South End". Update grokPwaHeadTags / injectGrokPwaHead so apple-mobile-web-app-title uses shortName from resolvePwaIdentity (site.shortName), not "Grok App".
+
+6. Update scripts/grok-pwa-shared.d.mts to match the new signatures.
+
+7. Do not create app/app-config.ts. This repo has no /app folder.
+
+Then publish / redeploy.
+
+Verify after deploy:
+curl -s https://southendpizza.vercel.app/__grok/manifest.webmanifest
+name must be "South End Pizza"
+short_name must be "South End"
+It must not say "Grok App".
