@@ -576,9 +576,6 @@ function Login() {
         ) : (
           <>
             <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
-            <p className="ed-sub login-lede">
-              Email or the shop username. Or continue with Google or X.
-            </p>
             {PHONE_SIGNUP_ENABLED ? (
               <div className="seg" role="group" aria-label="Identifier type">
                 <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
