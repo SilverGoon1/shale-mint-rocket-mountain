@@ -150,7 +150,7 @@ function AccountMenu({
           {isAdmin ? (
             <Link to="/admin/pos" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
               <Monitor size={16} strokeWidth={2.2} aria-hidden />
-              POS
+              Tickets
             </Link>
           ) : null}
           <Link to="/account" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
@@ -171,6 +171,12 @@ function AccountMenu({
               <Monitor size={16} strokeWidth={2.2} aria-hidden />
               Admin
               {adminUnread > 0 ? <span className="nav-pip">{adminUnread}</span> : null}
+            </Link>
+          ) : null}
+          {isAdmin ? (
+            <Link to="/board" role="menuitem" {...noDragProps()} onClick={() => setOpen(false)}>
+              <Monitor size={16} strokeWidth={2.2} aria-hidden />
+              Board
             </Link>
           ) : null}
           {!isAdmin && !adminExists ? (

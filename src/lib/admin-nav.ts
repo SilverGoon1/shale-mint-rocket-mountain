@@ -1,20 +1,19 @@
 export type AdminNavItem = {
-  to: "/admin" | "/admin/background" | "/admin/bots" | "/admin/center" | "/admin/zones" | "/admin/financials" | "/admin/menu" | "/admin/patches" | "/admin/settings" | "/board";
+  to: "/admin" | "/admin/background" | "/admin/bots" | "/admin/center" | "/admin/zones" | "/admin/financials" | "/admin/menu" | "/admin/patches" | "/admin/pos" | "/admin/settings" | "/board";
   label: string;
   exact?: boolean;
   pip?: boolean;
-  pin?: "start" | "end";
+  search?: { tab: string };
 };
 
-/** Admin destinations. Menu & Shop Details is first. Settings stays last. POS lives in the account menu. */
+/** Admin destinations in drawer order. Bot access, Patches, and Wall menu stay off this list. */
 export const ADMIN_NAV: AdminNavItem[] = [
-  { to: "/admin/menu", label: "Menu & Shop Details", pin: "start" },
-  { to: "/admin/center", label: "Customer Center", pip: true },
-  { to: "/admin/financials", label: "Financials" },
-  { to: "/admin/bots", label: "Bot access" },
-  { to: "/admin/patches", label: "Patches" },
-  { to: "/board", label: "Wall menu" },
-  { to: "/admin/background", label: "Settings", pin: "end" },
+  { to: "/admin/pos", label: "Tickets" },
+  { to: "/admin/menu", label: "Menu" },
+  { to: "/admin/menu", label: "Shop", search: { tab: "hours" } },
+  { to: "/admin/center", label: "Customers", pip: true },
+  { to: "/admin/financials", label: "Books" },
+  { to: "/admin/background", label: "Look" },
 ];
 
 export const SHOP_BACKDROP_EVENT = "southend-backdrop";
