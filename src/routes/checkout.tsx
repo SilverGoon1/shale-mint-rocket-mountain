@@ -266,7 +266,7 @@ function CheckoutForm({
         deliverable: r.deliverable,
         mapsUrl: r.mapsUrl,
       });
-      setError(r.deliverable ? "" : "Saved address is outside the delivery zone. Use a different address or pick up.");
+      setError(r.deliverable ? "" : "Delivery unavailable at that address. Choose pickup or another street.");
     });
     return () => {
       live = false;
@@ -332,7 +332,7 @@ function CheckoutForm({
         return false;
       }
       if (!geo?.deliverable) {
-        setError("Check a deliverable address first.");
+        setError("Delivery unavailable at that address. Choose pickup or another street.");
         return false;
       }
       if (subtotal < settings.minOrderDelivery) {
@@ -612,7 +612,7 @@ function CheckoutForm({
                         deliverable: hit.deliverable,
                         mapsUrl: `https://www.google.com/maps/search/?api=1&query=${hit.lat},${hit.lng}`,
                       });
-                      setError(hit.deliverable ? "" : "That pin is outside the delivery zone.");
+                      setError(hit.deliverable ? "" : "Delivery unavailable at that address. Choose pickup or another street.");
                     }}
                     placeholder="Start typing a street"
                   />
@@ -645,7 +645,7 @@ function CheckoutForm({
                         deliverable: r.deliverable,
                         mapsUrl: r.mapsUrl,
                       });
-                      setError(r.deliverable ? "" : "That pin is outside the delivery zone.");
+                      setError(r.deliverable ? "" : "Delivery unavailable at that address. Choose pickup or another street.");
                     });
                   }}
                 >
@@ -655,7 +655,7 @@ function CheckoutForm({
             )}
             {geo ? (
               <p className="ed-sub">
-                {geo.deliverable ? "We deliver here." : "Outside the zone."} {geo.label}{" "}
+                {geo.deliverable ? "We deliver here." : "Delivery unavailable at that address. Choose pickup or another street."} {geo.label}{" "}
                 <a href={geo.mapsUrl || googleMapsCoordUrl(geo.lat, geo.lng)} target="_blank" rel="noreferrer">
                   Google Maps
                 </a>

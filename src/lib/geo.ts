@@ -5,6 +5,14 @@ export const ZONE_BOUNDS = {
   east: -74.52,
 };
 
+/** Wider than ZONE_BOUNDS so Nominatim can see nearby Atlantic County towns. */
+export const SEARCH_BOUNDS = {
+  south: 39.28,
+  north: 39.50,
+  west: -74.78,
+  east: -74.48,
+};
+
 export const CELL = 0.0032;
 export const MAP_CENTER: [number, number] = [39.3787, -74.6051];
 export const SHOP_LAT = MAP_CENTER[0];
@@ -12,6 +20,7 @@ export const SHOP_LNG = MAP_CENTER[1];
 
 /** Nominatim viewbox: west,north,east,south */
 export const NOMINATIM_VIEWBOX = `${ZONE_BOUNDS.west},${ZONE_BOUNDS.north},${ZONE_BOUNDS.east},${ZONE_BOUNDS.south}`;
+export const SEARCH_VIEWBOX = `${SEARCH_BOUNDS.west},${SEARCH_BOUNDS.north},${SEARCH_BOUNDS.east},${SEARCH_BOUNDS.south}`;
 
 export type AddressSuggestion = {
   label: string;
@@ -168,9 +177,12 @@ export function nominatimViewboxForRadius(miles: number) {
 export function expandDeliveryQuery(query: string) {
   const q = String(query ?? "").trim();
   if (!q) return q;
-  if (isNorthfieldDelivery({ query: q })) return q;
-  if (/nj|new jersey|egg harbor|pleasantville|absecon|linwood|somers point|northfield/i.test(q)) {
+  if (
+    /\b(nj|new jersey|egg harbor|pleasantville|absecon|linwood|somers point|northfield|galloway|atlantic county|brigantine|ventnor|margate|mays landing)\b/i.test(
+      q,
+    )
+  ) {
     return q;
   }
-  return `${q}, Egg Harbor Township, NJ`;
+  return `${q}, Atlantic County, NJ`;
 }

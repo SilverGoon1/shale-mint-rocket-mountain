@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { CELL, MAP_CENTER, cellKey, isAddressDeliverable, isNorthfieldDelivery, expandDeliveryQuery, NOMINATIM_VIEWBOX, nominatimViewboxForRadius, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
+import { CELL, MAP_CENTER, cellKey, isAddressDeliverable, expandDeliveryQuery, SEARCH_VIEWBOX, nominatimViewboxForRadius, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
@@ -1916,17 +1916,14 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 	const sql = await getSql();
 	const policy = await loadZonePolicy(sql);
 	const original = data.query;
-	let q = expandDeliveryQuery(original);
-	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : NOMINATIM_VIEWBOX;
-	const lookup = async (query: string) => {
-		const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=us&viewbox=${viewbox}&q=${encodeURIComponent(query)}`;
-		const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
-		if (!res.ok) throw new Error("Address lookup is unavailable right now.");
-		return (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
-	};
-	let hits = await lookup(q);
-	if (!hits[0] && q === original && !isNorthfieldDelivery({ query: original })) {
-		hits = await lookup(`${original}, Egg Harbor Township, NJ`);
+	const q = expandDeliveryQuery(original);
+	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : SEARCH_VIEWBOX;
+	let hits = await nominatimSearch(q, viewbox, 1);
+	if (!hits[0]) {
+		for (const town of SUGGEST_FALLBACK_TOWNS) {
+			hits = await nominatimSearch(`${original}, ${town}`, viewbox, 1);
+			if (hits[0]) break;
+		}
 	}
 	if (!hits[0]) return {
 		found: false,
@@ -1964,6 +1961,46 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 });
 
 const suggestCache = new Map<string, { at: number; hits: AddressSuggestion[] }>();
+const SUGGEST_FALLBACK_TOWNS = [
+	"Linwood, NJ",
+	"Northfield, NJ",
+	"Pleasantville, NJ",
+	"Somers Point, NJ",
+	"Egg Harbor Township, NJ",
+	"Atlantic County, NJ",
+];
+
+type NominatimRow = { lat: string; lon: string; display_name: string; address?: Record<string, string> };
+
+async function nominatimSearch(query: string, viewbox: string, limit: number) {
+	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}&countrycodes=us&viewbox=${encodeURIComponent(viewbox)}&q=${encodeURIComponent(query)}`;
+	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
+	return (await res.json()) as NominatimRow[];
+}
+
+function suggestionFromHit(
+	row: NominatimRow,
+	policy: { mode: "paint" | "radius"; radiusMiles: number; cells: string[] },
+	raw: string,
+): AddressSuggestion | null {
+	const parsed = parseNominatimHit(row);
+	if (!parsed.street || !Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lng)) return null;
+	return {
+		...parsed,
+		deliverable: isAddressDeliverable({
+			mode: policy.mode,
+			radiusMiles: policy.radiusMiles,
+			cells: policy.cells,
+			lat: parsed.lat,
+			lng: parsed.lng,
+			query: raw,
+			label: parsed.label,
+			city: parsed.city,
+			zip: parsed.zip,
+		}),
+	};
+}
 
 export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: String(data.query ?? "").trim() })).handler(async ({ data }) => {
 	const raw = data.query;
@@ -1973,38 +2010,31 @@ export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).valid
 	if (cached && Date.now() - cached.at < 5 * 60_000) return { hits: cached.hits };
 	const policy = await loadZonePolicy(await getSql());
 	const q = expandDeliveryQuery(raw);
-	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : NOMINATIM_VIEWBOX;
-	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=12&countrycodes=us&viewbox=${viewbox}&q=${encodeURIComponent(q)}`;
-	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
-	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
-	const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
+	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : SEARCH_VIEWBOX;
 	const seen = new Set<string>();
 	const hits: AddressSuggestion[] = [];
-	for (const row of rows) {
-		const parsed = parseNominatimHit(row);
-		if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lng)) continue;
-		const id = `${parsed.street}|${parsed.zip}|${parsed.lat.toFixed(5)}`;
-		if (seen.has(id)) continue;
-		seen.add(id);
-		hits.push({
-			...parsed,
-			city: parsed.city || "Egg Harbor Township",
-			deliverable: isAddressDeliverable({
-				mode: policy.mode,
-				radiusMiles: policy.radiusMiles,
-				cells: policy.cells,
-				lat: parsed.lat,
-				lng: parsed.lng,
-				query: raw,
-				label: parsed.label,
-				city: parsed.city,
-				zip: parsed.zip,
-			}),
-		});
+	const absorb = (rows: NominatimRow[]) => {
+		for (const row of rows) {
+			const hit = suggestionFromHit(row, policy, raw);
+			if (!hit) continue;
+			const id = `${hit.street.toLowerCase()}|${hit.city.toLowerCase()}|${hit.zip}`;
+			if (seen.has(id)) continue;
+			seen.add(id);
+			hits.push(hit);
+			if (hits.length >= 8) return;
+		}
+	};
+	absorb(await nominatimSearch(q, viewbox, 12));
+	if (hits.length < 3) {
+		for (const town of SUGGEST_FALLBACK_TOWNS) {
+			if (hits.length >= 3) break;
+			absorb(await nominatimSearch(`${raw}, ${town}`, viewbox, 5));
+		}
 	}
+	const capped = hits.slice(0, 8);
 	if (suggestCache.size > 80) suggestCache.clear();
-	suggestCache.set(key, { at: Date.now(), hits });
-	return { hits };
+	suggestCache.set(key, { at: Date.now(), hits: capped });
+	return { hits: capped };
 });
 async function ensureGuestCustomer(sql: Sql, name: string, phone: string) {
 	const pretty = formatPhone(phone);
