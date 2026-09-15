@@ -8,6 +8,50 @@ export const ZONE_BOUNDS = {
 export const CELL = 0.0032;
 export const MAP_CENTER: [number, number] = [39.3787, -74.6051];
 
+/** Nominatim viewbox: west,north,east,south */
+export const NOMINATIM_VIEWBOX = `${ZONE_BOUNDS.west},${ZONE_BOUNDS.north},${ZONE_BOUNDS.east},${ZONE_BOUNDS.south}`;
+
+export type AddressSuggestion = {
+  label: string;
+  street: string;
+  city: string;
+  zip: string;
+  lat: number;
+  lng: number;
+  deliverable: boolean;
+};
+
+export function parseNominatimHit(hit: {
+  lat?: string;
+  lon?: string;
+  display_name?: string;
+  address?: Record<string, string | undefined>;
+}): AddressSuggestion {
+  const a = hit.address ?? {};
+  const road = a.road || a.pedestrian || a.residential || a.street || "";
+  const street = [a.house_number, road].filter(Boolean).join(" ").trim();
+  const city =
+    a.city ||
+    a.town ||
+    a.village ||
+    a.municipality ||
+    a.hamlet ||
+    a.suburb ||
+    a.county ||
+    "";
+  const zip = String(a.postcode || "").replace(/\D/g, "").slice(0, 5);
+  const label = String(hit.display_name ?? "");
+  return {
+    label,
+    street: street || label.split(",")[0]?.trim() || "",
+    city,
+    zip,
+    lat: Number(hit.lat),
+    lng: Number(hit.lon),
+    deliverable: false,
+  };
+}
+
 export function cellKey(lat: number, lng: number) {
   const i = Math.floor((lat - ZONE_BOUNDS.south) / CELL);
   const j = Math.floor((lng - ZONE_BOUNDS.west) / CELL);

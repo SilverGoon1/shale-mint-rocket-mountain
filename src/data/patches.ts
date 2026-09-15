@@ -7,6 +7,16 @@ export type PatchEntry = {
 
 export const PATCHES: PatchEntry[] = [
   {
+    id: "2026-09-14-address-suggest-map-pin",
+    date: "September 14, 2026",
+    title: "Address search fills the form; saved address is primary delivery",
+    added: [
+      "Account and checkout street fields suggest nearby addresses. Tap one to fill street, city, and ZIP.",
+      "An address saved on the account is the primary delivery. Checkout can switch to a different address for that order.",
+      "Admin Delivery: Search drops a pin and zooms. Move pans the map. Scroll / + − zoom. Clear pin removes the search dot without wiping painted blocks.",
+    ],
+  },
+  {
     id: "2026-09-14-otp-gate-ttl-contrast",
     date: "September 14, 2026",
     title: "Email code lasts 2 minutes; cancel signs you out",

@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery } from "@/lib/geo";
+import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery, NOMINATIM_VIEWBOX, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
@@ -1886,10 +1886,10 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 	const original = data.query;
 	let q = expandDeliveryQuery(original);
 	const lookup = async (query: string) => {
-		const url = `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`;
+		const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=us&viewbox=${NOMINATIM_VIEWBOX}&q=${encodeURIComponent(query)}`;
 		const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 		if (!res.ok) throw new Error("Address lookup is unavailable right now.");
-		return (await res.json()) as Array<{ lat: string; lon: string; display_name: string }>;
+		return (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
 	};
 	let hits = await lookup(q);
 	if (!hits[0] && q === original && !isNorthfieldDelivery({ query: original })) {
@@ -1898,25 +1898,69 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 	if (!hits[0]) return {
 		found: false,
 		deliverable: false,
-		label: ""
+		label: "",
+		street: "",
+		city: "",
+		zip: "",
 	};
-	const lat = Number(hits[0].lat);
-	const lng = Number(hits[0].lon);
-	const label = String(hits[0].display_name ?? "");
-	const zipMatch = label.match(/\b(\d{5})(?:-\d{4})?\b/);
+	const parsed = parseNominatimHit(hits[0]);
 	const northfield = isNorthfieldDelivery({
 		query: original,
-		label,
-		zip: zipMatch?.[1],
+		label: parsed.label,
+		city: parsed.city,
+		zip: parsed.zip,
 	});
+	const deliverable = !northfield && cells.length > 0 && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng) && cellSetHas(cells, parsed.lat, parsed.lng);
 	return {
 		found: true,
-		deliverable: !northfield && cells.length > 0 && cellSetHas(cells, lat, lng),
-		label,
-		lat,
-		lng,
-		mapsUrl: `https://www.google.com/maps/search/?api=1&query=${lat},${lng}`
+		deliverable,
+		label: parsed.label,
+		street: parsed.street,
+		city: parsed.city,
+		zip: parsed.zip,
+		lat: parsed.lat,
+		lng: parsed.lng,
+		mapsUrl: `https://www.google.com/maps/search/?api=1&query=${parsed.lat},${parsed.lng}`
 	};
+});
+
+const suggestCache = new Map<string, { at: number; hits: AddressSuggestion[] }>();
+
+export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: String(data.query ?? "").trim() })).handler(async ({ data }) => {
+	const raw = data.query;
+	if (raw.length < 3) return { hits: [] as AddressSuggestion[] };
+	const key = raw.toLowerCase();
+	const cached = suggestCache.get(key);
+	if (cached && Date.now() - cached.at < 5 * 60_000) return { hits: cached.hits };
+	const cells = await zoneCells(await getSql());
+	const q = expandDeliveryQuery(raw);
+	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=us&viewbox=${NOMINATIM_VIEWBOX}&q=${encodeURIComponent(q)}`;
+	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
+	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
+	const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
+	const seen = new Set<string>();
+	const hits: AddressSuggestion[] = [];
+	for (const row of rows) {
+		const parsed = parseNominatimHit(row);
+		if (!Number.isFinite(parsed.lat) || !Number.isFinite(parsed.lng)) continue;
+		const id = `${parsed.street}|${parsed.zip}|${parsed.lat.toFixed(5)}`;
+		if (seen.has(id)) continue;
+		seen.add(id);
+		const northfield = isNorthfieldDelivery({
+			query: raw,
+			label: parsed.label,
+			city: parsed.city,
+			zip: parsed.zip,
+		});
+		hits.push({
+			...parsed,
+			city: parsed.city || "Egg Harbor Township",
+			deliverable: !northfield && cells.length > 0 && cellSetHas(cells, parsed.lat, parsed.lng),
+		});
+	}
+	if (suggestCache.size > 80) suggestCache.clear();
+	suggestCache.set(key, { at: Date.now(), hits });
+	return { hits };
 });
 async function ensureGuestCustomer(sql: Sql, name: string, phone: string) {
 	const pretty = formatPhone(phone);

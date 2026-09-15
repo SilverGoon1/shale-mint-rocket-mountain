@@ -8,6 +8,7 @@ import { useCartStore } from "@/lib/cart-store";
 import { fileToDataImage } from "@/lib/image-file";
 import { formatPhone } from "@/lib/phone";
 import { formatShopWhen } from "@/lib/hours";
+import { AddressSuggest } from "@/components/address-suggest";
 import {
   changeMyPassword,
   confirmTotpSetup,
@@ -336,12 +337,15 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
             </label>
             <label className="ed-field">
               <span>Street address</span>
-              <input
-                className="ed-input"
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                autoComplete="street-address"
-                placeholder="123 Main St"
+              <AddressSuggest
+                street={address}
+                onStreetChange={setAddress}
+                onPick={(hit) => {
+                  setAddress(hit.street);
+                  if (hit.city) setCity(hit.city);
+                  if (hit.zip) setZip(hit.zip);
+                }}
+                placeholder="Start typing a street"
               />
             </label>
             <div className="account-cityzip">

@@ -11,6 +11,7 @@ import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { needsSignupOtp } from "@/lib/phone";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
+import { AddressSuggest } from "@/components/address-suggest";
 import { retryTransient } from "@/lib/fetch-retry";
 import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatTicketNo, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
 import { etaMinutes, formatShopWhen, isOpenNow, nextOpenSlot, nyHm, nyWallToDate, nyYmd } from "@/lib/hours";
@@ -170,6 +171,11 @@ function CheckoutForm({
   const { subtotal } = cartTotals(lines);
   const settings = loadedSettings;
   const [fulfillment, setFulfillment] = useState<"pickup" | "delivery">("pickup");
+  const savedStreet = (profile?.addressLine || "").trim();
+  const savedCity = (profile?.city || "").trim();
+  const savedZip = (profile?.zip || "").trim();
+  const hasSaved = Boolean(savedStreet);
+  const [useSaved, setUseSaved] = useState(hasSaved);
   const [address, setAddress] = useState(profile?.addressLine || "");
   const [city, setCity] = useState(profile?.city || "Egg Harbor Township");
   const [zip, setZip] = useState(profile?.zip || "08234");
@@ -225,6 +231,31 @@ function CheckoutForm({
       setSchedTime("12:00");
     }
   }, [whenMode, schedDate, schedTime, dateBounds.min, settings.weeklyHours]);
+
+  useEffect(() => {
+    if (fulfillment !== "delivery") return;
+    if (!useSaved || !hasSaved) return;
+    const q = `${savedStreet}, ${savedCity} ${savedZip}`.trim();
+    let live = true;
+    void checkDeliveryAddress({ data: { query: q } }).then((r) => {
+      if (!live) return;
+      if (!r.found || r.lat == null || r.lng == null) {
+        setGeo(null);
+        return;
+      }
+      setGeo({
+        lat: r.lat,
+        lng: r.lng,
+        label: r.label,
+        deliverable: r.deliverable,
+        mapsUrl: r.mapsUrl,
+      });
+      setError(r.deliverable ? "" : "Saved address is outside the delivery zone. Use a different address or pick up.");
+    });
+    return () => {
+      live = false;
+    };
+  }, [fulfillment, useSaved, hasSaved, savedStreet, savedCity, savedZip]);
 
   const eta = etaMinutes(settings.prepMinutes, settings.deliveryMinutes, fulfillment);
   const scheduledAt =
@@ -705,51 +736,106 @@ function CheckoutForm({
               {settings.deliveryFeeOn !== false && settings.deliveryFee > 0
                 ? `. Fee ${formatUsd(settings.deliveryFee)}`
                 : ""}
-              . We check the painted zone after you look up the address.
+              . We check the painted zone after you pick an address.
             </p>
-            <label className="ed-field">
-              <span>Street</span>
-              <input
-                className="ed-input"
-                value={address}
-                onChange={(e) => {
-                  setAddress(e.target.value);
-                  setGeo(null);
-                }}
-                required
-              />
-            </label>
-            <label className="ed-field">
-              <span>City</span>
-              <input className="ed-input" value={city} onChange={(e) => { setCity(e.target.value); setGeo(null); }} />
-            </label>
-            <label className="ed-field">
-              <span>ZIP</span>
-              <input className="ed-input" value={zip} onChange={(e) => { setZip(e.target.value); setGeo(null); }} />
-            </label>
-            <button
-              type="button"
-              className="ed-btn"
-              onClick={() => {
-                void checkDeliveryAddress({ data: { query: `${address}, ${city} ${zip}` } }).then((r) => {
-                  if (!r.found || r.lat == null || r.lng == null) {
+            {hasSaved && useSaved ? (
+              <div className="saved-address">
+                <p className="shop-brand-kicker">Primary delivery</p>
+                <strong>
+                  {savedStreet}
+                  {savedCity ? `, ${savedCity}` : ""} {savedZip}
+                </strong>
+                <p className="ed-sub">Saved on your account. Used for this order unless you change it.</p>
+                <button
+                  type="button"
+                  className="ed-btn ed-btn-quiet"
+                  onClick={() => {
+                    setUseSaved(false);
                     setGeo(null);
-                    setError("We could not find that address.");
-                    return;
-                  }
-                  setGeo({
-                    lat: r.lat,
-                    lng: r.lng,
-                    label: r.label,
-                    deliverable: r.deliverable,
-                    mapsUrl: r.mapsUrl,
-                  });
-                  setError(r.deliverable ? "" : "That pin is outside the delivery zone.");
-                });
-              }}
-            >
-              Check delivery zone
-            </button>
+                    setError("");
+                  }}
+                >
+                  Deliver to a different address
+                </button>
+              </div>
+            ) : (
+              <>
+                {hasSaved ? (
+                  <button
+                    type="button"
+                    className="ed-btn ed-btn-quiet"
+                    onClick={() => {
+                      setUseSaved(true);
+                      setAddress(savedStreet);
+                      setCity(savedCity || "Egg Harbor Township");
+                      setZip(savedZip || "08234");
+                      setGeo(null);
+                      setError("");
+                    }}
+                  >
+                    Use saved address
+                  </button>
+                ) : null}
+                <label className="ed-field">
+                  <span>Street</span>
+                  <AddressSuggest
+                    street={address}
+                    onStreetChange={(v) => {
+                      setAddress(v);
+                      setGeo(null);
+                    }}
+                    onPick={(hit) => {
+                      setAddress(hit.street);
+                      if (hit.city) setCity(hit.city);
+                      if (hit.zip) setZip(hit.zip);
+                      setGeo({
+                        lat: hit.lat,
+                        lng: hit.lng,
+                        label: hit.label,
+                        deliverable: hit.deliverable,
+                        mapsUrl: `https://www.google.com/maps/search/?api=1&query=${hit.lat},${hit.lng}`,
+                      });
+                      setError(hit.deliverable ? "" : "That pin is outside the delivery zone.");
+                    }}
+                    placeholder="Start typing a street"
+                  />
+                </label>
+                <label className="ed-field">
+                  <span>City</span>
+                  <input className="ed-input" value={city} onChange={(e) => { setCity(e.target.value); setGeo(null); }} />
+                </label>
+                <label className="ed-field">
+                  <span>ZIP</span>
+                  <input className="ed-input" value={zip} onChange={(e) => { setZip(e.target.value); setGeo(null); }} />
+                </label>
+                <button
+                  type="button"
+                  className="ed-btn"
+                  onClick={() => {
+                    void checkDeliveryAddress({ data: { query: `${address}, ${city} ${zip}` } }).then((r) => {
+                      if (!r.found || r.lat == null || r.lng == null) {
+                        setGeo(null);
+                        setError("We could not find that address.");
+                        return;
+                      }
+                      if (r.street) setAddress(r.street);
+                      if (r.city) setCity(r.city);
+                      if (r.zip) setZip(r.zip);
+                      setGeo({
+                        lat: r.lat,
+                        lng: r.lng,
+                        label: r.label,
+                        deliverable: r.deliverable,
+                        mapsUrl: r.mapsUrl,
+                      });
+                      setError(r.deliverable ? "" : "That pin is outside the delivery zone.");
+                    });
+                  }}
+                >
+                  Check delivery zone
+                </button>
+              </>
+            )}
             {geo ? (
               <p className="ed-sub">
                 {geo.deliverable ? "We deliver here." : "Outside the zone."} {geo.label}{" "}

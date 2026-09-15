@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { Eraser, Paintbrush, Trash2 } from "lucide-react";
+import { Eraser, Hand, MapPin, Paintbrush, Trash2, X } from "lucide-react";
 import "leaflet/dist/leaflet.css";
-import { MAP_CENTER, cellRect, googleMapsSearchUrl, paintAround } from "@/lib/geo";
+import { MAP_CENTER, cellRect, googleMapsSearchUrl, paintAround, type AddressSuggestion } from "@/lib/geo";
 import { checkDeliveryAddress } from "@/lib/shop-server";
+import { AddressSuggest } from "@/components/address-suggest";
 
-type Mode = "paint" | "erase";
+type Mode = "paint" | "erase" | "move";
 
 export function ZoneMap({
   cells,
@@ -16,6 +17,7 @@ export function ZoneMap({
   const host = useRef<HTMLDivElement>(null);
   const mapRef = useRef<import("leaflet").Map | null>(null);
   const layerRef = useRef<import("leaflet").LayerGroup | null>(null);
+  const pinLayerRef = useRef<import("leaflet").LayerGroup | null>(null);
   const cellsRef = useRef(new Set(cells));
   const modeRef = useRef<Mode>("paint");
   const drawing = useRef(false);
@@ -23,6 +25,7 @@ export function ZoneMap({
   const [brush, setBrush] = useState(1);
   const [query, setQuery] = useState("");
   const [lookup, setLookup] = useState("");
+  const [hasPin, setHasPin] = useState(false);
   const brushRef = useRef(1);
 
   useEffect(() => {
@@ -45,17 +48,29 @@ export function ZoneMap({
     let dead = false;
     void import("leaflet").then((L) => {
       if (dead || !host.current) return;
-      const map = L.map(host.current, { zoomControl: true }).setView(MAP_CENTER, 12);
+      const map = L.map(host.current, {
+        zoomControl: true,
+        scrollWheelZoom: true,
+        dragging: true,
+        doubleClickZoom: true,
+        touchZoom: true,
+        boxZoom: true,
+        keyboard: true,
+      }).setView(MAP_CENTER, 12);
+      map.scrollWheelZoom.enable();
       L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
         attribution: "&copy; OpenStreetMap",
-        maxZoom: 18,
+        maxZoom: 19,
       }).addTo(map);
       const layer = L.layerGroup().addTo(map);
+      const pins = L.layerGroup().addTo(map);
       mapRef.current = map;
       layerRef.current = layer;
+      pinLayerRef.current = pins;
       drawCells(L, layer, cellsRef.current, tomatoColor());
 
       const apply = (lat: number, lng: number) => {
+        if (modeRef.current === "move") return;
         const keys = paintAround(lat, lng, brushRef.current);
         const set = cellsRef.current;
         let changed = false;
@@ -74,15 +89,17 @@ export function ZoneMap({
       };
 
       map.on("mousedown", (e) => {
+        if (modeRef.current === "move") return;
         drawing.current = true;
         map.dragging.disable();
         apply(e.latlng.lat, e.latlng.lng);
       });
       map.on("click", (e) => {
+        if (modeRef.current === "move") return;
         apply(e.latlng.lat, e.latlng.lng);
       });
       map.on("mousemove", (e) => {
-        if (!drawing.current) return;
+        if (!drawing.current || modeRef.current === "move") return;
         apply(e.latlng.lat, e.latlng.lng);
       });
       const stop = () => {
@@ -100,11 +117,42 @@ export function ZoneMap({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- mount once
   }, []);
 
+  function dropPin(lat: number, lng: number, label: string) {
+    const map = mapRef.current;
+    const pins = pinLayerRef.current;
+    if (!map || !pins) return;
+    void import("leaflet").then((L) => {
+      pins.clearLayers();
+      L.circleMarker([lat, lng], {
+        radius: 10,
+        color: creamColor(),
+        fillColor: tomatoColor(),
+        fillOpacity: 1,
+        weight: 3,
+      })
+        .bindPopup(label)
+        .addTo(pins)
+        .openPopup();
+      map.setView([lat, lng], 16, { animate: true });
+      setHasPin(true);
+    });
+  }
+
+  function clearPin() {
+    pinLayerRef.current?.clearLayers();
+    setHasPin(false);
+    setLookup("");
+  }
+
   async function lookupAddress() {
+    if (!query.trim()) {
+      setLookup("Type a street, then Search.");
+      return;
+    }
     setLookup("Looking up…");
     try {
       const r = await checkDeliveryAddress({ data: { query } });
-      if (!r.found) {
+      if (!r.found || r.lat == null || r.lng == null) {
         setLookup("No match. Try a street name in Egg Harbor Township.");
         return;
       }
@@ -113,18 +161,27 @@ export function ZoneMap({
           ? `Inside the painted zone — ${r.label}`
           : `Outside the painted zone — ${r.label}`,
       );
-      if (r.lat != null && r.lng != null) {
-        mapRef.current?.setView([r.lat, r.lng], 16);
-      }
+      if (r.street) setQuery(r.street);
+      dropPin(r.lat, r.lng, r.label);
     } catch (e) {
       setLookup(e instanceof Error ? e.message : "Lookup failed");
     }
   }
 
+  function pickSuggest(hit: AddressSuggestion) {
+    setQuery(hit.street);
+    setLookup(
+      hit.deliverable
+        ? `Inside the painted zone — ${hit.label}`
+        : `Outside the painted zone — ${hit.label}`,
+    );
+    dropPin(hit.lat, hit.lng, hit.label);
+  }
+
   return (
     <div className="zone-wrap">
       <div className="zone-tools">
-        <div className="seg" role="group" aria-label="Paint mode">
+        <div className="seg" role="group" aria-label="Map mode">
           <button type="button" data-on={mode === "paint"} onClick={() => setMode("paint")}>
             <Paintbrush size={14} />
             Paint
@@ -132,6 +189,10 @@ export function ZoneMap({
           <button type="button" data-on={mode === "erase"} onClick={() => setMode("erase")}>
             <Eraser size={14} />
             Erase
+          </button>
+          <button type="button" data-on={mode === "move"} onClick={() => setMode("move")}>
+            <Hand size={14} />
+            Move
           </button>
         </div>
         <div className="seg" role="group" aria-label="Brush size">
@@ -151,7 +212,7 @@ export function ZoneMap({
           }}
         >
           <Trash2 size={14} />
-          Clear
+          Clear paint
         </button>
         <span className="zone-count">{cells.length} blocks covered</span>
       </div>
@@ -163,14 +224,19 @@ export function ZoneMap({
           void lookupAddress();
         }}
       >
-        <input
-          className="ed-input"
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Check a street in Egg Harbor Township"
+        <AddressSuggest
+          street={query}
+          onStreetChange={setQuery}
+          onPick={pickSuggest}
+          placeholder="Search a street in Egg Harbor Township"
         />
         <button type="submit" className="ed-btn">
-          Check
+          <MapPin size={14} />
+          Search
+        </button>
+        <button type="button" className="ed-btn ed-btn-quiet" disabled={!hasPin} onClick={clearPin}>
+          <X size={14} />
+          Clear pin
         </button>
         <a className="ed-btn ed-btn-quiet" href={googleMapsSearchUrl(query || "Egg Harbor Township NJ")} target="_blank" rel="noreferrer">
           Google Maps
@@ -178,8 +244,9 @@ export function ZoneMap({
       </form>
       {lookup ? <p className="zone-lookup-msg">{lookup}</p> : null}
       <p className="ed-sub">
-        Drag to paint streets you deliver. Checkout only accepts addresses inside the red blocks. Open
-        Google Maps to confirm a street, then paint it here.
+        Scroll or use + / − to zoom. Choose Move to pan without painting. Search drops a pin on the
+        match. Drag in Paint to cover streets you deliver — checkout only accepts addresses inside
+        the red blocks.
       </p>
     </div>
   );
@@ -189,6 +256,12 @@ function tomatoColor() {
   if (typeof window === "undefined") return "currentColor";
   const v = getComputedStyle(document.documentElement).getPropertyValue("--color-tomato").trim();
   return v || "currentColor";
+}
+
+function creamColor() {
+  if (typeof window === "undefined") return "#fbf6ec";
+  const v = getComputedStyle(document.documentElement).getPropertyValue("--color-cream").trim();
+  return v || "#fbf6ec";
 }
 
 function drawCells(
