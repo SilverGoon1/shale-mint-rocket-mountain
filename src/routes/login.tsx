@@ -468,7 +468,7 @@ function Login() {
         /oauth-not-wired|not connected|client.?id|client.?secret|not configured|grok_preview/i.test(raw)
       ) {
         setError(
-          "Google / X is not connected on this shop yet. Use email, or add GROK_AUTH_CLIENT_ID and GROK_AUTH_CLIENT_SECRET on Vercel.",
+          "Google / X is not connected on this shop yet. Use email.",
         );
       } else {
         setError(friendlyAuthError(err));
