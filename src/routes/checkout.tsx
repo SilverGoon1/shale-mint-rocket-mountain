@@ -1,19 +1,19 @@
 import { useEffect, useMemo, useState } from "react";
 import { createFileRoute, Link, Navigate } from "@tanstack/react-router";
-import { Minus, Plus, Trash2 } from "lucide-react";
+import { Bike, Minus, Plus, Store, Trash2 } from "lucide-react";
 import { ShopHeader } from "@/components/shop-header";
 import { SessionGate } from "@/components/guards";
 import { StaleCartPrompt } from "@/components/stale-cart";
 import { useCartHydrated } from "@/components/cart-hydrate";
 import { AccountLoading } from "@/components/pizza-spinner";
-import { EnableAlertsButton } from "@/components/order-alerts";
+import { OrderReceived } from "@/components/order-received";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
 import { needsSignupOtp } from "@/lib/phone";
 import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
 import { AddressSuggest } from "@/components/address-suggest";
 import { retryTransient } from "@/lib/fetch-retry";
-import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatTicketNo, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
+import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
 import { etaMinutes, formatShopWhen, isOpenNow, nextOpenSlot, nyHm, nyWallToDate, nyYmd } from "@/lib/hours";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import type { RestaurantInfo } from "@/data/menu";
@@ -189,7 +189,6 @@ function CheckoutForm({
   const [error, setError] = useState("");
   const [placed, setPlaced] = useState<{ id: string; ticketNo: number; total: number; status: string } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [step, setStep] = useState<"form" | "review">("form");
   const [pickupName, setPickupName] = useState(profile?.displayName || "");
   const [guestName, setGuestName] = useState(profile?.displayName || "");
   const [guestPhone, setGuestPhone] = useState(profile?.phone || "");
@@ -214,6 +213,20 @@ function CheckoutForm({
     }
     setPay(fulfillment === "delivery" ? "pay_delivery" : "pay_pickup");
   }, [fulfillment, guestMustCard]);
+
+  useEffect(() => {
+    if (!profile) return;
+    const name = profile.displayName.trim();
+    const phone = profile.phone.trim();
+    if (name) {
+      setPickupName((n) => n.trim() || name);
+      setGuestName((n) => n.trim() || name);
+    }
+    if (phone) {
+      setPickupPhone((n) => n.trim() || phone);
+      setGuestPhone((n) => n.trim() || phone);
+    }
+  }, [profile]);
 
   useEffect(() => {
     if (!settings.openNow) setWhenMode("schedule");
@@ -280,41 +293,7 @@ function CheckoutForm({
   }
   if (placed) {
     return (
-      <div className="page-card">
-        <p className="shop-brand-kicker">South End Pizza III</p>
-        <h1>Order received</h1>
-        <p>
-          Ticket #{formatTicketNo(placed.ticketNo)} · {formatUsd(placed.total)} · {placed.status.replaceAll("_", " ")}
-        </p>
-        {placed.status === "awaiting_payment" ? (
-          <p className="ed-sub">{settings.paymentPlaceholder}</p>
-        ) : (
-          <p className="ed-sub">
-            {guest
-              ? "The kitchen has the ticket. Save this number — guest orders are not on an account."
-              : "The kitchen has the ticket. Track it under Account"}
-            {fulfillment === "pickup" ? ` · pickup at ${pickupAt}` : ""}
-            {whenMode === "schedule" && scheduledAt ? ` · ${whenLabel}.` : guest ? "" : "."}
-          </p>
-        )}
-        <div className="confirm-actions">
-          {guest ? (
-            <Link to="/login" search={{ next: "/account" }} className="btn-print">
-              Create an account
-            </Link>
-          ) : (
-            <>
-              <EnableAlertsButton />
-              <Link to="/account" className="ed-btn">
-                View history
-              </Link>
-            </>
-          )}
-          <Link to="/" className="ed-btn">
-            Back to the menu
-          </Link>
-        </div>
-      </div>
+      <OrderReceived ticketNo={placed.ticketNo} total={placed.total} guest={guest} />
     );
   }
   if (settings.vacationOn) {
@@ -360,8 +339,8 @@ function CheckoutForm({
       }
     }
     if (fulfillment === "pickup") {
-      const name = (pickupName.trim() || guestName.trim());
-      const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+      const name = (pickupName.trim() || guestName.trim() || profile?.displayName || "").trim();
+      const phone = (pickupPhone || guestPhone || profile?.phone || "").replace(/\D/g, "");
       if (!name) {
         setError("Enter the name for pickup.");
         return false;
@@ -392,8 +371,8 @@ function CheckoutForm({
   }
 
   function submitOrder() {
-    const name = (pickupName.trim() || guestName.trim());
-    const phone = (pickupPhone || guestPhone).replace(/\D/g, "");
+    const name = (pickupName.trim() || guestName.trim() || profile?.displayName || "").trim();
+    const phone = (pickupPhone || guestPhone || profile?.phone || "").replace(/\D/g, "");
     if (fulfillment === "pickup") {
       if (!name) {
         setError("Enter the name for pickup.");
@@ -456,142 +435,16 @@ function CheckoutForm({
       .finally(() => setBusy(false));
   }
 
-  function payLabel() {
-    if (pay === "pay_pickup") return "Pay at pickup";
-    if (pay === "pay_delivery") return "Cash";
-    return CARD_PROCESSOR_LIVE ? "Card" : "Card coming soon";
-  }
-
-  if (step === "review") {
-    return (
-      <div className="confirm-page">
-        <section className="page-card">
-          <p className="shop-brand-kicker">Review before placing</p>
-          <h1>Confirm your order</h1>
-          <p className="ed-sub">Check every line. Nothing goes to the kitchen until you confirm.</p>
-          <div className="order-ticket">
-            <p className="shop-brand-kicker">{fulfillment === "delivery" ? "Deliver to" : "Pickup"}</p>
-            <strong>{fulfillment === "delivery" ? `${address}, ${city} ${zip}` : pickupAt}</strong>
-            {fulfillment === "pickup" ? (
-              <>
-                <label className="ed-field">
-                  <span>Name for pickup</span>
-                  <input
-                    className="ed-input"
-                    value={pickupName}
-                    onChange={(e) => setPickupName(e.target.value)}
-                    required
-                    autoComplete="name"
-                  />
-                </label>
-                <label className="ed-field">
-                  <span>Phone</span>
-                  <input
-                    className="ed-input"
-                    value={pickupPhone || guestPhone}
-                    onChange={(e) => {
-                      setPickupPhone(e.target.value);
-                      if (guest) setGuestPhone(e.target.value);
-                    }}
-                    required
-                    autoComplete="tel"
-                    inputMode="tel"
-                    placeholder="e.g. (609) 555-0100"
-                  />
-                </label>
-              </>
-            ) : null}
-            <em>
-              {whenLabel} · {payLabel()}
-              {geo?.deliverable && fulfillment === "delivery" ? " · In the painted zone" : ""}
-            </em>
-            {geo?.mapsUrl && fulfillment === "delivery" ? (
-              <p className="ed-sub">
-                <a href={geo.mapsUrl} target="_blank" rel="noreferrer">
-                  Open in Google Maps
-                </a>
-              </p>
-            ) : null}
-          </div>
-          <ul className="cart-lines">
-            {lines.map((l) => (
-              <li key={l.key}>
-                <span>
-                  {l.qty}× {l.name}
-                  {l.size ? ` · ${l.size}` : ""}
-                  {l.detail ? ` · ${l.detail}` : ""}
-                  {l.comment ? ` · Cook: ${l.comment}` : ""}
-                </span>
-                <span className="bag-line-tools">
-                  <span>{formatUsd(l.unitPrice * l.qty)}</span>
-                  <button type="button" className="bag-remove" aria-label={`Remove ${l.name}`} onClick={() => remove(l.key)}>
-                    <Trash2 size={15} strokeWidth={2.2} />
-                  </button>
-                </span>
-              </li>
-            ))}
-          </ul>
-          {notes.trim() ? (
-            <div className="pos-notes">
-              <strong>Kitchen notes</strong>
-              {notes}
-            </div>
-          ) : null}
-          <dl className="totals">
-            <div>
-              <dt>Food</dt>
-              <dd>{formatUsd(subtotal)}</dd>
-            </div>
-            {discount ? (
-              <div>
-                <dt>Rewards</dt>
-                <dd>−{formatUsd(discount)}</dd>
-              </div>
-            ) : null}
-            {deliveryFee ? (
-              <div>
-                <dt>Delivery</dt>
-                <dd>{formatUsd(deliveryFee)}</dd>
-              </div>
-            ) : null}
-            <div>
-              <dt>Tax ({settings.taxRate}%)</dt>
-              <dd>{formatUsd(tax)}</dd>
-            </div>
-            {tip ? (
-              <div>
-                <dt>Tip</dt>
-                <dd>{formatUsd(tip)}</dd>
-              </div>
-            ) : null}
-            <div className="totals-grand">
-              <dt>Total</dt>
-              <dd>{formatUsd(total)}</dd>
-            </div>
-          </dl>
-          {error ? <p className="form-error">{error}</p> : null}
-          <div className="confirm-actions">
-            <button type="button" className="btn-print checkout-primary" disabled={busy || (fulfillment === "pickup" && (!(pickupName.trim() || guestName.trim()) || (pickupPhone || guestPhone).replace(/\D/g, "").length < 10))} onClick={submitOrder}>
-              {busy ? "Placing…" : "Confirm and place"}
-            </button>
-            <button type="button" className="ed-btn" disabled={busy} onClick={() => setStep("form")}>
-              Edit order
-            </button>
-          </div>
-        </section>
-      </div>
-    );
-  }
-
   return (
     <form
       className="check-grid"
       onSubmit={(e) => {
         e.preventDefault();
+        if (busy) return;
         if (!validateCheckout()) return;
         setError("");
         if (guest) onLockGuest?.();
-        setStep("review");
+        submitOrder();
       }}
     >
       <StaleCartPrompt />
@@ -633,17 +486,29 @@ function CheckoutForm({
             </label>
           </div>
         ) : null}
-        <div className="seg" role="group" aria-label="Fulfillment">
-          <button type="button" data-on={fulfillment === "pickup"} onClick={() => setFulfillment("pickup")}>
-            Pickup
+        <div className="fulfill-pick" role="group" aria-label="Pickup or delivery">
+          <button
+            type="button"
+            className="fulfill-card"
+            data-kind="pickup"
+            data-on={fulfillment === "pickup"}
+            onClick={() => setFulfillment("pickup")}
+          >
+            <Store size={22} strokeWidth={2.1} aria-hidden />
+            <strong>Pickup</strong>
+            <em>At the counter</em>
           </button>
           <button
             type="button"
+            className="fulfill-card"
+            data-kind="delivery"
             data-on={fulfillment === "delivery"}
-            onClick={() => setFulfillment("delivery")}
             disabled={!settings.hasZones}
+            onClick={() => setFulfillment("delivery")}
           >
-            Delivery
+            <Bike size={22} strokeWidth={2.1} aria-hidden />
+            <strong>Delivery</strong>
+            <em>{settings.hasZones ? "To your door" : "Zones not painted yet"}</em>
           </button>
         </div>
         {fulfillment === "pickup" ? (
@@ -675,62 +540,11 @@ function CheckoutForm({
             </label>
           </div>
         ) : null}
-        {!settings.openNow ? (
-          <p className="ed-sub">
-            The kitchen is closed right now. {settings.hoursSummary} You can still schedule a later pickup or delivery.
-          </p>
-        ) : null}
-        <fieldset className="tip-box">
-          <legend>When</legend>
-          <p className="ed-sub">Times are Eastern, for Egg Harbor Township. Scheduled orders need 15 minutes of notice.</p>
-          <div className="seg" role="group" aria-label="When to fulfill">
-            <button
-              type="button"
-              data-on={whenMode === "asap"}
-              disabled={!settings.openNow}
-              onClick={() => setWhenMode("asap")}
-            >
-              As soon as ready
-            </button>
-            <button type="button" data-on={whenMode === "schedule"} onClick={() => setWhenMode("schedule")}>
-              Schedule
-            </button>
-          </div>
-          {whenMode === "schedule" ? (
-            <div className="two-col sched-fields">
-              <label className="ed-field">
-                <span>Date</span>
-                <input
-                  className="ed-input"
-                  type="date"
-                  min={dateBounds.min}
-                  max={dateBounds.max}
-                  value={schedDate}
-                  onChange={(e) => setSchedDate(e.target.value)}
-                  required
-                />
-              </label>
-              <label className="ed-field">
-                <span>Time</span>
-                <input
-                  className="ed-input"
-                  type="time"
-                  step={900}
-                  value={schedTime}
-                  onChange={(e) => setSchedTime(e.target.value)}
-                  required
-                />
-              </label>
-            </div>
-          ) : (
-            <p className="ed-sub">About {eta} minutes for {fulfillment === "delivery" ? "delivery" : "pickup"}.</p>
-          )}
-        </fieldset>
         {!settings.hasZones ? (
           <p className="ed-sub">Delivery is off until the shop paints a zone on the admin map.</p>
         ) : null}
         {fulfillment === "delivery" ? (
-          <div className="ed-shop">
+          <div className="ed-shop fulfill-delivery">
             <p className="ed-sub">
               Delivery minimum {formatUsd(settings.minOrderDelivery)}
               {settings.deliveryFeeOn !== false && settings.deliveryFee > 0
@@ -846,6 +660,57 @@ function CheckoutForm({
             ) : null}
           </div>
         ) : null}
+        {!settings.openNow ? (
+          <p className="ed-sub">
+            The kitchen is closed right now. {settings.hoursSummary} You can still schedule a later pickup or delivery.
+          </p>
+        ) : null}
+        <fieldset className="tip-box">
+          <legend>When</legend>
+          <p className="ed-sub">Times are Eastern, for Egg Harbor Township. Scheduled orders need 15 minutes of notice.</p>
+          <div className="seg" role="group" aria-label="When to fulfill">
+            <button
+              type="button"
+              data-on={whenMode === "asap"}
+              disabled={!settings.openNow}
+              onClick={() => setWhenMode("asap")}
+            >
+              As soon as ready
+            </button>
+            <button type="button" data-on={whenMode === "schedule"} onClick={() => setWhenMode("schedule")}>
+              Schedule
+            </button>
+          </div>
+          {whenMode === "schedule" ? (
+            <div className="two-col sched-fields">
+              <label className="ed-field">
+                <span>Date</span>
+                <input
+                  className="ed-input"
+                  type="date"
+                  min={dateBounds.min}
+                  max={dateBounds.max}
+                  value={schedDate}
+                  onChange={(e) => setSchedDate(e.target.value)}
+                  required
+                />
+              </label>
+              <label className="ed-field">
+                <span>Time</span>
+                <input
+                  className="ed-input"
+                  type="time"
+                  step={900}
+                  value={schedTime}
+                  onChange={(e) => setSchedTime(e.target.value)}
+                  required
+                />
+              </label>
+            </div>
+          ) : (
+            <p className="ed-sub">About {eta} minutes for {fulfillment === "delivery" ? "delivery" : "pickup"}.</p>
+          )}
+        </fieldset>
 
         <label className="ed-field">
           <span>Notes for the kitchen</span>
@@ -1006,7 +871,7 @@ function CheckoutForm({
         </p>
         {error ? <p className="form-error">{error}</p> : null}
         <button type="submit" className="btn-print checkout-primary" disabled={busy}>
-          Review order
+          {busy ? "Placing…" : "Checkout"}
         </button>
       </aside>
     </form>

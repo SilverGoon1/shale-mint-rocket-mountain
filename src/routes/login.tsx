@@ -286,19 +286,6 @@ function Login() {
     return false;
   }
 
-  async function abandonVerify() {
-    setBusy(true);
-    setError("");
-    try {
-      await dropClientSession();
-    } catch {
-      /* still leave OTP / signed-out path */
-    }
-    setVerifyStep(null);
-    setBusy(false);
-    void navigate({ to: "/", replace: true });
-  }
-
   async function submit(e: FormEvent) {
     e.preventDefault();
     setError("");

@@ -184,7 +184,7 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
             ) : null}
           </section>
 
-          <section className="page-card">
+          <section className="page-card" id="recent-orders">
             <h2>Recent orders</h2>
             {recent.length ? (
               <ul className="account-recent">

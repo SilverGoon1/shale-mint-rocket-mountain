@@ -1529,11 +1529,12 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 	} catch {
 		/* badges are optional on account load */
 	}
+	const email = String(userRow?.email ?? "");
 	const me: ProfileView = {
 		userId: context.userId,
 		role: adminModeAllowed ? "admin" : "customer",
-		phone: String(p?.phone ?? ""),
-		displayName: String(p?.display_name ?? ""),
+		phone: String(p?.phone || phoneFromAuthEmail(email) || ""),
+		displayName: String(p?.display_name || userRow?.name || "").trim(),
 		addressLine: String(p?.address_line ?? ""),
 		city: String(p?.city ?? ""),
 		zip: String(p?.zip ?? ""),
@@ -1543,7 +1544,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 		unreadChats,
 		adminInbox,
 		banned: bool(p?.banned),
-		email: String(userRow?.email ?? ""),
+		email,
 		emailVerified: bool(userRow?.verified),
 		referralCode: String(p?.referral_code ?? ""),
 		inviteCount: 0,
