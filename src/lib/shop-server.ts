@@ -2579,13 +2579,14 @@ export const savePaymentProcessors = createServerFn({ method: "POST" })
 		const {
 			parsePaymentSecrets,
 			mergePaymentSecrets,
+			persistableSecrets,
 			processorHasSecret,
 			allSecretStatuses,
 		} = await import("@/lib/payment-secrets.server");
 		const row = await loadSettingsRow(sql);
 		const storedSecrets = parsePaymentSecrets(row.payment_secrets);
 		const incomingSecrets = parsePaymentSecrets(data.secrets ?? {});
-		const nextSecrets = mergePaymentSecrets(storedSecrets, incomingSecrets);
+		const nextSecrets = persistableSecrets(mergePaymentSecrets(storedSecrets, incomingSecrets));
 		let accounts = parsePaymentAccounts(data.accounts ?? row.payment_accounts);
 		accounts = accounts.map((acc) => {
 			const hasPub = acc.publishableKey.trim().length > 0;

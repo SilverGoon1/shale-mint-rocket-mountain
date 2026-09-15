@@ -177,6 +177,7 @@ export function PaymentProcessorPanel({
                         patchSecret(cat.id, field.key === "webhookSecret" ? "webhookSecret" : "secretKey", e.target.value)
                       }
                     />
+                    <em className="ed-sub">Set the live secret on Vercel. This shop only keeps “configured” and the last four.</em>
                   </label>
                 );
               }
