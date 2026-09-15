@@ -246,18 +246,21 @@ function Login() {
     }, 6000);
   }, [isPending, gatePending, user, gateChecked, busy, verifyStep, connectWaited, error]);
 
-  // Keep the form up while a submit is in flight so a session refetch cannot
-  // trap the visitor on "Checking sign-in…" after email login.
-  // Stay on the OTP step even when a session already exists (unverified email).
-  // A failed password MUST stay on this form with the error — never hop into
-  // a leftover desk session.
-  if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error && !connectWaited) {
+  const sessionInFlight = Boolean(user) || gatePending;
+  if (
+    sessionInFlight &&
+    (isPending || gatePending || !gateChecked) &&
+    !busy &&
+    !verifyStep &&
+    !error &&
+    !connectWaited
+  ) {
     return (
       <main className="login-page" data-popup="true">
-        {user ? <div className="login-scrim" aria-hidden /> : <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />}
+        <div className="login-scrim" aria-hidden />
         <section className="login-card login-dialog" role="status" aria-busy="true" aria-labelledby="login-title">
           <PizzaSpinner size="md" />
-          <h1 id="login-title">Loading account</h1>
+          <h1 id="login-title">Welcome back</h1>
           <p className="ed-sub">Connecting you to the shop…</p>
         </section>
       </main>

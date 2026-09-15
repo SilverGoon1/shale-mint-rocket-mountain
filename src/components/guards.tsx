@@ -76,8 +76,13 @@ export function SessionGate({
   const [claiming, setClaiming] = useState(false);
   const [retry, setRetry] = useState(0);
   const [authWaited, setAuthWaited] = useState(false);
+  const [spinReady, setSpinReady] = useState(false);
   const userId = user?.id ?? "";
   const heldAdmin = useRef<ProfileView | null>(null);
+
+  useEffect(() => {
+    setSpinReady(true);
+  }, []);
 
   useEffect(() => {
     if (userId) return;
@@ -92,7 +97,7 @@ export function SessionGate({
       setAuthWaited(false);
       return;
     }
-    const t = window.setTimeout(() => setAuthWaited(true), 8000);
+    const t = window.setTimeout(() => setAuthWaited(true), 6000);
     return () => window.clearTimeout(t);
   }, [needAdmin, userId, retry, profile]);
 
@@ -178,30 +183,39 @@ export function SessionGate({
 
   if (!userId) {
     if (needAdmin) {
-      if (authWaited) return loadFail("Could not load your account");
-      return <AccountLoading />;
+      if (authWaited) return loadFail("Could not finish connecting. Sign in again.");
+      if (spinReady && isPending) return <AccountLoading />;
+      if (!isPending) {
+        return <Navigate to="/login" search={{ next: "/admin" }} />;
+      }
+      return null;
     }
-    if (!isPending) {
+    if (!isPending || authWaited) {
       const next =
         pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
           ? pathname
           : "/";
+      if (authWaited && isPending) return loadFail("Could not finish connecting. Sign in again.");
       return <Navigate to="/login" search={{ next }} />;
     }
-    return <AccountLoading />;
+    if (spinReady) return <AccountLoading />;
+    return null;
   }
   if (needAdmin && authWaited && !shownProfile) {
-    return loadFail(error || "Could not load your account");
+    return loadFail(error || "Could not finish connecting. Sign in again.");
   }
   if (isPending && !shownProfile) {
-    return <AccountLoading />;
+    if (authWaited) return loadFail(error || "Could not finish connecting. Sign in again.");
+    if (spinReady) return <AccountLoading />;
+    return null;
   }
   if (error && !shownProfile) {
     return loadFail(error);
   }
   if (!shownProfile || !shownTwoFactor) {
-    if (needAdmin && authWaited) return loadFail("Could not load your account");
-    return <AccountLoading />;
+    if (authWaited) return loadFail("Could not finish connecting. Sign in again.");
+    if (spinReady) return <AccountLoading />;
+    return null;
   }
   if (needsSignupOtp(shownProfile.email) && !shownProfile.emailVerified && pathname !== "/login") {
     return <Navigate to="/login" search={{ next: pathname || "/" }} replace />;

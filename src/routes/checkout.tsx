@@ -60,13 +60,25 @@ function CheckoutPage() {
   const data = Route.useLoaderData();
   const { user, isPending } = useCurrentUserState();
   const [guestAnyway, setGuestAnyway] = useState(readGuestCheckout);
+  const [spinReady, setSpinReady] = useState(false);
+  const [connectWaited, setConnectWaited] = useState(false);
+
+  useEffect(() => {
+    setSpinReady(true);
+  }, []);
+
+  useEffect(() => {
+    if (!isPending) return;
+    const t = window.setTimeout(() => setConnectWaited(true), 6000);
+    return () => window.clearTimeout(t);
+  }, [isPending]);
 
   function stayGuest() {
     writeGuestCheckout();
     setGuestAnyway(true);
   }
 
-  if (isPending) {
+  if (isPending && spinReady && !connectWaited && !guestAnyway) {
     return (
       <div className="shop-shell">
         <ShopHeader />
@@ -121,6 +133,9 @@ function CheckoutPage() {
     <div className="shop-shell">
       <ShopHeader />
       <main className="shop-main" id="main">
+        {connectWaited && !user ? (
+          <p className="form-error">Could not finish connecting. Sign in again.</p>
+        ) : null}
         {user && guestAnyway ? (
           <p className="ed-sub" style={{ marginBottom: "0.75rem" }}>
             Checking out as a guest.{" "}
