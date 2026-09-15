@@ -101,6 +101,8 @@ function Login() {
   const [otpExpires, setOtpExpires] = useState(0);
   const [gatePending, setGatePending] = useState(false);
   const [gateChecked, setGateChecked] = useState(false);
+  const [connectWaited, setConnectWaited] = useState(false);
+  const connectTimer = useRef<number | null>(null);
   const [socialConfigured, setSocialConfigured] = useState<boolean | null>(null);
   const verifyStepRef = useRef<VerifyStep | null>(null);
   verifyStepRef.current = verifyStep;
@@ -225,22 +227,31 @@ function Login() {
   }, [otpExpires]);
 
   useEffect(() => {
-    const stuck = (isPending || gatePending || Boolean(user && !gateChecked)) && !busy && !verifyStep && !error;
-    if (!stuck) return;
-    const t = window.setTimeout(() => {
+    const connecting = !busy && !verifyStep && (isPending || gatePending || Boolean(user && !gateChecked));
+    if (!connecting) {
+      if (connectTimer.current) {
+        window.clearTimeout(connectTimer.current);
+        connectTimer.current = null;
+      }
+      return;
+    }
+    if (connectWaited || connectTimer.current) return;
+    connectTimer.current = window.setTimeout(() => {
+      connectTimer.current = null;
+      setConnectWaited(true);
       setGatePending(false);
       setGateChecked(true);
       setError("Could not finish connecting. Sign in again.");
+      setTab("in");
     }, 6000);
-    return () => window.clearTimeout(t);
-  }, [isPending, gatePending, user, gateChecked, busy, verifyStep, error]);
+  }, [isPending, gatePending, user, gateChecked, busy, verifyStep, connectWaited, error]);
 
   // Keep the form up while a submit is in flight so a session refetch cannot
   // trap the visitor on "Checking sign-in…" after email login.
   // Stay on the OTP step even when a session already exists (unverified email).
   // A failed password MUST stay on this form with the error — never hop into
   // a leftover desk session.
-  if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error) {
+  if ((isPending || gatePending || (user && !gateChecked)) && !busy && !verifyStep && !error && !connectWaited) {
     return (
       <main className="login-page" data-popup="true">
         {user ? <div className="login-scrim" aria-hidden /> : <Link to={closeTo} className="login-scrim" aria-label="Close sign-in" />}

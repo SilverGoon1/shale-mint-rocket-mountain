@@ -177,19 +177,16 @@ export function SessionGate({
   }
 
   if (!userId) {
+    if (needAdmin) {
+      if (authWaited) return loadFail("Could not load your account");
+      return <AccountLoading />;
+    }
     if (!isPending) {
       const next =
-        needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
-          ? "/admin"
-          : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
-            ? pathname
-            : needAdmin
-              ? "/admin"
-              : "/";
+        pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
+          ? pathname
+          : "/";
       return <Navigate to="/login" search={{ next }} />;
-    }
-    if (needAdmin && authWaited) {
-      return loadFail("Could not load your account");
     }
     return <AccountLoading />;
   }
