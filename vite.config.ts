@@ -255,6 +255,9 @@ export default defineConfig(({ command, isPreview }) => ({
             serverDir: "./server",
             routeRules: {
               "/**": { headers: DEVICE_HEADERS },
+              "/admin": { headers: ADMIN_DEVICE_HEADERS },
+              "/admin/**": { headers: ADMIN_DEVICE_HEADERS },
+              "/pair-printer": { headers: ADMIN_DEVICE_HEADERS },
               "/sw.js": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
               "/version.json": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
             },
