@@ -7,6 +7,15 @@ import { signOut } from "@/lib/auth/client";
 import { onVisibleInterval } from "@/lib/page-visible";
 import { getAdminInboxCount } from "@/lib/shop-server";
 
+function noDragProps() {
+  return {
+    draggable: false as const,
+    onDragStart: (e: { preventDefault: () => void }) => e.preventDefault(),
+    onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+    onPointerDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+  };
+}
+
 export function AdminDrawer() {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const [open, setOpen] = useState(false);
@@ -50,6 +59,7 @@ export function AdminDrawer() {
           className="admin-drawer-toggle"
           aria-expanded={open}
           aria-controls="admin-drawer"
+          {...noDragProps()}
           onClick={() => setOpen((v) => !v)}
         >
           {open ? <X size={18} strokeWidth={2.2} /> : <Menu size={18} strokeWidth={2.2} />}
@@ -59,7 +69,7 @@ export function AdminDrawer() {
         <div id="admin-top-extra" className="admin-top-extra" />
       </div>
       {open ? (
-        <button type="button" className="admin-drawer-scrim" aria-label="Close admin menu" onClick={() => setOpen(false)} />
+        <button type="button" className="admin-drawer-scrim" aria-label="Close admin menu" {...noDragProps()} onClick={() => setOpen(false)} />
       ) : null}
       <nav
         id="admin-drawer"
@@ -69,7 +79,7 @@ export function AdminDrawer() {
         aria-hidden={!open}
         inert={!open ? true : undefined}
       >
-        <Link to="/" className="shop-nav-link" data-on={pathname === "/"}>
+        <Link to="/" className="shop-nav-link" data-on={pathname === "/"} {...noDragProps()}>
           Main menu
         </Link>
         <p className="shop-brand-kicker">Admin</p>
@@ -89,6 +99,7 @@ export function AdminDrawer() {
                 className="shop-nav-link"
                 data-on={on}
                 activeOptions={item.exact ? { exact: true } : undefined}
+                {...noDragProps()}
               >
                 {item.label}
                 {item.pip && unread > 0 ? <span className="nav-pip">{unread}</span> : null}
@@ -99,6 +110,7 @@ export function AdminDrawer() {
           type="button"
           className="shop-nav-link admin-drawer-logout"
           disabled={signingOut}
+          {...noDragProps()}
           onClick={() => {
             setOutMsg("");
             setSigningOut(true);

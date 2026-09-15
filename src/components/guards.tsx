@@ -88,14 +88,13 @@ export function SessionGate({
   }, [userId]);
 
   useEffect(() => {
-    if (!isPending) {
+    if (profile) {
       setAuthWaited(false);
       return;
     }
-    const ms = needAdmin ? 2500 : 8000;
-    const t = window.setTimeout(() => setAuthWaited(true), ms);
+    const t = window.setTimeout(() => setAuthWaited(true), 8000);
     return () => window.clearTimeout(t);
-  }, [isPending, needAdmin]);
+  }, [needAdmin, userId, retry, profile]);
 
   useEffect(() => {
     if (isPending || !userId) return;
@@ -135,38 +134,20 @@ export function SessionGate({
   const shownProfile = profile || (userId && heldAdmin.current?.userId === userId ? heldAdmin.current : null);
   const shownTwoFactor = twoFactor || (shownProfile ? SKIP_2FA : null);
 
-  if (!userId) {
-    if (!isPending) {
-      const next =
-        needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
-          ? "/admin"
-          : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
-            ? pathname
-            : needAdmin
-              ? "/admin"
-              : "/";
-      return <Navigate to="/login" search={{ next }} />;
-    }
-    if (needAdmin && authWaited) {
-      return <Navigate to="/login" search={{ next: "/admin" }} />;
-    }
-    return <AccountLoading />;
+  function retryFn() {
+    setError("");
+    setProfile(null);
+    setTwoFactor(null);
+    setAuthWaited(false);
+    setRetry((n) => n + 1);
   }
-  if (isPending && !shownProfile) {
-    return <AccountLoading />;
-  }
-  if (error && !shownProfile) {
-    const retryFn = () => {
-      setError("");
-      setProfile(null);
-      setTwoFactor(null);
-      setRetry((n) => n + 1);
-    };
-    if (fallback) return <>{fallback({ error, retry: retryFn })}</>;
+
+  function loadFail(message: string) {
+    if (fallback) return <>{fallback({ error: message, retry: retryFn })}</>;
     return (
       <div className="page-card">
         <h1>Could not load your account</h1>
-        <p>{error}</p>
+        <p>{message}</p>
         <p className="ed-sub">
           {softGuest
             ? "Nothing was lost. Continue as guest to finish checkout, or try loading the account again."
@@ -181,11 +162,50 @@ export function SessionGate({
           <button type="button" className={softGuest ? "ed-btn" : "btn-print"} onClick={retryFn}>
             Try again
           </button>
+          {needAdmin ? (
+            <Link to="/login" search={{ next: "/admin" }} className="ed-btn">
+              Sign in again
+            </Link>
+          ) : (
+            <Link to="/login" search={{ next: pathname || "/" }} className="ed-btn">
+              Sign in again
+            </Link>
+          )}
         </div>
       </div>
     );
   }
-  if (!shownProfile || !shownTwoFactor) return <AccountLoading />;
+
+  if (!userId) {
+    if (!isPending) {
+      const next =
+        needAdmin && (!pathname.startsWith("/admin") || pathname.startsWith("/login"))
+          ? "/admin"
+          : pathname.startsWith("/") && !pathname.startsWith("//") && !pathname.startsWith("/login")
+            ? pathname
+            : needAdmin
+              ? "/admin"
+              : "/";
+      return <Navigate to="/login" search={{ next }} />;
+    }
+    if (needAdmin && authWaited) {
+      return loadFail("Could not load your account");
+    }
+    return <AccountLoading />;
+  }
+  if (needAdmin && authWaited && !shownProfile) {
+    return loadFail(error || "Could not load your account");
+  }
+  if (isPending && !shownProfile) {
+    return <AccountLoading />;
+  }
+  if (error && !shownProfile) {
+    return loadFail(error);
+  }
+  if (!shownProfile || !shownTwoFactor) {
+    if (needAdmin && authWaited) return loadFail("Could not load your account");
+    return <AccountLoading />;
+  }
   if (needsSignupOtp(shownProfile.email) && !shownProfile.emailVerified && pathname !== "/login") {
     return <Navigate to="/login" search={{ next: pathname || "/" }} replace />;
   }

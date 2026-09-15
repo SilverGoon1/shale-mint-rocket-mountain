@@ -48,6 +48,7 @@ function noDragProps() {
     draggable: false as const,
     onDragStart: (e: { preventDefault: () => void }) => e.preventDefault(),
     onMouseDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
+    onPointerDown: (e: { stopPropagation: () => void }) => e.stopPropagation(),
   };
 }
 

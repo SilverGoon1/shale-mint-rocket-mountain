@@ -2149,5 +2149,14 @@ body:has(.mobile-bag) .support-dock {
   scroll-margin-top: calc(var(--shop-sticky-top, 3.6rem) + 3.6rem);
 }
 
+.account-menu-pop a,
+.account-menu-pop button,
+.admin-drawer a,
+.admin-drawer button {
+  user-select: none;
+  -webkit-user-select: none;
+  -webkit-user-drag: none;
+}
+
 
 

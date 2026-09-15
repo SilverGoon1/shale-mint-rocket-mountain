@@ -224,6 +224,17 @@ function Login() {
     return () => window.clearInterval(t);
   }, [otpExpires]);
 
+  useEffect(() => {
+    const stuck = (isPending || gatePending || Boolean(user && !gateChecked)) && !busy && !verifyStep && !error;
+    if (!stuck) return;
+    const t = window.setTimeout(() => {
+      setGatePending(false);
+      setGateChecked(true);
+      setError("Could not finish connecting. Sign in again.");
+    }, 6000);
+    return () => window.clearTimeout(t);
+  }, [isPending, gatePending, user, gateChecked, busy, verifyStep, error]);
+
   // Keep the form up while a submit is in flight so a session refetch cannot
   // trap the visitor on "Checking sign-in…" after email login.
   // Stay on the OTP step even when a session already exists (unverified email).
