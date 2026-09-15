@@ -124,15 +124,28 @@ export function PizzaCustomize({
   const chosen = item.prices.find((p) => p.label === size) ?? first;
   const ready = !buffalo || buffaloDipReady(dip);
 
+  function revealTopping(id: string) {
+    requestAnimationFrame(() => {
+      const chip = document.querySelector(`.pizza-pane .topping-chip[data-topping="${CSS.escape(id)}"]`);
+      if (chip instanceof HTMLElement) {
+        chip.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" });
+      }
+    });
+  }
+
   function setTopping(id: string, side: ToppingSide | "off") {
+    const turningOn = side !== "off" && (picks[id] ?? "off") === "off";
     setPicks((cur) => ({ ...cur, [id]: side }));
+    if (turningOn) revealTopping(id);
   }
 
   function toggleTopping(id: string) {
+    const turningOn = (picks[id] ?? "off") === "off";
     setPicks((cur) => {
       const side = cur[id] ?? "off";
       return { ...cur, [id]: side === "off" ? "whole" : "off" };
     });
+    if (turningOn) revealTopping(id);
   }
 
   function confirm() {
@@ -234,7 +247,7 @@ export function PizzaCustomize({
                 const unit = toppingUnit(size, settings, t.id);
                 const charge = toppingCharge(size, on ? (side as "whole" | "left" | "right") : "whole", settings, t.id);
                 return (
-                  <div key={t.id} className="topping-chip" data-on={on || undefined}>
+                  <div key={t.id} className="topping-chip" data-topping={t.id} data-on={on || undefined}>
                     <button
                       type="button"
                       className="topping-chip-main"

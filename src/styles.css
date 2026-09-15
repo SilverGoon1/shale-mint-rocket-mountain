@@ -2162,5 +2162,18 @@ body:has(.mobile-bag) .support-dock {
   -webkit-user-drag: none;
 }
 
+.pizza-build .topping-chip {
+  scroll-margin-bottom: 4.75rem;
+  overflow: visible;
+}
+.pizza-build .topping-chip[data-on="true"] {
+  overflow: visible;
+}
+@media (width <= 700px) {
+  .pizza-build .topping-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}
+
 
 
