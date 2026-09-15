@@ -1,0 +1,46 @@
+Production southendpizza.app: click-drag on the admin/account dropdown froze the tab. After refresh the desk stays on "Loading account / Connecting you to the shop…" and /admin never opens. Session pending has no timeout. Fix both the hang and the drag.
+
+Current
+- src/routes/login.tsx lines \~232–239 show that connecting card while isPending || gatePending || (user && !gateChecked) with no deadline.
+- src/lib/auth/use-current-user.ts returns authClient.useSession() isPending with no timeout.
+- src/components/guards.tsx SessionGate needAdmin renders <AccountLoading /> until getMe resolves.
+- Account menu / admin drawer buttons can still start a native HTML drag on PC.
+
+Do this
+
+1) src/lib/auth/use-current-user.ts
+If isPending has been true for 6 seconds, treat it as isPending: false (session failed to resolve). Do not invent a user.
+
+2) src/routes/login.tsx
+After 6 seconds on the connecting card, leave it and show the normal Welcome back form plus:
+  "Could not finish connecting. Sign in again."
+Never block the sign-in fields behind an infinite spinner.
+
+3) src/components/guards.tsx
+If needAdmin and profile/session has not loaded in 8 seconds, stop AccountLoading.
+Show "Could not load your account" with:
+  - Try again
+  - Link to /login?next=/admin "Sign in again"
+Do not loop claimAdmin.
+
+4) Drag lock
+On every control in .account-menu-pop AND every Link/button in admin-drawer.tsx:
+  draggable={false}
+  onDragStart={(e) => e.preventDefault()}
+  onMouseDown={(e) => e.stopPropagation()}
+  onPointerDown={(e) => e.stopPropagation()}
+
+CSS last-wins:
+.account-menu-pop a, .account-menu-pop button,
+.admin-drawer a, .admin-drawer button {
+  user-select: none;
+  -webkit-user-drag: none;
+}
+
+Do not unregister /sw.js. Do not delete orders. Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify
+- Private window: southendpizza.app/login shows Welcome back, not an endless Connecting.
+- After a fake hung session, connecting gives up by 6s and the form appears.
+- /admin gives Try again / Sign in again by 8s instead of spinning forever.
+- Account menu: press, hold, drag off a row — page stays live.

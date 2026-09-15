@@ -1,0 +1,50 @@
+Widen address suggestions past Egg Harbor Township. Keep the delivery zone rules. If a suggestion is outside the zone, still show it and label it "Delivery unavailable".
+
+Current
+- src/lib/geo.ts expandDeliveryQuery appends ", Egg Harbor Township, NJ" unless the typed text already names a town. That is why Linwood / Northfield / Pleasantville almost never appear.
+- suggestDeliveryAddresses in shop-server.ts uses NOMINATIM_VIEWBOX (tight EHT box) and defaults missing city to "Egg Harbor Township".
+- isAddressDeliverable still decides whether checkout can deliver (paint cells or radius miles). isNorthfieldDelivery still blocks Northfield in paint mode. Do not change those rules into "we deliver everywhere."
+- AddressSuggest only appends " · We deliver" when deliverable. Outside rows have no status.
+
+Do this
+
+1) src/lib/geo.ts
+- Add a SEARCH box wider than ZONE_BOUNDS so Nominatim can see nearby towns. Keep ZONE_BOUNDS for painted cells.
+  Suggested search bounds (Atlantic County around the shop):
+    south 39.28, north 39.50, west -74.78, east -74.48
+  That covers Linwood, Northfield, Somers Point, Pleasantville, Absecon, parts of Galloway.
+- export const SEARCH_VIEWBOX from those bounds.
+- expandDeliveryQuery: if the text already has a town/state, leave it. Otherwise append ", Atlantic County, NJ" — not Egg Harbor Township.
+- Do not default a blank city to Egg Harbor Township.
+
+2) suggestDeliveryAddresses (and the same lookup helper in checkDeliveryAddress)
+- Use SEARCH_VIEWBOX (or nominatimViewboxForRadius when mode is radius). Do NOT set bounded=1.
+- Ask Nominatim for limit=12.
+- Keep every valid street hit even when deliverable is false. Never filter the list to EHT or to in-zone only.
+- If after dedupe there are fewer than 3 hits, merge fallbacks:
+    `${raw}, Linwood, NJ`
+    `${raw}, Northfield, NJ`
+    `${raw}, Pleasantville, NJ`
+    `${raw}, Somers Point, NJ`
+    `${raw}, Egg Harbor Township, NJ`
+    `${raw}, Atlantic County, NJ`
+  Stop at 3+ unique streets. Cap the list at 8.
+- Set deliverable with the existing isAddressDeliverable(...) call. That is the only zone gate.
+- Use the real city from Nominatim (Linwood, Northfield, etc.). Empty city stays empty.
+
+3) src/components/address-suggest.tsx
+Second line of each row:
+  {hit.deliverable ? " · We deliver" : " · Delivery unavailable"}
+Keep number + street on the first line. City / county stay on the second line before that label.
+
+4) Checkout / ZoneMap copy
+When they pick an unavailable row, keep blocking delivery (existing geo.deliverable check). Error text: "Delivery unavailable at that address. Choose pickup or another street."
+Do not hide the row. Do not auto-switch to pickup without saying why.
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify
+- Type a Linwood or Northfield street. At least one row for that town appears.
+- If it is outside the painted map / mile radius, the row says "Delivery unavailable" and checkout cannot send it as delivery.
+- An EHT street inside the zone still says "We deliver."
+- Typing only a house number + street still returns nearby towns, not only Egg Harbor Township.
