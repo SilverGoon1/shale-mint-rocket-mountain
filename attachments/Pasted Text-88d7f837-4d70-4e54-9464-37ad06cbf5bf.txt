@@ -1,0 +1,62 @@
+Two visual fixes. Do not redesign the pizza builder or the header.
+
+1) Buffalo Chicken / pizza toppings on mobile
+When a topping is selected (Feta is last in PIZZA_TOPPINGS), the chip grows Whole / L / R controls. On a phone the pizza-pane is short because Buffalo already shows size + included dressing + extra dressings. The selected chip sits below the fold.
+
+In src/components/pizza-customize.tsx:
+- Give each .topping-chip a ref or data-topping={t.id}.
+- After toggleTopping / setTopping turns a topping ON, requestAnimationFrame then
+  chip.scrollIntoView({ block: "nearest", inline: "nearest", behavior: "smooth" })
+  inside .pizza-pane (the overflow:auto scroller). Use block:"nearest" so a chip already on screen does not jump.
+- Do this for every topping, not only Feta.
+
+In src/styles.css last-wins:
+.pizza-build .topping-chip { scroll-margin-bottom: 4.75rem; }
+@media (width <= 700px) {
+  .pizza-build .topping-grid { grid-template-columns: 1fr 1fr; }
+}
+Keep the half-side Whole/L/R row visible on the selected chip. Do not clip overflow:hidden on .topping-chip[data-on="true"] if that hides the side buttons.
+
+2) Title bar + carousel flush while scrolling
+A later .cat-search-wrap rule still has padding-top: 0.45rem / 0.55rem and a fallback top of 4.2rem, so a strip shows between .shop-header and the chips.
+
+Put this at the END of src/styles.css so it wins:
+
+.shop-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+  margin-bottom: 0;
+}
+.cat-search-wrap {
+  position: sticky;
+  top: calc(var(--shop-sticky-top, 3.6rem) - 1px);
+  z-index: 28;
+  margin-top: 0;
+  margin-bottom: 0;
+  padding-top: 0;
+  border-top: 0;
+}
+@media (width <= 900px) {
+  .shop-header { position: sticky; top: 0; }
+  .cat-search-wrap {
+    top: calc(var(--shop-sticky-top, 3.6rem) - 1px);
+    padding-top: 0;
+  }
+}
+.cat-rail,
+.cat-sorter .cat-rail {
+  position: relative;
+  top: auto;
+}
+
+Keep ShopHeader ResizeObserver writing --shop-sticky-top from header offsetHeight.
+Keep shop-hero in normal flow so scrolling back to the top restores hours/address between header and chips.
+Do not use position:fixed.
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify on a phone
+- Open Buffalo Chicken Pizza, tap Feta. The Feta chip and Whole/L/R land in view without hunting.
+- Same for a topping mid-list (Onions) — no wild jump.
+- Scroll the menu: header and category chips touch with no cream/dark strip between them. Scroll to top: hero returns.
