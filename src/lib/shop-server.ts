@@ -612,6 +612,8 @@ async function applySettingsSchema(sql: Sql) {
 		await sql.query(`alter table shop_settings add column if not exists delivery_radius_miles numeric not null default 5`);
 		await sql.query(`alter table shop_settings add column if not exists payment_accounts jsonb not null default '[]'::jsonb`);
 		await sql.query(`alter table shop_settings add column if not exists payment_secrets jsonb not null default '{}'::jsonb`);
+		await sql.query(`alter table orders add column if not exists voided_at timestamptz`);
+		await sql.query(`alter table orders add column if not exists void_reason text not null default ''`);
 	} catch {
 		/* */
 	}
@@ -1426,7 +1428,9 @@ function toOrder(row: Record<string, unknown>): OrderView {
 		pickupName: String(row.pickup_name ?? "").trim() || undefined,
 		createdAt: row.created_at instanceof Date ? row.created_at.toISOString() : String(row.created_at ?? ""),
 		acceptedAt: row.accepted_at instanceof Date ? row.accepted_at.toISOString() : row.accepted_at ? String(row.accepted_at) : null,
-		scheduledFor: row.scheduled_for instanceof Date ? row.scheduled_for.toISOString() : row.scheduled_for ? String(row.scheduled_for) : null
+		scheduledFor: row.scheduled_for instanceof Date ? row.scheduled_for.toISOString() : row.scheduled_for ? String(row.scheduled_for) : null,
+		voidedAt: row.voided_at instanceof Date ? row.voided_at.toISOString() : row.voided_at ? String(row.voided_at) : null,
+		voidReason: String(row.void_reason ?? "").trim() || undefined,
 	};
 }
 
@@ -2771,42 +2775,98 @@ export const listAllOrders = createServerFn({ method: "GET" }).middleware([authM
 	const sql = await getSql();
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
-	return (await sql`select * from orders order by created_at desc limit 200`).map(toOrder);
+	return (await sql`select * from orders order by created_at desc limit 500`).map(toOrder);
 });
 export const listCompletedOrdersExport = createServerFn({ method: "GET" }).middleware([authMiddleware]).handler(async ({ context }) => {
 	const sql = await getSql();
 	await ensureProfile(sql, context.userId);
 	await requireAdmin(sql, context.userId);
+	const pack = await buildTaxExport(sql, { includeOpenPaid: false, includeVoids: false });
+	return pack.tickets;
+});
+
+const TAX_PAID_STATUSES = ["completed", "accepted", "preparing", "ready", "out_for_delivery"];
+
+function mapTaxRow(row: Record<string, unknown>) {
+	const order = toOrder(row);
+	return {
+		ticketNo: order.ticketNo,
+		createdAt: order.createdAt,
+		acceptedAt: order.acceptedAt ?? "",
+		status: order.status,
+		name: String(row.pickup_name || row.display_name || "").trim() || "Guest",
+		phone: String(row.customer_phone ?? ""),
+		fulfillment: order.fulfillment,
+		paymentMethod: order.paymentMethod,
+		addressLine: order.addressLine,
+		city: order.city,
+		zip: order.zip,
+		items: order.items.map((it) => lineSummary(it)).join("; "),
+		subtotal: order.subtotal,
+		discount: order.discount,
+		deliveryFee: order.deliveryFee,
+		tax: order.tax,
+		taxRatePct: 0,
+		tip: order.tip,
+		total: order.total,
+		notes: order.notes,
+		voidReason: order.voidReason ?? "",
+	};
+}
+
+async function buildTaxExport(
+	sql: Sql,
+	opts: { from?: string; to?: string; includeOpenPaid?: boolean; includeVoids?: boolean },
+) {
+	const from = String(opts.from ?? "").trim();
+	const to = String(opts.to ?? "").trim();
+	const includeOpenPaid = opts.includeOpenPaid !== false;
+	const includeVoids = opts.includeVoids === true;
+	const statuses = includeOpenPaid ? [...TAX_PAID_STATUSES] : ["completed"];
+	const paidList = statuses.map((s) => `'${s}'`).join(", ");
+	const params: unknown[] = [];
+	const where: string[] = [];
+	if (includeVoids) {
+		where.push(`(o.status in (${paidList}) or o.status = 'canceled')`);
+	} else {
+		where.push(`o.status in (${paidList})`);
+	}
+	where.push(`o.status <> 'awaiting_payment'`);
+	if (/^\d{4}-\d{2}-\d{2}$/.test(from)) {
+		params.push(from);
+		where.push(`(o.created_at at time zone 'America/New_York')::date >= $${params.length}::date`);
+	}
+	if (/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+		params.push(to);
+		where.push(`(o.created_at at time zone 'America/New_York')::date <= $${params.length}::date`);
+	}
 	const rows = await sql.query(
 		`select o.*, p.display_name, p.phone as customer_phone
      from orders o
      left join profiles p on p.user_id = o.user_id
-     where o.status = 'completed'
+     where ${where.join(" and ")}
      order by o.created_at asc`,
+		params,
 	);
-	return rows.map((row) => {
-		const order = toOrder(row);
-		return {
-			ticketNo: order.ticketNo,
-			createdAt: order.createdAt,
-			name: String(row.pickup_name || row.display_name || "").trim() || "Guest",
-			phone: String(row.customer_phone ?? ""),
-			fulfillment: order.fulfillment,
-			paymentMethod: order.paymentMethod,
-			addressLine: order.addressLine,
-			city: order.city,
-			zip: order.zip,
-			items: order.items.map((it) => lineSummary(it)).join("; "),
-			subtotal: order.subtotal,
-			discount: order.discount,
-			deliveryFee: order.deliveryFee,
-			tax: order.tax,
-			tip: order.tip,
-			total: order.total,
-			notes: order.notes,
-		};
+	const mapped = rows.map((row) => mapTaxRow(row));
+	const tickets = mapped.filter((r) => r.status !== "canceled");
+	const voids = mapped.filter((r) => r.status === "canceled");
+	const settings = await loadSettingsRow(sql);
+	const taxRate = settings.tax_rate === void 0 || settings.tax_rate === null || settings.tax_rate === "" ? 6.625 : Math.max(0, num(settings.tax_rate));
+	const taxId = parseReceiptOptions(settings.receipt_options).taxId;
+	return { tickets, voids, taxRate, taxId, from, to, includeVoids };
+}
+
+export const listTaxExport = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { from?: string; to?: string; includeOpenPaid?: boolean; includeVoids?: boolean }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		await requireAdmin(sql, context.userId);
+		return buildTaxExport(sql, data ?? {});
 	});
-});
 export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
@@ -3385,6 +3445,37 @@ export const adjustCustomerPoints = createServerFn({ method: "POST" }).middlewar
 		points: Math.round(num(row[0]?.points))
 	};
 });
+export const voidOrder = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { id?: string; reason?: string }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		await requireAdmin(sql, context.userId);
+		const id = String(data.id || "").trim();
+		if (!id) throw new Error("Choose an order.");
+		const existing = await sql.query(`select * from orders where id = $1`, [id]);
+		if (!existing[0]) throw new Error("Order not found.");
+		const current = String(existing[0].status ?? "");
+		if (current === "canceled") {
+			return { ok: true, order: toOrder(existing[0]) };
+		}
+		const reason = String(data.reason ?? "").trim().slice(0, 240);
+		await sql.query(
+			`update orders set status = 'canceled', voided_at = now(), void_reason = $2 where id = $1`,
+			[id, reason],
+		);
+		await writeOrderStatusAudit(sql, {
+			orderId: id,
+			fromStatus: current,
+			toStatus: "canceled",
+			actorId: context.userId,
+		});
+		const next = await sql.query(`select * from orders where id = $1`, [id]);
+		return { ok: true, order: toOrder(next[0]) };
+	});
+
 export const deleteOrder = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
@@ -3393,6 +3484,8 @@ export const deleteOrder = createServerFn({ method: "POST" }).middleware([authMi
 	const id = String(data.id || "").trim();
 	if (!id) throw new Error("Choose an order.");
 	if (!(await sql`select id from orders where id = ${id}`)[0]) throw new Error("Order not found.");
+	await sql.query(`update chat_threads set order_id = null where order_id = $1`, [id]).catch(() => undefined);
+	await sql.query(`update rewards_ledger set order_id = null where order_id = $1`, [id]).catch(() => undefined);
 	await sql.query(`delete from order_status_audit where order_id = $1`, [id]).catch(() => undefined);
 	await sql`delete from orders where id = ${id}`;
 	return {

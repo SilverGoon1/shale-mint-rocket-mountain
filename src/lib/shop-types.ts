@@ -263,6 +263,8 @@ export type OrderView = {
   createdAt: string;
   acceptedAt?: string | null;
   scheduledFor?: string | null;
+  voidedAt?: string | null;
+  voidReason?: string;
 };
 
 export type RewardsKind = "welcome" | "earn" | "redeem" | "invite" | "invitee" | "adjust";
