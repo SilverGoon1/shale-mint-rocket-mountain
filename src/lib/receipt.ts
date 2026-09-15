@@ -1,6 +1,6 @@
 import type { RestaurantInfo } from "@/data/menu";
 import type { OrderView, PrinterProfile, ReceiptOptions } from "@/lib/shop-types";
-import { formatTicketNo, formatUsd } from "@/lib/shop-types";
+import { formatTicketNo, formatUsd, payMethodLabel } from "@/lib/shop-types";
 
 export type ReceiptKind = "customer" | "store";
 
@@ -39,10 +39,7 @@ function rule(width: number, ch = "-") {
 }
 
 function payLabel(method: string) {
-  if (method === "pay_pickup") return "Pay at pickup";
-  if (method === "pay_delivery") return "Cash";
-  if (method === "pay_card") return "Card";
-  return method.replaceAll("_", " ");
+  return payMethodLabel(method);
 }
 
 export function buildReceiptText(opts: {

@@ -185,6 +185,7 @@ export type ShopSettingsPublic = {
   vacationUntil: string;
   paymentPlaceholder: string;
   guestCardRequired: boolean;
+  paymentAccounts: ProcessorAccountPublic[];
   adminTotpRequired: boolean;
   pointsPerDollar: number;
   redeemRate: number;
@@ -366,8 +367,96 @@ export type TwoFactorStatus = {
   locked: boolean;
 };
 
-/** Live card capture stays off until a real processor is wired. */
+/** Card capture SDKs are not wired. Stay false until authorize/capture exists. */
 export const CARD_PROCESSOR_LIVE = false;
+
+export const PROCESSOR_IDS = ["stripe", "helcim", "square", "stax", "paypal"] as const;
+export type ProcessorId = (typeof PROCESSOR_IDS)[number];
+
+export type ProcessorAccountPublic = {
+  id: ProcessorId;
+  enabled: boolean;
+  live: boolean;
+  environment: "sandbox" | "live";
+  publishableKey: string;
+  merchantId: string;
+  statementDescriptor: string;
+  allowCard: boolean;
+  allowApplePay: boolean;
+  allowGooglePay: boolean;
+  allowAch: boolean;
+  allowTerminal: boolean;
+};
+
+export type ProcessorSecretStatus = {
+  id: ProcessorId;
+  secretConfigured: boolean;
+  secretMask: string;
+  webhookConfigured: boolean;
+  webhookMask: string;
+  usingEnv: boolean;
+};
+
+export function defaultProcessorAccount(id: ProcessorId): ProcessorAccountPublic {
+  const apple = id === "stripe" || id === "square";
+  const google = id === "stripe" || id === "helcim" || id === "square";
+  const ach = id === "stripe" || id === "helcim";
+  const card = id !== "paypal";
+  return {
+    id,
+    enabled: false,
+    live: false,
+    environment: "sandbox",
+    publishableKey: "",
+    merchantId: "",
+    statementDescriptor: id === "stripe" ? "SOUTH END PIZZA" : "",
+    allowCard: card,
+    allowApplePay: apple,
+    allowGooglePay: google,
+    allowAch: ach,
+    allowTerminal: false,
+  };
+}
+
+export function defaultPaymentAccounts(): ProcessorAccountPublic[] {
+  return PROCESSOR_IDS.map(defaultProcessorAccount);
+}
+
+export function anyProcessorLive(accounts: ProcessorAccountPublic[] | undefined) {
+  return (accounts ?? []).some((a) => a.enabled && a.live && a.publishableKey.trim().length > 0);
+}
+
+export function parsePaymentAccounts(raw: unknown): ProcessorAccountPublic[] {
+  const byId = new Map<ProcessorId, ProcessorAccountPublic>();
+  if (Array.isArray(raw)) {
+    for (const row of raw) {
+      if (!row || typeof row !== "object") continue;
+      const rec = row as Record<string, unknown>;
+      const id = String(rec.id ?? "") as ProcessorId;
+      if (!PROCESSOR_IDS.includes(id)) continue;
+      const base = defaultProcessorAccount(id);
+      byId.set(id, {
+        ...base,
+        enabled: rec.enabled === true,
+        live: rec.live === true,
+        environment: rec.environment === "live" ? "live" : "sandbox",
+        publishableKey: String(rec.publishableKey ?? "").trim().slice(0, 200),
+        merchantId: String(rec.merchantId ?? "").trim().slice(0, 120),
+        statementDescriptor: String(rec.statementDescriptor ?? base.statementDescriptor).trim().slice(0, 22),
+        allowCard: rec.allowCard !== false,
+        allowApplePay: rec.allowApplePay === true,
+        allowGooglePay: rec.allowGooglePay === true,
+        allowAch: rec.allowAch === true,
+        allowTerminal: rec.allowTerminal === true,
+      });
+    }
+  }
+  return PROCESSOR_IDS.map((id) => byId.get(id) ?? defaultProcessorAccount(id));
+}
+
+export function isProcessorPayment(method: string) {
+  return PROCESSOR_IDS.some((id) => method === `pay_${id}` || method === "pay_card");
+}
 
 export type AdminInsights = {
   customers: {
@@ -455,6 +544,11 @@ export function payMethodLabel(method: string) {
   if (method === "pay_delivery") return "Cash";
   if (method === "pay_pickup") return "Pay at pickup";
   if (method === "pay_card") return "Card";
+  if (method === "pay_stripe") return "Stripe";
+  if (method === "pay_helcim") return "Helcim";
+  if (method === "pay_square") return "Square";
+  if (method === "pay_stax") return "Stax";
+  if (method === "pay_paypal") return "PayPal";
   return method.replaceAll("_", " ");
 }
 

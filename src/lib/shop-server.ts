@@ -31,7 +31,7 @@ import type {
   RewardsView,
   ShopSettingsPublic,
 } from "@/lib/shop-types";
-import { CARD_PROCESSOR_LIVE, DESK_ACCOUNT_SOFT_MAX, checkoutDeliveryFee, clampTip, computeTax, moneyNumber, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
+import { DESK_ACCOUNT_SOFT_MAX, checkoutDeliveryFee, clampTip, computeTax, isProcessorPayment, moneyNumber, parsePaymentAccounts, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
 import {
   DEFAULT_TOPPING_PRICES,
   DEFAULT_XL_ADD,
@@ -720,6 +720,8 @@ async function applySettingsSchema(sql: Sql) {
 	await sql.query(`alter table shop_settings add column if not exists card_text_color text not null default 'ink'`);
 	await sql.query(`alter table menu_items add column if not exists condiments jsonb not null default '[]'::jsonb`);
 	await sql.query(`alter table shop_settings add column if not exists guest_card_required boolean not null default false`);
+	await sql.query(`alter table shop_settings add column if not exists payment_accounts jsonb not null default '[]'::jsonb`);
+	await sql.query(`alter table shop_settings add column if not exists payment_secrets jsonb not null default '{}'::jsonb`);
 	await sql.query(`alter table shop_settings add column if not exists admin_totp_required boolean not null default false`);
 	await sql.query(`create table if not exists staff_desk_audit (
     id text primary key,
@@ -978,7 +980,8 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		vacationMessage: String(row.vacation_message ?? ""),
 		vacationUntil: String(row.vacation_until ?? ""),
 		paymentPlaceholder: String(row.payment_placeholder ?? ""),
-		guestCardRequired: CARD_PROCESSOR_LIVE && bool(row.guest_card_required),
+		guestCardRequired: bool(row.guest_card_required),
+		paymentAccounts: parsePaymentAccounts(row.payment_accounts),
 		adminTotpRequired: bool(row.admin_totp_required),
 		pointsPerDollar: num(row.points_per_dollar) || 1,
 		redeemRate: Math.max(1, Math.round(num(row.redeem_rate) || 100)),
@@ -2001,7 +2004,9 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 	if (!data.lines?.length) throw new Error("Your cart is empty.");
 	if (data.fulfillment === "pickup" && data.paymentMethod === "pay_delivery") throw new Error("Choose pay at pickup.");
 	if (data.fulfillment === "delivery" && data.paymentMethod === "pay_pickup") throw new Error("Choose cash.");
-	if (String(data.paymentMethod) === "pay_card") throw new Error("Card payments are not live yet. Pay at pickup or with cash.");
+	if (isProcessorPayment(String(data.paymentMethod ?? ""))) {
+		throw new Error("Card payments are not capturing yet. Pay at pickup or with cash.");
+	}
 	const pickupName = String(data.pickupName ?? "").trim().slice(0, 80);
 	if (data.fulfillment === "pickup" && !pickupName) throw new Error("Enter the name for pickup.");
 	const menuItems = await sql`select id, category_id, name, prices, condiments, groups from menu_items`;
@@ -2382,7 +2387,11 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("vacation_message", data.vacationMessage);
 	add("vacation_until", data.vacationUntil);
 	add("payment_placeholder", data.paymentPlaceholder);
-	add("guest_card_required", CARD_PROCESSOR_LIVE ? data.guestCardRequired : false);
+	add("guest_card_required", data.guestCardRequired);
+	if (data.paymentAccounts !== void 0) {
+		params.push(JSON.stringify(parsePaymentAccounts(data.paymentAccounts)));
+		sets.push(`payment_accounts = $${params.length}::jsonb`);
+	}
 	add("admin_totp_required", data.adminTotpRequired);
 	add("points_per_dollar", data.pointsPerDollar);
 	add("redeem_rate", data.redeemRate === void 0 ? void 0 : Math.round(data.redeemRate));
@@ -2464,6 +2473,59 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	bustStorefrontCache();
 	return { ok: true };
 });
+
+export const savePaymentProcessors = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: {
+		accounts?: unknown;
+		secrets?: Record<string, { secretKey?: string; webhookSecret?: string }>;
+		guestCardRequired?: boolean;
+		paymentPlaceholder?: string;
+	}) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		await requireAdmin(sql, context.userId);
+		const {
+			parsePaymentSecrets,
+			mergePaymentSecrets,
+			processorHasSecret,
+			allSecretStatuses,
+		} = await import("@/lib/payment-secrets.server");
+		const row = await loadSettingsRow(sql);
+		const storedSecrets = parsePaymentSecrets(row.payment_secrets);
+		const incomingSecrets = parsePaymentSecrets(data.secrets ?? {});
+		const nextSecrets = mergePaymentSecrets(storedSecrets, incomingSecrets);
+		let accounts = parsePaymentAccounts(data.accounts ?? row.payment_accounts);
+		accounts = accounts.map((acc) => {
+			const hasPub = acc.publishableKey.trim().length > 0;
+			const hasSecret = processorHasSecret(acc.id, nextSecrets);
+			if (acc.live && (!hasPub || !hasSecret)) return { ...acc, live: false };
+			return acc;
+		});
+		const sets: string[] = [];
+		const params: unknown[] = [];
+		params.push(JSON.stringify(accounts));
+		sets.push(`payment_accounts = $${params.length}::jsonb`);
+		params.push(JSON.stringify(nextSecrets));
+		sets.push(`payment_secrets = $${params.length}::jsonb`);
+		if (data.guestCardRequired !== void 0) {
+			params.push(Boolean(data.guestCardRequired));
+			sets.push(`guest_card_required = $${params.length}`);
+		}
+		if (data.paymentPlaceholder !== void 0) {
+			params.push(String(data.paymentPlaceholder));
+			sets.push(`payment_placeholder = $${params.length}`);
+		}
+		await sql.query(`update shop_settings set ${sets.join(", ")} where id = 1`, params);
+		bustStorefrontCache();
+		return {
+			ok: true,
+			accounts,
+			secretStatus: allSecretStatuses(nextSecrets),
+		};
+	});
 
 export const setDiagnosticDeskAuth = createServerFn({ method: "POST" })
 	.middleware([authMiddleware])
@@ -2629,6 +2691,8 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
 	const settings = publicSettings(row, cells.length > 0);
+	const { parsePaymentSecrets, allSecretStatuses } = await import("@/lib/payment-secrets.server");
+	const secretStatus = allSecretStatuses(parsePaymentSecrets(row.payment_secrets));
 	const categories = applyPizzaSizing(await loadCategories(sql), settings);
 	const desk = await (await import("@/lib/staff-credential.server")).diagnosticDeskAuthStatus(sql);
 	return {
@@ -2636,6 +2700,7 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 		footer: String(row.footer || "Ask about extra toppings, wing sauces, and dressing. Prices may change."),
 		categories,
 		settings,
+		paymentSecretStatus: secretStatus,
 		printers: parsePrinters(row.printers),
 		receiptOptions: parseReceiptOptions(row.receipt_options),
 		cells,

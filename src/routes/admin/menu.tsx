@@ -16,10 +16,11 @@ import {
 } from "@/components/shop-ops-panels";
 import { SaveToast, useSaveFlash } from "@/components/save-toast";
 import { useMenuStore, type EditableCategory } from "@/lib/menu-store";
-import { getAdminShop, saveDeliveryZone, saveShopMenu, saveShopSettings } from "@/lib/shop-server";
+import { getAdminShop, saveDeliveryZone, saveShopMenu, saveShopSettings, savePaymentProcessors } from "@/lib/shop-server";
 import {
   DEFAULT_RECEIPT_OPTIONS,
   type PrinterProfile,
+  type ProcessorSecretStatus,
   type ReceiptOptions,
   type ShopSettingsPublic,
 } from "@/lib/shop-types";
@@ -43,6 +44,7 @@ function AdminMenu() {
   const tab: MenuTab = wanted ?? "menu";
   const [msg, setMsg] = useState("");
   const [settings, setSettings] = useState<ShopSettingsPublic | null>(null);
+  const [secretStatus, setSecretStatus] = useState<ProcessorSecretStatus[]>([]);
   const [printers, setPrinters] = useState<PrinterProfile[]>([]);
   const [receipt, setReceipt] = useState<ReceiptOptions>(DEFAULT_RECEIPT_OPTIONS);
   const [printerStamp, setPrinterStamp] = useState("");
@@ -68,6 +70,7 @@ function AdminMenu() {
         showMark: d.settings.showMark,
       });
       setSettings(d.settings);
+      setSecretStatus(d.paymentSecretStatus ?? []);
       setRestaurant(d.restaurant);
       setPrinters(d.printers);
       setReceipt(d.receiptOptions);
@@ -253,19 +256,39 @@ function AdminMenu() {
 
       {tab === "payments" && settings ? (
         <div className="settings-page">
-          <PaymentsPanel settings={settings} setSettings={setSettings} />
+          <PaymentsPanel
+            settings={settings}
+            setSettings={setSettings}
+            secretStatus={secretStatus}
+            setSecretStatus={setSecretStatus}
+            onSaved={(ok) => {
+              setMsg(ok);
+              flashOk(true);
+            }}
+          />
           <button
             type="button"
             className="btn-print"
-            onClick={() =>
-              saveOps(
-                {
-                  paymentPlaceholder: settings.paymentPlaceholder,
+            onClick={() => {
+              void savePaymentProcessors({
+                data: {
+                  accounts: settings.paymentAccounts,
                   guestCardRequired: settings.guestCardRequired,
+                  paymentPlaceholder: settings.paymentPlaceholder,
                 },
-                "Payment settings are live.",
-              )
-            }
+              })
+                .then((res) => {
+                  setSettings({ ...settings, paymentAccounts: res.accounts });
+                  setSecretStatus(res.secretStatus);
+                  setMsg("Payment settings are live.");
+                  flashOk(true);
+                })
+                .catch((e) => {
+                  const text = e instanceof Error ? e.message : "Could not save";
+                  setMsg(text);
+                  flashFail(text);
+                });
+            }}
           >
             Save payments
           </button>

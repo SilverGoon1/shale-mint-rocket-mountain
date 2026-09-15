@@ -11,7 +11,7 @@ import {
   toppingPricesFrom,
   type PizzaSize,
 } from "@/lib/pizza";
-import { checkoutDeliveryFee, computeTax, formatUsd, type ShopSettingsPublic } from "@/lib/shop-types";
+import { checkoutDeliveryFee, computeTax, formatUsd, anyProcessorLive, type ProcessorSecretStatus, type ShopSettingsPublic } from "@/lib/shop-types";
 import { isExtraKind, type ExtraKind } from "@/lib/condiments";
 import { useMenuStore } from "@/lib/menu-store";
 
@@ -146,15 +146,22 @@ export function VacationPanel({
 export function PaymentsPanel({
   settings,
   setSettings,
+  secretStatus,
+  setSecretStatus,
+  onSaved,
 }: {
   settings: ShopSettingsPublic;
   setSettings: (s: ShopSettingsPublic) => void;
+  secretStatus: ProcessorSecretStatus[];
+  setSecretStatus: (s: ProcessorSecretStatus[]) => void;
+  onSaved?: (msg: string) => void;
 }) {
+  const live = anyProcessorLive(settings.paymentAccounts);
   return (
     <>
       <section className="page-card">
         <h2>Payments</h2>
-        <p className="ed-sub">This copy shows at checkout until a card processor is wired in.</p>
+        <p className="ed-sub">This copy shows at checkout next to cash / pay at pickup.</p>
         <label className="ed-field">
           <span>Payment note at checkout</span>
           <textarea
@@ -164,19 +171,30 @@ export function PaymentsPanel({
             onChange={(e) => setSettings({ ...settings, paymentPlaceholder: e.target.value })}
           />
         </label>
-        <label className="pay-opt pay-disabled">
+        <label className="pay-opt">
           <input
             type="checkbox"
-            checked={false}
-            disabled
+            checked={settings.guestCardRequired}
+            disabled={!live}
+            onChange={(e) => setSettings({ ...settings, guestCardRequired: e.target.checked })}
           />
           <span>
-            Require card payment for guests
-            <em>Card is not live yet. Guests pay at pickup or with cash.</em>
+            Require card when a live processor exists
+            <em>
+              {live
+                ? "Guests must pick a connected card option. Cash / pay at pickup still show."
+                : "No live processor yet. Guests stay on cash / pay at pickup."}
+            </em>
           </span>
         </label>
       </section>
-      <PaymentProcessorPanel />
+      <PaymentProcessorPanel
+        accounts={settings.paymentAccounts}
+        setAccounts={(paymentAccounts) => setSettings({ ...settings, paymentAccounts })}
+        secretStatus={secretStatus}
+        setSecretStatus={setSecretStatus}
+        onSaved={onSaved}
+      />
     </>
   );
 }

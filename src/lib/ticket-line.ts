@@ -1,4 +1,4 @@
-import { CARD_PROCESSOR_LIVE, payMethodLabel } from "@/lib/shop-types";
+import { CARD_PROCESSOR_LIVE, isProcessorPayment, payMethodLabel } from "@/lib/shop-types";
 
 export function lineSummary(it: {
   qty?: number;
@@ -20,9 +20,10 @@ export function lineSummary(it: {
 }
 
 export function payStatusLabel(method: string, status?: string) {
-  if (method === "pay_card") {
-    if (!CARD_PROCESSOR_LIVE) return "Card (not live)";
-    return status === "awaiting_payment" ? "Card · unpaid" : "Card";
+  if (isProcessorPayment(method)) {
+    const name = payMethodLabel(method);
+    if (!CARD_PROCESSOR_LIVE) return `${name} (not capturing)`;
+    return status === "awaiting_payment" ? `${name} · unpaid` : name;
   }
   const label = payMethodLabel(method);
   if (status === "awaiting_payment") return `${label} · unpaid`;

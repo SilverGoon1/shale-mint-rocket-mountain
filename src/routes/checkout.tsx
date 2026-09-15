@@ -13,7 +13,8 @@ import { googleMapsCoordUrl } from "@/lib/geo";
 import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
 import { AddressSuggest } from "@/components/address-suggest";
 import { retryTransient } from "@/lib/fetch-retry";
-import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatUsd, tipFromPercent, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
+import { PROCESSOR_CATALOG } from "@/lib/payment-catalog";
+import { computeTax, checkoutDeliveryFee, clampTip, CARD_PROCESSOR_LIVE, formatUsd, tipFromPercent, anyProcessorLive, isProcessorPayment, type ProcessorId, type ProfileView, type ShopSettingsPublic } from "@/lib/shop-types";
 import { etaMinutes, formatShopWhen, isOpenNow, nextOpenSlot, nyHm, nyWallToDate, nyYmd } from "@/lib/hours";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import type { RestaurantInfo } from "@/data/menu";
@@ -183,7 +184,7 @@ function CheckoutForm({
     null,
   );
   const [redeem, setRedeem] = useState(0);
-  const [pay, setPay] = useState<"pay_pickup" | "pay_delivery" | "pay_card">("pay_pickup");
+  const [pay, setPay] = useState<"pay_pickup" | "pay_delivery" | "pay_card" | `pay_${ProcessorId}`>("pay_pickup");
   const [tipMode, setTipMode] = useState<"none" | 10 | 15 | 20 | "custom">("none");
   const [customTip, setCustomTip] = useState("");
   const [error, setError] = useState("");
@@ -194,7 +195,9 @@ function CheckoutForm({
   const [guestPhone, setGuestPhone] = useState(profile?.phone || "");
   const [pickupPhone, setPickupPhone] = useState(profile?.phone || "");
   const guest = !profile;
-  const guestMustCard = CARD_PROCESSOR_LIVE && guest && settings.guestCardRequired;
+  const accounts = settings.paymentAccounts ?? [];
+  const cardLive = anyProcessorLive(accounts) && CARD_PROCESSOR_LIVE;
+  const guestMustCard = cardLive && guest && settings.guestCardRequired;
   const [whenMode, setWhenMode] = useState<"asap" | "schedule">(loadedSettings.openNow ? "asap" : "schedule");
   const [schedDate, setSchedDate] = useState("");
   const [schedTime, setSchedTime] = useState("");
@@ -392,8 +395,8 @@ function CheckoutForm({
         return;
       }
     }
-    if (pay === "pay_card" && !CARD_PROCESSOR_LIVE) {
-      setError("Card payments are not live yet. Pay at pickup or with cash.");
+    if (isProcessorPayment(pay)) {
+      setError("Card payments are not capturing yet. Pay at pickup or with cash.");
       return;
     }
     setBusy(true);
@@ -767,6 +770,41 @@ function CheckoutForm({
 
         <fieldset className="pay-box">
           <legend>Payment</legend>
+          {settings.paymentPlaceholder ? <p className="ed-sub">{settings.paymentPlaceholder}</p> : null}
+          {accounts.some((a) => a.enabled) ? (
+            <div className="pay-now">
+              <p className="ed-sub">Pay now</p>
+              {accounts
+                .filter((a) => a.enabled)
+                .map((a) => {
+                  const cat = PROCESSOR_CATALOG.find((c) => c.id === a.id);
+                  const ready = a.live && a.publishableKey.trim().length > 0;
+                  const method = `pay_${a.id}` as `pay_${ProcessorId}`;
+                  return (
+                    <label key={a.id} className={ready ? "pay-opt" : "pay-opt pay-disabled"}>
+                      <input
+                        type="radio"
+                        name="pay"
+                        checked={pay === method}
+                        disabled={!ready}
+                        onChange={() => {
+                          if (!ready) return;
+                          setPay(method);
+                        }}
+                      />
+                      <span>
+                        {cat?.name ?? a.id}
+                        {ready ? (
+                          <em>Connected — charging is not on yet</em>
+                        ) : (
+                          <em>Coming soon — South End will turn this on after the processor account is connected</em>
+                        )}
+                      </span>
+                    </label>
+                  );
+                })}
+            </div>
+          ) : null}
           <p className="ed-sub">
             {fulfillment === "pickup" ? "Pay at pickup when you arrive." : "Pay the driver with cash."}
           </p>
@@ -786,7 +824,6 @@ function CheckoutForm({
               Cash
             </label>
           )}
-          <p className="ed-sub pay-card-note">Card coming soon. Pay at pickup or with cash today.</p>
         </fieldset>
       </section>
 
