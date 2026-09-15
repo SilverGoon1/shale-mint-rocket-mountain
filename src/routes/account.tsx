@@ -12,6 +12,7 @@ import { AddressSuggest } from "@/components/address-suggest";
 import {
   changeMyPassword,
   confirmTotpSetup,
+  deleteMyAccount,
   disableTotp,
   getMyRewards,
   listMyOrders,
@@ -20,6 +21,7 @@ import {
   startTotpSetup,
   updateProfile,
 } from "@/lib/shop-server";
+import { signOut } from "@/lib/auth/client";
 import {
   formatUsd,
   formatTicketNo,
@@ -92,6 +94,8 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
   const [avatarUrl, setAvatarUrl] = useState(profile.avatarUrl || "");
   const [photoBusy, setPhotoBusy] = useState(false);
   const [photoErr, setPhotoErr] = useState("");
+  const [deletePass, setDeletePass] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
 
   useEffect(() => {
     void listMyOrders().then(setOrders).catch(() => setOrders([]));
@@ -586,6 +590,50 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
               </div>
             )}
             {msg ? <p className="ed-sub">{msg}</p> : null}
+          </section>
+
+          <section className="page-card">
+            <h2>Delete account</h2>
+            <p className="ed-sub">
+              Permanently removes your login, saved address, rewards, and chats. Past tickets stay on the shop books
+              with the name “Deleted account.” This cannot be undone.
+            </p>
+            <form
+              className="login-form"
+              onSubmit={(e) => {
+                e.preventDefault();
+                if (!deletePass) {
+                  setMsg("Enter your password to delete this account.");
+                  return;
+                }
+                if (!window.confirm("Delete your South End account? Tickets stay with the shop. This cannot be undone.")) {
+                  return;
+                }
+                setDeleteBusy(true);
+                setMsg("");
+                void deleteMyAccount({ data: { password: deletePass } })
+                  .then(() => signOut("/"))
+                  .catch((err) => {
+                    setMsg(err instanceof Error ? err.message : "Could not delete the account.");
+                    setDeleteBusy(false);
+                  });
+              }}
+            >
+              <label className="ed-field">
+                <span>Current password</span>
+                <input
+                  className="ed-input"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={deletePass}
+                  onChange={(e) => setDeletePass(e.target.value)}
+                />
+              </label>
+              <button type="submit" className="ed-btn ticket-del" disabled={deleteBusy}>
+                {deleteBusy ? "Deleting…" : "Delete my account"}
+              </button>
+            </form>
           </section>
         </>
       ) : null}

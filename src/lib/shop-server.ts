@@ -1,4 +1,4 @@
-import { hashPassword } from "@better-auth/utils/password";
+import { hashPassword, verifyPassword } from "@better-auth/utils/password";
 import { createHash, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
 import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
@@ -3366,15 +3366,23 @@ export const deleteCustomerAccount = createServerFn({ method: "POST" }).middlewa
 		throw new Error("The shop desk login cannot be removed.");
 	}
 	if (target[0].role === "admin" || bool(target[0].admin_mode_allowed)) {
-		let remaining = 1;
-		try {
-			remaining = num((await sql`select count(*)::int as n from profiles where (role = 'admin' or admin_mode_allowed is true) and user_id <> ${userId}`)[0]?.n);
-		} catch (err) {
-			if (!String(err).includes("admin_mode_allowed")) throw err;
-			remaining = num((await sql`select count(*)::int as n from profiles where role = 'admin' and user_id <> ${userId}`)[0]?.n);
-		}
+		const remaining = await remainingAdminsBesides(sql, userId);
 		if (remaining < 1) throw new Error("Keep at least one admin account.");
 	}
+	await purgeAccountRecords(sql, userId, String(target[0].email ?? "").trim());
+	return { ok: true, userId };
+});
+
+async function remainingAdminsBesides(sql: Sql, userId: string) {
+	try {
+		return num((await sql`select count(*)::int as n from profiles where (role = 'admin' or admin_mode_allowed is true) and user_id <> ${userId}`)[0]?.n);
+	} catch (err) {
+		if (!String(err).includes("admin_mode_allowed")) throw err;
+		return num((await sql`select count(*)::int as n from profiles where role = 'admin' and user_id <> ${userId}`)[0]?.n);
+	}
+}
+
+async function purgeAccountRecords(sql: Sql, userId: string, email: string) {
 	const threads = await sql`select id from chat_threads where user_id = ${userId}`;
 	for (const row of threads) {
 		await sql`delete from chat_messages where thread_id = ${String(row.id)}`;
@@ -3408,7 +3416,6 @@ export const deleteCustomerAccount = createServerFn({ method: "POST" }).middlewa
 	}
 	await sql.query(`delete from "session" where "userId" = $1`, [userId]);
 	await sql.query(`delete from "account" where "userId" = $1`, [userId]);
-	const email = String(target[0].email ?? "").trim();
 	if (email) {
 		try {
 			await sql.query(`delete from "verification" where lower("identifier") = lower($1)`, [email]);
@@ -3418,8 +3425,81 @@ export const deleteCustomerAccount = createServerFn({ method: "POST" }).middlewa
 	}
 	await sql.query(`delete from "user" where id = $1`, [userId]);
 	await sql`delete from profiles where user_id = ${userId}`;
-	return { ok: true, userId };
-});
+}
+
+const deleteAccountFails = new Map<string, { n: number; start: number }>();
+
+function deleteAccountBlocked(userId: string) {
+	const cur = deleteAccountFails.get(userId);
+	if (!cur) return false;
+	if (Date.now() - cur.start > 10 * 60_000) {
+		deleteAccountFails.delete(userId);
+		return false;
+	}
+	return cur.n >= 5;
+}
+
+function noteDeleteAccountFail(userId: string) {
+	const now = Date.now();
+	const cur = deleteAccountFails.get(userId);
+	if (!cur || now - cur.start > 10 * 60_000) {
+		deleteAccountFails.set(userId, { n: 1, start: now });
+		return 1;
+	}
+	cur.n += 1;
+	return cur.n;
+}
+
+export const deleteMyAccount = createServerFn({ method: "POST" })
+	.middleware([authMiddleware])
+	.validator((data: { password: string }) => data)
+	.handler(async ({ context, data }) => {
+		const sql = await getSql();
+		await ensureSettingsSchema(sql);
+		await ensureProfile(sql, context.userId);
+		const userId = context.userId;
+		const password = String(data.password ?? "");
+		if (!password) throw new Error("Enter your password to delete this account.");
+		if (deleteAccountBlocked(userId)) throw new Error("Too many tries. Wait a few minutes.");
+		const cred = (
+			await sql.query(`select password from "account" where "userId" = $1 and "providerId" = 'credential' limit 1`, [userId])
+		)[0];
+		if (!cred?.password) {
+			throw new Error("This login uses Google or X. Set a password under Security first, then delete the account.");
+		}
+		let ok = false;
+		try {
+			ok = await verifyPassword(String(cred.password), password);
+		} catch {
+			ok = false;
+		}
+		if (!ok) {
+			noteDeleteAccountFail(userId);
+			if (deleteAccountBlocked(userId)) throw new Error("Too many tries. Wait a few minutes.");
+			throw new Error("That password is wrong.");
+		}
+		deleteAccountFails.delete(userId);
+		const target = await sql`select p.role, p.admin_mode_allowed, p.display_name, u.email
+      from profiles p
+      left join "user" u on u.id = p.user_id
+      where p.user_id = ${userId}`;
+		if (!target[0]) throw new Error("Account not found.");
+		const email = String(target[0].email ?? "").trim();
+		if (isStaffAdminAccount(userId, email)) {
+			throw new Error("The shop desk login cannot be removed.");
+		}
+		if (target[0].role === "admin" || bool(target[0].admin_mode_allowed)) {
+			const remaining = await remainingAdminsBesides(sql, userId);
+			if (remaining < 1) throw new Error("Keep at least one admin account.");
+		}
+		const displayName = String(target[0].display_name ?? "").trim();
+		await sql.query(
+			`update orders set pickup_name = 'Deleted account' where user_id = $1 and (pickup_name is null or pickup_name = '' or pickup_name = $2)`,
+			[userId, displayName],
+		);
+		await purgeAccountRecords(sql, userId, email);
+		return { ok: true };
+	});
 export const adjustCustomerPoints = createServerFn({ method: "POST" }).middleware([authMiddleware]).validator((data: any) => data).handler(async ({ context, data }) => {
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
