@@ -9,6 +9,7 @@ import {
   ADMIN_PERMISSIONS_POLICY,
   CUSTOMER_FEATURE_POLICY,
   CUSTOMER_PERMISSIONS_POLICY,
+  SECURITY_HEADERS,
   isAdminDevicePath,
 } from "../../scripts/device-permissions.mjs";
 
@@ -29,6 +30,12 @@ function pathOf(event: EventLike) {
   }
 }
 
+function isHtmlOrServerFn(pathname: string, headers?: Headers) {
+  if (pathname === "/_serverFn" || pathname.startsWith("/_serverFn/")) return true;
+  const ct = headers?.get("content-type") ?? "";
+  return ct.includes("text/html");
+}
+
 function policiesFor(pathname: string) {
   if (isAdminDevicePath(pathname)) {
     return { permissions: ADMIN_PERMISSIONS_POLICY, feature: ADMIN_FEATURE_POLICY };
@@ -36,18 +43,30 @@ function policiesFor(pathname: string) {
   return { permissions: CUSTOMER_PERMISSIONS_POLICY, feature: CUSTOMER_FEATURE_POLICY };
 }
 
-function stamp(headers: Headers, pathname: string) {
+function applyAll(
+  set: ((key: string, value: string) => void) | undefined,
+  pathname: string,
+  headers?: Headers,
+) {
+  if (!set) return;
   const p = policiesFor(pathname);
-  headers.set("Permissions-Policy", p.permissions);
-  headers.set("Feature-Policy", p.feature);
+  set("Permissions-Policy", p.permissions);
+  set("Feature-Policy", p.feature);
+  if (isHtmlOrServerFn(pathname, headers)) {
+    for (const [key, value] of Object.entries(SECURITY_HEADERS)) {
+      set(key, value);
+    }
+  }
+}
+
+function stamp(headers: Headers, pathname: string) {
+  applyAll((key, value) => headers.set(key, value), pathname, headers);
 }
 
 function trySet(event: EventLike, pathname: string) {
-  const p = policiesFor(pathname);
   const set =
     event.res?.setHeader?.bind(event.res) ?? event.node?.res?.setHeader?.bind(event.node.res);
-  set?.("Permissions-Policy", p.permissions);
-  set?.("Feature-Policy", p.feature);
+  applyAll(set, pathname);
 }
 
 export default async function devicePermissionsMiddleware(
