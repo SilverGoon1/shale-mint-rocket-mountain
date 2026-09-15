@@ -1,4 +1,4 @@
-import { readdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -172,6 +172,50 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+function shopVersionPlugin(): Plugin {
+  const builtAt = new Date().toISOString();
+  const sha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || "";
+  const body = `${JSON.stringify({ builtAt, sha })}\n`;
+  const writePublic = (root: string) => {
+    try {
+      mkdirSync(join(root, "public"), { recursive: true });
+      writeFileSync(join(root, "public", "version.json"), body);
+    } catch {
+      /* version.json is a hint; the banner can fall back to ETag */
+    }
+  };
+  return {
+    name: "southend-version",
+    config() {
+      return {
+        define: {
+          "import.meta.env.VITE_BUILD_ID": JSON.stringify(sha || builtAt),
+        },
+      };
+    },
+    buildStart() {
+      writePublic(process.cwd());
+    },
+    configureServer(server) {
+      writePublic(server.config.root);
+      server.middlewares.use((req, res, next) => {
+        const pathOnly = (req.url ?? "").split("?", 1)[0];
+        if (pathOnly !== "/version.json") {
+          next();
+          return;
+        }
+        res.statusCode = 200;
+        res.setHeader("content-type", "application/json; charset=utf-8");
+        res.setHeader("cache-control", "no-store");
+        res.end(body);
+      });
+    },
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: body });
+    },
+  };
+}
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -198,6 +242,7 @@ export default defineConfig(({ command, isPreview }) => ({
     appEnvPlugin(),
     // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
     grokPwaPlugin(),
+    shopVersionPlugin(),
     tailwindcss(),
     tanstackStart(),
     ...(command === "build" || isPreview
@@ -210,6 +255,8 @@ export default defineConfig(({ command, isPreview }) => ({
             serverDir: "./server",
             routeRules: {
               "/**": { headers: DEVICE_HEADERS },
+              "/sw.js": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
+              "/version.json": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
             },
           }),
         ]

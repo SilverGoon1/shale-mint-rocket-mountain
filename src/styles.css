@@ -2101,5 +2101,23 @@ body:has(.mobile-bag) .support-dock {
   touch-action: manipulation;
 }
 
+.update-banner {
+  position: sticky;
+  top: 0;
+  z-index: 45;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem 1rem;
+  margin: 0.65rem 0.85rem 0;
+}
+
+.update-banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
 
 

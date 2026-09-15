@@ -6,6 +6,7 @@ import { ShopBackdrop } from "@/components/shop-backdrop";
 import { SeasonFx } from "@/components/season-fx";
 import { SupportDock } from "@/components/support-dock";
 import { OrderAlerts } from "@/components/order-alerts";
+import { UpdateBanner } from "@/components/update-banner";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "South End Pizza III";
@@ -60,6 +61,7 @@ export const Route = createRootRoute({
             <Outlet />
             <SupportDock />
             <OrderAlerts />
+            <UpdateBanner />
           </AuthProvider>
         </div>
         <Scripts />
