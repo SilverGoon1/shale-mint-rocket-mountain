@@ -5,7 +5,7 @@ import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
 import { CELL, MAP_CENTER, SHOP_LAT, SHOP_LNG, cellKey, deliveryFailReason, expandDeliveryQuery, isAddressDeliverable, isMapsQuery, milesBetween, nominatimViewboxForRadius, parseMapsLatLng, parseNominatimHit, SEARCH_VIEWBOX, type AddressSuggestion, type DeliveryFailReason } from "@/lib/geo";
-import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
+import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, PHONE_SIGNUP_ENABLED, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
@@ -3970,6 +3970,7 @@ export const verifySignupEmailCode = createServerFn({ method: "POST" }).validato
 });
 
 export const sendSignupPhoneCode = createServerFn({ method: "POST" }).validator((data: any) => data).handler(async ({ data }) => {
+	if (!PHONE_SIGNUP_ENABLED) throw new Error("Phone signup is off. Create the account with email.");
 	const sql = await getSql();
 	await ensureSettingsSchema(sql);
 	const rawPhone = String(data.phone ?? "").trim();

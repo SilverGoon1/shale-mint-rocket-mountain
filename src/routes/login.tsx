@@ -4,7 +4,7 @@ import { X } from "lucide-react";
 import { GROK_PROVIDERS, authClient, authEnabled, dropClientSession } from "@/lib/auth/client";
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
-import { identifierToEmail, maskEmail, maskPhone, needsEmailOtp, needsPhoneOtp } from "@/lib/phone";
+import { identifierToEmail, maskEmail, maskPhone, needsEmailOtp, needsPhoneOtp, PHONE_SIGNUP_ENABLED } from "@/lib/phone";
 import { captureReferral, peekReferral } from "@/lib/referral";
 import {
   claimReferral,
@@ -282,7 +282,11 @@ function Login() {
   }
 
   async function beginVerify(email: string) {
+    if (!PHONE_SIGNUP_ENABLED && (needsPhoneOtp(email) || /@phone\.southend\.pizza$/i.test(email))) {
+      throw new Error("Phone signup is off. Use email.");
+    }
     if (needsPhoneOtp(email)) {
+      if (!PHONE_SIGNUP_ENABLED) throw new Error("Phone signup is off. Use email.");
       const sent = await sendSignupPhoneCode({ data: { email } });
       if (sent.alreadyVerified) return true;
       setVerifyStep({
@@ -316,6 +320,11 @@ function Login() {
     setError("");
     setBusy(true);
     const parsed = identifierToEmail(identifier);
+    if (!PHONE_SIGNUP_ENABLED && (mode === "phone" || parsed.phone)) {
+      setBusy(false);
+      setError("Phone signup is off. Use email.");
+      return;
+    }
     if (mode === "phone" && !parsed.phone) {
       setBusy(false);
       setError("Enter a 10-digit US phone number.");
@@ -411,6 +420,9 @@ function Login() {
     setError("");
     setBusy(true);
     try {
+      if (verifyStep.channel === "phone") {
+        if (!PHONE_SIGNUP_ENABLED) throw new Error("Phone signup is off. Use email.");
+      }
       const sent =
         verifyStep.channel === "phone"
           ? await sendSignupPhoneCode({ data: { email: verifyStep.email } })
@@ -554,17 +566,17 @@ function Login() {
             <p className="ed-sub login-lede">
               {next === "/checkout"
                 ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
-                : socialConfigured
-                  ? "Email, the shop username, or a US phone number. Google and X work too."
-                  : "Email, the shop username, or a US phone number."}
+                : "Email or the shop username. Phone signup is off until texting is set up."}
             </p>
             <div className="seg" role="group" aria-label="Identifier type">
               <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
                 Email
               </button>
-              <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
-                Phone
-              </button>
+              {PHONE_SIGNUP_ENABLED ? (
+                <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
+                  Phone
+                </button>
+              ) : null}
             </div>
             <div className="seg" role="group" aria-label="Create or sign in">
               <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>

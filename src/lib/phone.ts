@@ -5,6 +5,8 @@ export function digitsOnly(value: string) {
   return value.replace(/\D/g, "");
 }
 
+export const PHONE_SIGNUP_ENABLED = false;
+
 export function looksLikePhone(value: string) {
   const d = digitsOnly(value);
   return d.length === 10 || (d.length === 11 && d.startsWith("1"));
@@ -75,8 +77,9 @@ export function needsEmailOtp(email: string | null | undefined) {
   return true;
 }
 
-/** Phone credential accounts must verify by SMS. Staff / empty skip. */
+/** Phone credential accounts must verify by SMS. Staff / empty skip. Off until Twilio is paid. */
 export function needsPhoneOtp(email: string | null | undefined) {
+  if (!PHONE_SIGNUP_ENABLED) return false;
   const e = String(email ?? "").trim().toLowerCase();
   if (!e) return false;
   if (!isPhoneAuthEmail(e)) return false;
