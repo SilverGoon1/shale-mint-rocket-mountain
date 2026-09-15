@@ -487,6 +487,9 @@ function Login() {
                 ? `We sent a 6-digit code to ${verifyStep.masked}. Enter it below to finish setting up your South End Pizza account.`
                 : `We sent a 6-digit code to ${verifyStep.masked}. Enter it below to finish setting up your South End Pizza account.`}
             </p>
+            {verifyStep.channel === "email" ? (
+              <p className="ed-sub">If it is not in your inbox, check Spam or Promotions.</p>
+            ) : null}
             <form className="login-form" onSubmit={(e) => void submitVerify(e)}>
               <div className="mail-slip" role="status">
                 <p className="slip-kind">

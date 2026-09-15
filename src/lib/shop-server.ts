@@ -2810,11 +2810,13 @@ async function notifyOrderPush(sql: Sql, order: OrderView, status: string) {
 	}
 	const ticket = `#${String(order.ticketNo || 0).padStart(6, "0")}`;
 	const body =
-		status === "out_for_delivery"
-			? `Ticket ${ticket} is out for delivery.`
-			: status === "accepted"
-				? `Ticket ${ticket} is in the kitchen.`
-				: `Ticket ${ticket} is ready.`;
+		status === "completed"
+			? `Ticket ${ticket} is complete. Thanks for ordering from South End Pizza.`
+			: status === "out_for_delivery"
+				? `Ticket ${ticket} is out for delivery.`
+				: status === "accepted"
+					? `Ticket ${ticket} is in the kitchen.`
+					: `Ticket ${ticket} is ready.`;
 	const payload = JSON.stringify({
 		title: "South End Pizza",
 		body,
@@ -3051,7 +3053,7 @@ export const updateOrderStatus = createServerFn({ method: "POST" }).middleware([
 	});
 	const rows = await sql`select * from orders where id = ${id}`;
 	const order = rows[0] ? toOrder(rows[0]) : null;
-	if (order && (next === "ready" || next === "out_for_delivery" || next === "accepted")) {
+	if (order && (next === "ready" || next === "out_for_delivery" || next === "accepted" || next === "completed")) {
 		void notifyOrderPush(sql, order, next).catch(() => undefined);
 	}
 	return {
