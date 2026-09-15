@@ -453,13 +453,26 @@ function Login() {
     setBusy(true);
     try {
       if (!authEnabled) throw new Error("Sign-in is disabled.");
+      if (socialConfigured === false) {
+        throw new Error("oauth-not-wired");
+      }
       await startSocialSignIn(providerId, {
         callbackURL: next || "/",
         errorCallbackURL: "/login?error=social",
       });
       void navigate({ to: closeTo, replace: true });
     } catch (err) {
-      setError(friendlyAuthError(err));
+      const raw = err instanceof Error ? err.message : "";
+      if (
+        socialConfigured === false ||
+        /oauth-not-wired|not connected|client.?id|client.?secret|not configured|grok_preview/i.test(raw)
+      ) {
+        setError(
+          "Google / X is not connected on this shop yet. Use email, or add GROK_AUTH_CLIENT_ID and GROK_AUTH_CLIENT_SECRET on Vercel.",
+        );
+      } else {
+        setError(friendlyAuthError(err));
+      }
       setBusy(false);
     }
   }
@@ -564,20 +577,18 @@ function Login() {
           <>
             <h1 id="login-title">{tab === "up" ? "Create account" : "Welcome back"}</h1>
             <p className="ed-sub login-lede">
-              {next === "/checkout"
-                ? "Sign in to place your order, or check out as a guest. Your cart stays on this device."
-                : "Email or the shop username. Phone signup is off until texting is set up."}
+              Email or the shop username. Or continue with Google or X.
             </p>
-            <div className="seg" role="group" aria-label="Identifier type">
-              <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
-                Email
-              </button>
-              {PHONE_SIGNUP_ENABLED ? (
+            {PHONE_SIGNUP_ENABLED ? (
+              <div className="seg" role="group" aria-label="Identifier type">
+                <button type="button" data-on={mode === "email"} onClick={() => setMode("email")}>
+                  Email
+                </button>
                 <button type="button" data-on={mode === "phone"} onClick={() => setMode("phone")}>
                   Phone
                 </button>
-              ) : null}
-            </div>
+              </div>
+            ) : null}
             <div className="seg" role="group" aria-label="Create or sign in">
               <button type="button" data-on={tab === "in"} onClick={() => setTab("in")}>
                 Sign in
@@ -651,27 +662,21 @@ function Login() {
                 </Link>
               ) : null}
             </form>
-            {socialConfigured === true ? (
-              <>
-                <div className="login-split">or continue with</div>
-                <div className="login-socials">
-                  {GROK_PROVIDERS.map((p) => (
-                    <button
-                      key={p.providerId}
-                      type="button"
-                      className="login-social"
-                      disabled={busy}
-                      onClick={() => void social(p.providerId)}
-                    >
-                      {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
-                      {p.label}
-                    </button>
-                  ))}
-                </div>
-              </>
-            ) : socialConfigured === false ? (
-              <p className="ed-sub login-social-off">Social sign-in isn't configured for this shop — use email.</p>
-            ) : null}
+            <div className="login-split">or continue with</div>
+            <div className="login-socials">
+              {GROK_PROVIDERS.map((p) => (
+                <button
+                  key={p.providerId}
+                  type="button"
+                  className="login-social"
+                  disabled={busy}
+                  onClick={() => void social(p.providerId)}
+                >
+                  {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
+                  {p.label}
+                </button>
+              ))}
+            </div>
             {next === "/checkout" ? (
               <Link to="/checkout" className="login-back">
                 Checkout as a guest
