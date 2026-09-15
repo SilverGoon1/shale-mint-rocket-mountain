@@ -21,6 +21,7 @@ export function AddressSuggest({
   const [hits, setHits] = useState<AddressSuggestion[]>([]);
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
+  const [lookupFail, setLookupFail] = useState(false);
   const skip = useRef(false);
 
   useEffect(() => {
@@ -32,19 +33,23 @@ export function AddressSuggest({
     if (disabled || q.length < 3) {
       setHits([]);
       setOpen(false);
+      setLookupFail(false);
       return;
     }
     const t = window.setTimeout(() => {
       setBusy(true);
+      setLookupFail(false);
       void suggestDeliveryAddresses({ data: { query: q } })
         .then((r) => {
           setHits(r.hits);
           setActive(0);
           setOpen(r.hits.length > 0);
+          setLookupFail(r.hits.length === 0);
         })
         .catch(() => {
           setHits([]);
           setOpen(false);
+          setLookupFail(true);
         })
         .finally(() => setBusy(false));
     }, 320);
@@ -102,6 +107,9 @@ export function AddressSuggest({
         }}
       />
       {busy ? <span className="addr-suggest-busy">Looking up streets…</span> : null}
+      {!busy && lookupFail ? (
+        <p className="addr-suggest-empty ed-sub">Could not look up addresses. Type the street and city or call the shop.</p>
+      ) : null}
       {open && hits.length ? (
         <ul className="addr-suggest-list" id={listId} role="listbox">
           {hits.map((hit, i) => (

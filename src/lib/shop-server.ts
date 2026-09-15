@@ -1986,9 +1986,21 @@ type NominatimRow = { lat: string; lon: string; display_name: string; address?: 
 
 async function nominatimSearch(query: string, viewbox: string, limit: number) {
 	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=${limit}&countrycodes=us&viewbox=${encodeURIComponent(viewbox)}&q=${encodeURIComponent(query)}`;
-	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
-	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
-	return (await res.json()) as NominatimRow[];
+	const ac = new AbortController();
+	const timer = setTimeout(() => ac.abort(), 4000);
+	try {
+		const res = await fetch(url, {
+			headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" },
+			signal: ac.signal,
+		});
+		if (!res.ok) return [] as NominatimRow[];
+		const data = await res.json();
+		return Array.isArray(data) ? (data as NominatimRow[]) : [];
+	} catch {
+		return [] as NominatimRow[];
+	} finally {
+		clearTimeout(timer);
+	}
 }
 
 function suggestionFromHit(
@@ -2036,13 +2048,18 @@ export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).valid
 			if (hits.length >= 8) return;
 		}
 	};
-	absorb(await nominatimSearch(q, viewbox, 12));
-	if (hits.length < 3) {
-		for (const town of SUGGEST_FALLBACK_TOWNS) {
-			if (hits.length >= 3) break;
-			absorb(await nominatimSearch(`${raw}, ${town}`, viewbox, 5));
+	try {
+		absorb(await nominatimSearch(q, viewbox, 12));
+		if (hits.length < 3) {
+			for (const town of SUGGEST_FALLBACK_TOWNS) {
+				if (hits.length >= 3) break;
+				absorb(await nominatimSearch(`${raw}, ${town}`, viewbox, 5));
+			}
 		}
+	} catch {
+		return { hits: [] as AddressSuggestion[] };
 	}
+	if (!hits.length) return { hits: [] as AddressSuggestion[] };
 	const capped = hits.slice(0, 8);
 	if (suggestCache.size > 80) suggestCache.clear();
 	suggestCache.set(key, { at: Date.now(), hits: capped });
