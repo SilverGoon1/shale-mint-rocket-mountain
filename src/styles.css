@@ -2127,11 +2127,11 @@ body:has(.mobile-bag) .support-dock {
 }
 .cat-search-wrap {
   position: sticky;
-  top: var(--shop-sticky-top, 3.6rem);
+  top: calc(var(--shop-sticky-top, 3.6rem) - 2px);
   z-index: 28;
   margin-top: 0;
   margin-bottom: 0;
-  padding-top: 0.5rem !important;
+  padding-top: 0 !important;
   border-top: 0;
 }
 @media (width <= 900px) {
@@ -2140,8 +2140,8 @@ body:has(.mobile-bag) .support-dock {
     top: 0;
   }
   .cat-search-wrap {
-    top: var(--shop-sticky-top, 3.6rem);
-    padding-top: 0.5rem !important;
+    top: calc(var(--shop-sticky-top, 3.6rem) - 2px);
+    padding-top: 0 !important;
   }
 }
 .cat-rail,
