@@ -1,0 +1,107 @@
+Upgrade the Financials tab (/admin/financials, AdminFinancialsPage + SalesPanel in src/routes/admin/settings.tsx). Delete and a basic XLS export already exist — improve them. Do not remove the existing KPI cards or ticket search.
+
+Current pieces
+- AdminFinancialsPage: exportCompleted() → listCompletedOrdersExport() → downloadCompletedOrdersXls(); removeTicket() → deleteOrder({ id })
+- SalesPanel: last 20 tickets (search shows matches), Delete column
+- listAllOrders: last 200 rows
+- listCompletedOrdersExport: status = 'completed' only, no date filter
+- deleteOrder: hard-deletes orders + order_status_audit
+- src/lib/completed-orders-xls.ts: one sheet, food / discount / fee / taxable / tax / rate / tip / total
+- ReceiptOptions.taxId exists but is not on the export
+- NJ: prepared food + seller delivery fee are taxable; tips are not
+
+==================================================
+1) Tickets: Void and Delete
+==================================================
+
+Keep Delete. Add Void.
+
+Void (preferred for real sales)
+- New server fn voidOrder({ id, reason? }) admin-only.
+- Sets status = 'canceled'. Do not destroy the row.
+- Store voided_at timestamptz and void_reason text on orders (alter table if not exists).
+- Exclude canceled from collected / food / tax / tips KPIs (getAdminInsights already uses status not in ('canceled','awaiting_payment')).
+- Confirm: "Void ticket #000042? It stays in the books as a void and drops out of tax totals."
+
+Delete (test tickets / obvious mistakes)
+- Keep deleteOrder. Also detach chat_threads.order_id and rewards events that point at the order so the delete does not fail on FKs.
+- Confirm must include the ticket number: window.prompt("Type 000042 to permanently delete this ticket.")
+- Reject unless the typed value matches formatTicketNo(ticketNo).
+- After success, drop the row from the table and refresh insights.
+
+Ticket table columns: Ticket, When, Name, Food, Tax, Tip, Total, Pay, Status, Customer, Actions.
+Actions: Void (hidden if already canceled) + Delete.
+Canceled rows stay visible with status "canceled" so the shop can see voids.
+
+Load more tickets: listAllOrders limit 500. Show 50 by default, "Show more" adds 50. Search still filters the loaded set.
+
+==================================================
+2) Tax export
+==================================================
+
+Replace the single "Export completed orders" button with:
+
+- Period presets: Today, This month, This quarter, This year, All time, Custom from/to (America/New_York dates).
+- Checkbox default ON: "Include completed and accepted/paid tickets"
+- Checkbox default OFF: "Include voids / canceled" (they go on the Voids sheet, not the taxable totals).
+- Button label: "Export tax spreadsheet"
+- Filename: south-end-tax-YYYY-MM-DD-to-YYYY-MM-DD.xls
+
+Extend listCompletedOrdersExport (or add listTaxExport) to accept:
+  { from?: string; to?: string; includeOpenPaid?: boolean; includeVoids?: boolean }
+
+Date filter is created_at AT TIME ZONE 'America/New_York'.
+Paid statuses: completed, accepted, preparing, ready, out_for_delivery (anything already taken by the shop).
+Never include awaiting_payment.
+
+Each ticket row must include:
+  ticketNo, createdAt, acceptedAt, status, name, phone,
+  fulfillment, paymentMethod, street, city, zip,
+  items (line summaries),
+  food/subtotal, discount, deliveryFee,
+  taxable (food - discount + deliveryFee, already computeTax),
+  salesTax, taxRatePct, tip, total, notes, voidReason
+
+Upgrade src/lib/completed-orders-xls.ts to a 3-sheet workbook:
+
+Sheet 1 — "Tickets"
+Same money columns as now, plus Status, Accepted (ET), Tax ID column left blank per row (shop-level lives on Summary).
+TOTALS row on paid tickets only.
+
+Sheet 2 — "Tax summary" (this is the tax page)
+Header: South End Pizza III
+443 Zion Rd, Egg Harbor Township, NJ 08234
+NJ sales tax ID: receipt_options.taxId or "ADD TAX ID IN PRINTERS"
+Period: from – to (ET)
+Rows:
+  Ticket count (paid)
+  Gross food
+  Discounts
+  Delivery fees (taxable when we deliver)
+  Taxable sales
+  NJ sales tax collected
+  Tax rate % (from shop settings, also show effective rate = tax/taxable)
+  Tips (not taxed in New Jersey)
+  Total collected
+  Pickup sales
+  Delivery sales
+  By payment method (one row each)
+Footer note:
+  "Prepared food is taxable. Seller delivery fees are taxable. Tips/gratuities are not subject to NJ sales tax. This is a bookkeeping export for your accountant — it is not an ST-50/ST-51 filing."
+
+Sheet 3 — "Voids"
+Only if includeVoids. Ticket, date, name, total, reason. Sum voids separately. Do not add them into Tax summary taxable/tax.
+
+Pass shop taxRate and receipt taxId into the builder.
+
+On the Financials header, under the export button, show the selected period’s taxable sales + tax collected so they can glance without opening Excel.
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify
+- Financials still shows KPIs and ticket search.
+- Voiding a paid ticket drops its tax out of the KPI and the Tax summary, but the row remains as canceled.
+- Deleting requires typing the ticket number and removes it.
+- Export for This month downloads an .xls with Tickets + Tax summary.
+- Tips sit on their own line and are labeled not taxed.
+- Empty period shows "No tickets in that range" instead of a blank file.

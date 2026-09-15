@@ -1,0 +1,75 @@
+Add customer self-serve account deletion on the existing Account → Security tab. Require the current password. Do not add a new tab.
+
+Current pieces
+- src/routes/account.tsx, tab "security" (starts \~line 392): Reset password (email OTP + changeMyPassword) and 2FA. No delete card.
+- signOut lives in src/lib/auth/client.ts — use that after a successful delete, not authClient.signOut() directly.
+- Passwords are Better Auth hashes on account.password where providerId = 'credential'. hashPassword is already imported from @better-auth/utils/password in shop-server.ts. Import verifyPassword from the same package.
+- Admin-only deleteCustomerAccount already cascades chat_messages, chat_threads, two_factor_unlocks, rewards_ledger, push_subscriptions, password_reset_codes, email_signup_codes, phone_signup_codes, session, account, verification, user, profiles. It explicitly blocks context.userId === target (self-delete) and blocks the shop desk login / last admin.
+- Historical orders must stay for shop taxes. Do not delete from orders.
+
+==================================================
+Server: deleteMyAccount
+==================================================
+
+New createServerFn in src/lib/shop-server.ts:
+
+  export const deleteMyAccount = createServerFn({ method: "POST" })
+    .middleware([authMiddleware])
+    .validator((data: { password: string }) => data)
+    .handler(...)
+
+Rules
+- Logged-in user only. Do NOT use requireAdmin.
+- password = String(data.password ?? ""). If empty → "Enter your password to delete this account."
+- Load credential row: account where userId = context.userId and providerId = 'credential'.
+  If missing → "This login uses Google or X. Set a password under Security first, then delete the account."
+- Verify with verifyPassword({ hash: String(row.password), password }).
+  If false → "That password is wrong." Do not reveal whether the account exists.
+- Soft rate-limit: after 5 failures in 10 minutes for this userId, throw "Too many tries. Wait a few minutes."
+- Block isStaffAdminAccount(context.userId, email) → "The shop desk login cannot be removed."
+- Block if this profile is the last remaining admin (same remaining-admin count as deleteCustomerAccount).
+- Do not delete order rows. Anonymize them:
+    update orders set pickup_name = 'Deleted account'
+    where user_id = $id and (pickup_name is null or pickup_name = $currentDisplayName);
+  Leave food / tax / tip / totals untouched. If orders.user_id is NOT NULL, add column if needed or keep the old id after the profile is gone (left joins already fall back). Prefer: keep user_id so ticket history still groups; profile join just returns empty.
+- Then run the same cleanup list as deleteCustomerAccount for context.userId (chats, 2FA unlocks, rewards ledger, push, reset/signup codes, sessions, account rows, verification, user, profile).
+- Return { ok: true }.
+
+Never accept a password over the query string. Never log the password.
+
+==================================================
+UI: Security tab danger card
+==================================================
+
+At the bottom of tab === "security" in src/routes/account.tsx, after the 2FA card:
+
+<section className="page-card">
+  <h2>Delete account</h2>
+  <p className="ed-sub">
+    Permanently removes your login, saved address, rewards, and chats. Past tickets stay on the shop books
+    with the name “Deleted account.” This cannot be undone.
+  </p>
+  form:
+    - password input, type=password, autoComplete="current-password", required
+      label: "Current password"
+    - submit button class "ed-btn" (quiet/danger if a ticket-del style exists): "Delete my account"
+    - disable while busy
+</section>
+
+On submit:
+1. If password is empty, setMsg("Enter your password to delete this account.")
+2. window.confirm("Delete your South End account? Tickets stay with the shop. This cannot be undone.")
+3. Call deleteMyAccount({ data: { password } })
+4. On success: await signOut("/") from @/lib/auth/client (wipes cart + session + redirect home)
+5. On failure: show the server error in the existing setMsg line. Do not sign out.
+
+Google / X users who have not set a password will get the server message pointing them at the Reset password card above. Do not invent a separate social-delete path.
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify
+- Account → Security shows Delete account under 2FA.
+- Wrong password: account stays, error shows.
+- Correct password + confirm: session ends, / loads signed out, that email cannot sign in.
+- A completed ticket from that customer still appears on Admin → Financials.
+- Shop desk / last admin cannot delete themselves.

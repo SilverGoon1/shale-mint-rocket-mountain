@@ -1,0 +1,137 @@
+Replace the frozen payment placeholder with a multi-processor catalog the shop can configure before any merchant account exists. Do not charge cards yet. Do not require Stripe/Helcim/Square accounts to ship this UI.
+
+Current files:
+- src/components/payment-processor.tsx is disabled ("Under construction") with one dropdown
+- src/components/shop-ops-panels.tsx PaymentsPanel renders that panel
+- src/lib/shop-types.ts has CARD_PROCESSOR_LIVE = false and ShopSettingsPublic.paymentPlaceholder
+- Checkout still uses pay_pickup / pay_delivery (cash). Keep those working.
+
+Goal
+1. Admin Payments page shows ALL processor options as cards, even with empty credentials.
+2. Admin can paste keys later, per processor, and hit Save.
+3. Customer checkout lists the same options. Unconnected processors show as "Coming soon". Connected+Live processors become selectable. Cash / pay at pickup stay available.
+4. Secrets never go to the browser. Public settings only store which processors are enabled, environment, publishable keys, and labels.
+
+Processors to show (in this order):
+
+A. Stripe — recommended first
+   Rate: 2.9% + $0.30 online, Apple Pay + Google Pay included
+   Fields: publishable key (pk_), secret key (sk_), webhook secret (whsec_), statement descriptor
+   Methods: Card, Apple Pay, Google Pay, ACH (0.8% cap $5)
+   Flow when live: authorize at checkout, capture when tablet Accepts, void if declined
+
+B. Helcim — cheapest at volume
+   Rate: interchange + 0.50% + $0.25 online, $0/mo
+   Fields: account ID, API token, checkout token / HelcimPay.js token
+   Methods: Card, Google Pay, ACH (0.5% cap $6)
+
+C. Square — only if the shop already uses Square hardware
+   Rate: Online API 2.9% + $0.30 (not the Free hosted 3.3% rate)
+   Fields: application id, access token, location id
+   Methods: Card, Apple Pay, Google Pay, cash app if Square enables it
+
+D. Stax — high volume later
+   Rate: $99/mo + interchange + $0.15–$0.18
+   Fields: public key / web token, secret API key
+   Default off. Label: "Turn on after \~$40k/month"
+
+E. PayPal — optional, not primary
+   Rate: \~2.99–3.49% + $0.49
+   Fields: client id, secret
+   Default off. Note: expensive on $25 pies
+
+F. Cash / pay at pickup / pay on delivery
+   Already exist. Always available. No keys.
+
+Do not add Clover or Authorize.net as first-class cards. If you keep them, bury under "Other" collapsed.
+
+Implementation
+
+1. src/lib/shop-types.ts
+Add:
+
+export type ProcessorId = "stripe" | "helcim" | "square" | "stax" | "paypal";
+
+export type ProcessorAccountPublic = {
+  id: ProcessorId;
+  enabled: boolean;          // show on checkout as an option
+  live: boolean;             // actually charge (requires keys on server)
+  environment: "sandbox" | "live";
+  publishableKey: string;    // pk_ / app id / public token only
+  merchantId: string;
+  statementDescriptor: string;
+  allowCard: boolean;
+  allowApplePay: boolean;
+  allowGooglePay: boolean;
+  allowAch: boolean;
+  allowTerminal: boolean;
+};
+
+Keep CARD_PROCESSOR_LIVE as a derived helper:
+export function anyProcessorLive(accounts: ProcessorAccountPublic[]) {
+  return accounts.some((a) => a.enabled && a.live && a.publishableKey.trim().length > 0);
+}
+
+Add paymentAccounts: ProcessorAccountPublic[] to ShopSettingsPublic.
+Default all five processors enabled=false, live=false, empty keys.
+Stripe card/Apple/Google/ACH checkboxes default true in the form but not live until keys exist.
+
+2. Server-only secrets
+Create src/lib/payment-secrets.server.ts
+Store secretKey / webhookSecret / accessToken keyed by ProcessorId.
+Never include these in ShopSettingsPublic or any client loader.
+Admin save endpoint writes secrets server-side and returns only { configured: true } for that field (mask as ••••abcd).
+
+If the shop settings table cannot hold secrets yet, use Vercel env fallbacks:
+STRIPE_SECRET_KEY, STRIPE_WEBHOOK_SECRET,
+HELCIM_API_TOKEN,
+SQUARE_ACCESS_TOKEN,
+STAX_SECRET_KEY,
+PAYPAL_SECRET
+and show "Using env var" in the admin card when present.
+
+3. Replace src/components/payment-processor.tsx
+Remove the "Under construction" / disabled fieldset.
+
+Render one card per processor with:
+- Name + short rate line
+- Status pill: Not connected | Keys saved (sandbox) | Live
+- Enable at checkout toggle
+- Live toggle (disabled until publishable key + secret exist)
+- Environment sandbox/live
+- Credential fields (empty, editable, not readOnly)
+- Method checkboxes (Card, Apple Pay, Google Pay, ACH, Terminal)
+- Save button per card AND a "Save all processors" at the bottom
+
+Copy the visual language from PrinterSetup / page-card / ed-field / ed-input / btn-print.
+
+4. PaymentsPanel in shop-ops-panels.tsx
+Keep the checkout note textarea.
+Replace "Require card payment for guests" disabled checkbox with:
+- Require card when a live processor exists
+- Otherwise leave guests on cash / pay at pickup
+
+5. Checkout UI
+Find the pay_pickup / pay_delivery radio group (not in storefront.tsx — it is on the checkout route).
+Above cash options, render a "Pay now" list from paymentAccounts:
+- If processor.enabled && processor.live && publishableKey → selectable
+- If processor.enabled && !live → visible but disabled, label "Coming soon — South End will turn this on after the processor account is connected"
+- If !enabled → hide
+Cash / pay at pickup stay.
+
+Do not call Stripe/Helcim/Square SDKs until live=true. Selecting a coming-soon method should not submit.
+
+6. When a processor is later marked Live
+Keep the existing order flow:
+customer pays (authorize) → tablet Accepts → capture + print
+reject/timeout → void
+Until Live, checkout must not create PaymentIntents or charge anything.
+
+7. Do not create app/app-config.ts. Do not strip Grok chrome. Do not pretend keys exist.
+
+Verify
+- Admin Payments shows Stripe, Helcim, Square, Stax, PayPal, plus cash.
+- All credential fields are empty and editable.
+- Save stores public fields on shop settings and secrets server-side only.
+- Checkout still completes with pay at pickup / cash.
+- No request goes to stripe.com / helcim.com / squareup.com until a card is Live.

@@ -1,0 +1,91 @@
+Add two delivery upgrades. Do not invent a new settings page — use the existing Delivery tab at /admin/menu?tab=delivery.
+
+Current behavior
+- DeliveryPanel in src/components/shop-ops-panels.tsx only has fee / min order / travel minutes. Copy says checkout only allows painted-map addresses.
+- ZoneMap in src/components/zone-map.tsx paints cells into delivery_zones.cells.
+- Checkout uses AddressSuggest + checkDeliveryAddress + suggestDeliveryAddresses.
+- src/lib/geo.ts: MAP_CENTER = [39.3787, -74.6051] (443 Zion Rd, Egg Harbor Township). ZONE_BOUNDS + NOMINATIM_VIEWBOX clip lookups to a tight EHT box.
+- Deliverable today = painted cell hit AND not Northfield (isNorthfieldDelivery).
+- parseNominatimHit builds street as "house_number + road" but the dropdown shows city + zip, not county. suggestDeliveryAddresses uses Nominatim limit=6 and often returns 1–2 usable rows.
+- ShopSettingsPublic has hasZones, minOrderDelivery, deliveryFee, deliveryFeeOn, deliveryMinutes. No radius fields.
+- Save delivery in src/routes/admin/menu.tsx writes min/fee/minutes + saveDeliveryZone({ cells }).
+
+==================================================
+1) Miles-from-shop delivery zone
+==================================================
+
+Add to ShopSettingsPublic in src/lib/shop-types.ts:
+
+  deliveryZoneMode: "paint" | "radius";
+  deliveryRadiusMiles: number;
+
+Defaults: mode "paint" (keep current shops working), radius 5.
+
+DB (same alter-if-not-exists pattern already used in shop-server.ts):
+
+  alter table shop_settings add column if not exists delivery_zone_mode text not null default 'paint';
+  alter table shop_settings add column if not exists delivery_radius_miles numeric not null default 5;
+
+Wire them through publicSettings() and saveShopSettings() (deliveryZoneMode / deliveryRadiusMiles).
+Clamp radius to 0.5–30 miles.
+
+In src/lib/geo.ts add:
+
+  export const SHOP_LAT = MAP_CENTER[0];
+  export const SHOP_LNG = MAP_CENTER[1];
+
+  export function milesBetween(lat1, lng1, lat2, lng2) {
+    // haversine, Earth radius 3958.8 miles
+  }
+
+  export function inRadius(lat, lng, miles) {
+    return milesBetween(SHOP_LAT, SHOP_LNG, lat, lng) <= miles;
+  }
+
+  export function isAddressDeliverable(opts: {
+    mode: "paint" | "radius";
+    radiusMiles: number;
+    cells: string[];
+    lat: number;
+    lng: number;
+    query?: string;
+    label?: string;
+    city?: string;
+    zip?: string;
+  }) {
+    if (opts.mode === "radius") {
+      return Number.isFinite(opts.lat) && Number.isFinite(opts.lng)
+        && inRadius(opts.lat, opts.lng, opts.radiusMiles);
+    }
+    if (isNorthfieldDelivery(opts)) return false;
+    return opts.cells.length > 0 && cellSetHas(opts.cells, opts.lat, opts.lng);
+  }
+
+Use isAddressDeliverable in:
+- checkDeliveryAddress
+- suggestDeliveryAddresses
+- placeOrder / placeGuestOrder zone check (the "That address is outside our delivery zone." throw)
+
+Radius mode ignores the Northfield hard-block. Distance is the only rule.
+Paint mode keeps the current Northfield exclusion.
+
+When mode is radius, hasZones should be treated as true if radiusMiles > 0 (so checkout does not force pickup-only just because no cells are painted).
+When mode is paint, hasZones stays "cells.length > 0".
+
+DeliveryPanel UI — put this ABOVE the fee fields:
+
+- Radio / segmented control: "Painted map" | "Distance from shop"
+- When Distance is selected, number input: "Deliver within (miles)" step 0.5, min 0.5, max 30.
+- Helper text:
+  Painted: "Checkout only allows addresses inside the painted blocks."
+  Distance: "Checkout allows any address within X miles of 443 Zion Rd. The painted map is ignored."
+- Keep fee / min / travel-time fields as they are.
+
+ZoneMap:
+- If parent passes mode="radius" and radiusMiles, draw a tomato circle of that radius around MAP_CENTER (Leaflet L.circle, meters = miles * 1609.34). Show a shop pin at MAP_CENTER labeled "South End Pizza III".
+- Hide or disable Paint / Erase / brush / Clear paint while radius mode is on. Keep Move + address search so they can test a street against the circle.
+- Lookup copy:
+  radius: "Inside 5.0 mi — 123 Zion Rd" / "6.2 mi away — outside the 5.0 mi zone"
+  paint: keep existing inside/outside painted zone copy.
+
+Admin menu delivery tab save must also persist deliveryZoneMode + deliveryRadiusMiles alongside the existing fee fields. After save, set hasZones from the new helper (radius with miles >
