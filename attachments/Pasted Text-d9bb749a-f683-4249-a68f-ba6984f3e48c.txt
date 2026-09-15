@@ -1,0 +1,46 @@
+Make the title bar and category carousel stack flush while scrolling. At the top of the page they stay in the original layout (header, then hours/address hero, then the category rail). After you scroll past the hero they pin together: title bar at the very top, carousel directly under it, no gap.
+
+Current pieces
+- src/components/shop-header.tsx already measures headerRef and sets --shop-sticky-top.
+- .shop-header should be position:sticky; top:0; z-index:30.
+- .cat-search-wrap in storefront.tsx is the carousel wrapper. It must be the only sticky unit for the rail: top: var(--shop-sticky-top, 3.6rem); z-index:28.
+- Later rules in src/styles.css force .shop-header { position:relative; top:auto } and .cat-search-wrap { top:0 } (including width<=900px). Those must lose. Put the new rules at the END of styles.css.
+- .cat-rail / .cat-sorter .cat-rail must NOT also be sticky or the two bars fight and leave a gap.
+
+CSS last-wins at end of src/styles.css:
+
+.shop-header {
+  position: sticky;
+  top: 0;
+  z-index: 30;
+}
+.cat-search-wrap {
+  position: sticky;
+  top: var(--shop-sticky-top, 3.6rem);
+  z-index: 28;
+  margin-bottom: 0;
+  /* header already has safe-area padding — do not add padding-top: env(safe-area-inset-top) here */
+}
+@media (width <= 900px) {
+  .shop-header { position: sticky; top: 0; }
+  .cat-search-wrap { top: var(--shop-sticky-top, 4.2rem); padding-top: 0.45rem; }
+}
+.cat-rail,
+.cat-sorter .cat-rail {
+  position: relative;
+  top: auto;
+}
+.store-main .cat-panel {
+  scroll-margin-top: calc(var(--shop-sticky-top, 3.6rem) + 3.6rem);
+}
+
+Keep shop-hero in the document flow between header and carousel. Do not move the rail into ShopHeader. Do not use position:fixed. Do not shrink the header on scroll unless it already does. Keep the existing ResizeObserver on ShopHeader.
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify
+- Top of / : header, then tagline/hours, then category pills, then menu cards.
+- Scroll down: header stays at top, pills sit flush under it, menu cards slide under the pair.
+- Scroll back to top: hours/address reappear between header and pills.
+- Tapping a category still lands the section just below the stacked pair.
+- Account / checkout: header still sticky; no rail there.
