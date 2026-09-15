@@ -128,6 +128,25 @@ function extraDeployOrigins(): string[] {
   return origins;
 }
 
+function isNodeProduction() {
+  return (process.env.NODE_ENV ?? "").trim() === "production";
+}
+
+function vercelProductionOrigin(): string | null {
+  const raw = env("VERCEL_PROJECT_PRODUCTION_URL") ?? env("VERCEL_URL");
+  if (!raw) return null;
+  const host = raw.replace(/^https?:\/\//, "").split("/")[0]?.trim();
+  if (!host) return null;
+  return `https://${host}`;
+}
+
+function productionTrustedOrigins(): string[] {
+  const origins = new Set<string>(["https://southendpizza.app"]);
+  const vercel = vercelProductionOrigin();
+  if (vercel) origins.add(vercel);
+  return [...origins];
+}
+
 function originFromHost(hostHeader: string | null, protoHeader: string | null, fallbackProto: string): string | null {
   const host = hostHeader?.split(",")[0]?.trim();
   if (!host) return null;
@@ -161,7 +180,11 @@ const baseURL = explicitBaseURL ?? {
 };
 
 const trustedOrigins = async (request?: Request): Promise<string[]> => {
+  if (isNodeProduction()) {
+    return productionTrustedOrigins();
+  }
   const origins = new Set<string>([...PRODUCTION_AUTH_ORIGINS, ...staticTrustedOrigins]);
+  origins.add("https://grok.me");
   if (!request) return [...origins];
   const fallbackProto = request.url.startsWith("http://") ? "http" : "https";
   try {
@@ -231,7 +254,7 @@ export const auth = betterAuth({
   session: { cookieCache: { enabled: true, maxAge: 300 } },
   ...(emailAndPasswordEnabled ? { emailAndPassword: { enabled: true } } : {}),
   advanced: {
-    useSecureCookies: false,
+    useSecureCookies: true,
     trustedProxyHeaders: true,
     defaultCookieAttributes: { secure: true, sameSite: "lax", path: "/" },
     cookies: {
