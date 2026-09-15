@@ -11,7 +11,7 @@ import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 // @ts-expect-error JS plugin alongside the TS vite config
-import { applyDevicePermissionHeaders, DEVICE_HEADERS } from "./scripts/device-permissions.mjs";
+import { applyDevicePermissionHeaders, ADMIN_DEVICE_HEADERS, DEVICE_HEADERS } from "./scripts/device-permissions.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
 
 /** The files `src/lib/db.ts` globs — same directory, same non-recursive scope. */
@@ -224,13 +224,13 @@ export default defineConfig(({ command, isPreview }) => ({
     host: "0.0.0.0",
     port: 8080,
     strictPort: true,
-    headers: DEVICE_HEADERS,
+    headers: ADMIN_DEVICE_HEADERS,
   },
   preview: {
     host: "127.0.0.1",
     port: 8081,
     strictPort: true,
-    headers: DEVICE_HEADERS,
+    headers: ADMIN_DEVICE_HEADERS,
   },
   resolve: { tsconfigPaths: true },
   plugins: [

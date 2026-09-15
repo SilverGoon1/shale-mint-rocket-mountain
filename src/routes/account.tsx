@@ -32,18 +32,19 @@ import {
 } from "@/lib/shop-types";
 import { OrderDateTrays } from "@/components/order-trays";
 
-const TABS = ["summary", "details", "security", "rewards"] as const;
+const TABS = ["details", "security", "orders", "rewards"] as const;
 type AccountTab = (typeof TABS)[number];
 
 function asTab(raw: unknown): AccountTab {
-  const s = String(raw ?? "summary");
-  return (TABS as readonly string[]).includes(s) ? (s as AccountTab) : "summary";
+  const s = String(raw ?? "details");
+  if (s === "summary") return "details";
+  return (TABS as readonly string[]).includes(s) ? (s as AccountTab) : "details";
 }
 
 export const Route = createFileRoute("/account")({
   validateSearch: (search: Record<string, unknown>): { tab?: AccountTab } => {
     const tab = asTab(search.tab);
-    return tab === "summary" ? {} : { tab };
+    return tab === "details" ? {} : { tab };
   },
   component: AccountPage,
 });
@@ -115,12 +116,11 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
   }, [rewards?.referralCode, profile.referralCode]);
 
   function go(next: AccountTab) {
-    void navigate({ to: "/account", search: next === "summary" ? {} : { tab: next } });
+    void navigate({ to: "/account", search: next === "details" ? {} : { tab: next } });
   }
 
   const who = name.trim() || profile.displayName || "there";
   const points = rewards?.points ?? profile.points;
-  const recent = orders.slice(0, 3);
 
   return (
     <>
@@ -142,9 +142,9 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
       <div className="account-tabs" role="tablist" aria-label="Account">
         {(
           [
-            ["summary", "Summary"],
             ["details", "Details"],
             ["security", "Security"],
+            ["orders", "Orders"],
             ["rewards", "Rewards"],
           ] as const
         ).map(([id, label]) => (
@@ -161,109 +161,61 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
         ))}
       </div>
 
-      {tab === "summary" ? (
-        <>
-          <section className="page-card">
-            <h2>Account summary</h2>
-            <div className="kpi-grid account-kpis">
-              <div className="kpi">
-                <span>Points</span>
-                <strong>{points}</strong>
-              </div>
-              <div className="kpi">
-                <span>Orders</span>
-                <strong>{profile.orderCount || orders.length}</strong>
-              </div>
-              <div className="kpi">
-                <span>Friends invited</span>
-                <strong>{rewards?.inviteCount ?? profile.inviteCount}</strong>
-              </div>
-              <div className="kpi">
-                <span>Security</span>
-                <strong>{totpOn ? "2FA on" : "2FA off"}</strong>
-              </div>
-            </div>
-            {profile.memberSince ? (
-              <p className="ed-sub">Member since {formatShopWhen(profile.memberSince)}</p>
-            ) : null}
-          </section>
-
-          <section className="page-card" id="recent-orders">
-            <h2>Recent orders</h2>
-            {recent.length ? (
-              <ul className="account-recent">
-                {recent.map((o) => (
-                  <li key={o.id} className="account-order">
-                    <div>
-                      <strong>#{formatTicketNo(o.ticketNo)}</strong>
-                      <span className="order-meta">
-                        {formatShopWhen(o.createdAt)} · {o.fulfillment} · {o.status}
-                      </span>
-                    </div>
-                    <strong>{formatUsd(o.total)}</strong>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="ed-sub">No orders yet. Your tickets will land here.</p>
+      {tab === "orders" ? (
+        <section className="page-card">
+          <h2>Order history</h2>
+          <OrderDateTrays orders={orders} empty="No orders yet.">
+            {(o) => (
+              <li key={o.id} className="account-order">
+                <div>
+                  <strong>#{formatTicketNo(o.ticketNo)}</strong>
+                  <span className="order-meta">
+                    {formatShopWhen(o.createdAt)} · {o.fulfillment} · {o.status}
+                    {o.tax ? ` · tax ${formatUsd(o.tax)}` : ""}
+                  </span>
+                  {o.notes ? <p className="ed-sub">Note: {o.notes}</p> : null}
+                  {o.pickupName ? <p className="ed-sub">Pickup for {o.pickupName}</p> : null}
+                  {o.scheduledFor ? <p className="ed-sub">Scheduled {formatShopWhen(o.scheduledFor)}</p> : null}
+                  <ul>
+                    {o.items.map((it, i) => (
+                      <li key={i}>
+                        {it.qty}× {it.name}
+                        {it.size ? ` (${it.size})` : ""}
+                        {it.detail ? ` — ${it.detail}` : ""}
+                        {it.comment ? <span className="cook-note">{it.comment}</span> : null}
+                      </li>
+                    ))}
+                  </ul>
+                  <button
+                    type="button"
+                    className="ed-btn"
+                    onClick={() => {
+                      for (const it of o.items) {
+                        add({
+                          itemId: it.itemId,
+                          categoryId: it.categoryId,
+                          name: it.name,
+                          size: it.size,
+                          detail: it.detail,
+                          comment: it.comment,
+                          toppings: it.toppings,
+                          halfItemId: it.halfItemId,
+                          unitPrice: it.unitPrice,
+                          qty: it.qty,
+                        });
+                      }
+                      if (o.notes) setNotes(o.notes);
+                      void navigate({ to: "/" });
+                    }}
+                  >
+                    Reorder
+                  </button>
+                </div>
+                <strong>{formatUsd(o.total)}</strong>
+              </li>
             )}
-          </section>
-
-          <section className="page-card">
-            <h2>Order history</h2>
-            <OrderDateTrays orders={orders} empty="No orders yet.">
-              {(o) => (
-                <li key={o.id} className="account-order">
-                  <div>
-                    <strong>#{formatTicketNo(o.ticketNo)}</strong>
-                    <span className="order-meta">
-                      {formatShopWhen(o.createdAt)} · {o.fulfillment} · {o.status}
-                      {o.tax ? ` · tax ${formatUsd(o.tax)}` : ""}
-                    </span>
-                    {o.notes ? <p className="ed-sub">Note: {o.notes}</p> : null}
-                    {o.pickupName ? <p className="ed-sub">Pickup for {o.pickupName}</p> : null}
-                    {o.scheduledFor ? <p className="ed-sub">Scheduled {formatShopWhen(o.scheduledFor)}</p> : null}
-                    <ul>
-                      {o.items.map((it, i) => (
-                        <li key={i}>
-                          {it.qty}× {it.name}
-                          {it.size ? ` (${it.size})` : ""}
-                          {it.detail ? ` — ${it.detail}` : ""}
-                          {it.comment ? <span className="cook-note">{it.comment}</span> : null}
-                        </li>
-                      ))}
-                    </ul>
-                    <button
-                      type="button"
-                      className="ed-btn"
-                      onClick={() => {
-                        for (const it of o.items) {
-                          add({
-                            itemId: it.itemId,
-                            categoryId: it.categoryId,
-                            name: it.name,
-                            size: it.size,
-                            detail: it.detail,
-                            comment: it.comment,
-                            toppings: it.toppings,
-                            halfItemId: it.halfItemId,
-                            unitPrice: it.unitPrice,
-                            qty: it.qty,
-                          });
-                        }
-                        if (o.notes) setNotes(o.notes);
-                        void navigate({ to: "/" });
-                      }}
-                    >
-                      Reorder
-                    </button>
-                  </div>
-                  <strong>{formatUsd(o.total)}</strong>
-                </li>
-              )}
-            </OrderDateTrays>
-          </section>
-        </>
+          </OrderDateTrays>
+        </section>
       ) : null}
 
       {tab === "details" ? (
