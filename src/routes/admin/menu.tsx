@@ -19,6 +19,7 @@ import { useMenuStore, type EditableCategory } from "@/lib/menu-store";
 import { getAdminShop, saveDeliveryZone, saveShopMenu, saveShopSettings, savePaymentProcessors } from "@/lib/shop-server";
 import {
   DEFAULT_RECEIPT_OPTIONS,
+  deliveryHasZones,
   type PrinterProfile,
   type ProcessorSecretStatus,
   type ReceiptOptions,
@@ -316,10 +317,16 @@ function AdminMenu() {
           <section className="page-card">
             <h2>Delivery zone</h2>
             <p className="ed-sub">
-              Paint the blocks you cover. Customer checkout geocodes the address and only allows delivery inside the
-              painted area. Use the search to confirm a street, then paint it.
+              {settings.deliveryZoneMode === "radius"
+                ? `A tomato circle shows the ${settings.deliveryRadiusMiles || 5}-mile zone around 443 Zion Rd. Search a street to test it.`
+                : "Paint the blocks you cover. Customer checkout geocodes the address and only allows delivery inside the painted area. Use the search to confirm a street, then paint it."}
             </p>
-            <ZoneMap cells={cells} onChange={setCells} />
+            <ZoneMap
+              cells={cells}
+              onChange={setCells}
+              mode={settings.deliveryZoneMode === "radius" ? "radius" : "paint"}
+              radiusMiles={settings.deliveryRadiusMiles || 5}
+            />
           </section>
           <button
             type="button"
@@ -332,13 +339,24 @@ function AdminMenu() {
                     deliveryFee: settings.deliveryFee,
                     deliveryFeeOn: settings.deliveryFeeOn,
                     deliveryMinutes: settings.deliveryMinutes,
+                    deliveryZoneMode: settings.deliveryZoneMode,
+                    deliveryRadiusMiles: settings.deliveryRadiusMiles,
                   },
                 }),
                 saveDeliveryZone({ data: { cells } }),
               ])
                 .then(([, zone]) => {
-                  setSettings({ ...settings, hasZones: cells.length > 0 });
-                  setMsg(`Delivery settings are live. Saved ${zone.count} blocks.`);
+                  const hasZones = deliveryHasZones(
+                    settings.deliveryZoneMode === "radius" ? "radius" : "paint",
+                    settings.deliveryRadiusMiles || 5,
+                    cells.length,
+                  );
+                  setSettings({ ...settings, hasZones });
+                  setMsg(
+                    settings.deliveryZoneMode === "radius"
+                      ? `Delivery settings are live. ${settings.deliveryRadiusMiles || 5} mile radius from the shop.`
+                      : `Delivery settings are live. Saved ${zone.count} blocks.`,
+                  );
                   flashOk(true);
                 })
                 .catch((e) => {

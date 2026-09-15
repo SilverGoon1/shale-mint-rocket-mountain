@@ -7,6 +7,8 @@ export const ZONE_BOUNDS = {
 
 export const CELL = 0.0032;
 export const MAP_CENTER: [number, number] = [39.3787, -74.6051];
+export const SHOP_LAT = MAP_CENTER[0];
+export const SHOP_LNG = MAP_CENTER[1];
 
 /** Nominatim viewbox: west,north,east,south */
 export const NOMINATIM_VIEWBOX = `${ZONE_BOUNDS.west},${ZONE_BOUNDS.north},${ZONE_BOUNDS.east},${ZONE_BOUNDS.south}`;
@@ -15,6 +17,7 @@ export type AddressSuggestion = {
   label: string;
   street: string;
   city: string;
+  county: string;
   zip: string;
   lat: number;
   lng: number;
@@ -37,14 +40,15 @@ export function parseNominatimHit(hit: {
     a.municipality ||
     a.hamlet ||
     a.suburb ||
-    a.county ||
     "";
+  const county = a.county || "";
   const zip = String(a.postcode || "").replace(/\D/g, "").slice(0, 5);
   const label = String(hit.display_name ?? "");
   return {
     label,
     street: street || label.split(",")[0]?.trim() || "",
     city,
+    county,
     zip,
     lat: Number(hit.lat),
     lng: Number(hit.lon),
@@ -117,6 +121,48 @@ export function isNorthfieldDelivery(input: {
   if (!/\bnorthfield\b/.test(blob)) return false;
   if (/\begg harbor\b/.test(blob)) return false;
   return true;
+}
+
+export function milesBetween(lat1: number, lng1: number, lat2: number, lng2: number) {
+  const toRad = (d: number) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return 3958.8 * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+export function inRadius(lat: number, lng: number, miles: number) {
+  return milesBetween(SHOP_LAT, SHOP_LNG, lat, lng) <= miles;
+}
+
+export function isAddressDeliverable(opts: {
+  mode: "paint" | "radius";
+  radiusMiles: number;
+  cells: string[];
+  lat: number;
+  lng: number;
+  query?: string;
+  label?: string;
+  city?: string;
+  zip?: string;
+}) {
+  if (opts.mode === "radius") {
+    return Number.isFinite(opts.lat) && Number.isFinite(opts.lng) && inRadius(opts.lat, opts.lng, opts.radiusMiles);
+  }
+  if (isNorthfieldDelivery(opts)) return false;
+  return opts.cells.length > 0 && cellSetHas(opts.cells, opts.lat, opts.lng);
+}
+
+export function nominatimViewboxForRadius(miles: number) {
+  const padLat = (Math.max(miles, 6) * 1.2) / 69;
+  const padLng = padLat / Math.cos((SHOP_LAT * Math.PI) / 180);
+  const west = SHOP_LNG - padLng;
+  const east = SHOP_LNG + padLng;
+  const north = SHOP_LAT + padLat;
+  const south = SHOP_LAT - padLat;
+  return `${west},${north},${east},${south}`;
 }
 
 export function expandDeliveryQuery(query: string) {

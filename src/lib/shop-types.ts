@@ -196,6 +196,8 @@ export type ShopSettingsPublic = {
   deliveryFee: number;
   deliveryFeeOn: boolean;
   hasZones: boolean;
+  deliveryZoneMode: "paint" | "radius";
+  deliveryRadiusMiles: number;
   taxRate: number;
   prepMinutes: number;
   deliveryMinutes: number;
@@ -518,6 +520,22 @@ export const DEFAULT_RECEIPT_OPTIONS: ReceiptOptions = {
   footer: "Thank you for dining with us. Keep this receipt for your records.",
   autoPrintOnAccept: true,
 };
+
+export function parseDeliveryZoneMode(raw: unknown): "paint" | "radius" {
+  return String(raw ?? "").trim() === "radius" ? "radius" : "paint";
+}
+
+export function clampDeliveryRadius(raw: unknown) {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return 5;
+  const stepped = Math.round(n * 2) / 2;
+  return Math.min(30, Math.max(0.5, stepped));
+}
+
+export function deliveryHasZones(mode: "paint" | "radius", radiusMiles: number, cellCount: number) {
+  if (mode === "radius") return radiusMiles > 0;
+  return cellCount > 0;
+}
 
 export function moneyNumber(value: string | number | null | undefined) {
   const n = typeof value === "number" ? value : Number(value);

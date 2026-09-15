@@ -116,7 +116,7 @@ export function AddressSuggest({
               >
                 <strong>{hit.street || hit.label.split(",")[0]}</strong>
                 <em>
-                  {[hit.city, hit.zip].filter(Boolean).join(" ")}
+                  {[hit.city, hit.county, hit.zip].filter(Boolean).join(" · ")}
                   {hit.deliverable ? " · We deliver" : ""}
                 </em>
               </button>

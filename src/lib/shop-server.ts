@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { cellSetHas, CELL, MAP_CENTER, cellKey, isNorthfieldDelivery, expandDeliveryQuery, NOMINATIM_VIEWBOX, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
+import { CELL, MAP_CENTER, cellKey, isAddressDeliverable, isNorthfieldDelivery, expandDeliveryQuery, NOMINATIM_VIEWBOX, nominatimViewboxForRadius, parseNominatimHit, type AddressSuggestion } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
@@ -31,7 +31,7 @@ import type {
   RewardsView,
   ShopSettingsPublic,
 } from "@/lib/shop-types";
-import { DESK_ACCOUNT_SOFT_MAX, checkoutDeliveryFee, clampTip, computeTax, isProcessorPayment, moneyNumber, parsePaymentAccounts, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
+import { DESK_ACCOUNT_SOFT_MAX, checkoutDeliveryFee, clampDeliveryRadius, clampTip, computeTax, deliveryHasZones, isProcessorPayment, moneyNumber, parseDeliveryZoneMode, parsePaymentAccounts, parsePrinters, parseReceiptOptions, sanitizeCardBg, sanitizeCardSize, sanitizeCardTextColor, sanitizeCardTextSize, sanitizeSeasonEffect } from "@/lib/shop-types";
 import {
   DEFAULT_TOPPING_PRICES,
   DEFAULT_XL_ADD,
@@ -608,6 +608,14 @@ async function applySettingsSchema(sql: Sql) {
 		/* reads seed a per-topping map when the column is missing */
 	}
 	try {
+		await sql.query(`alter table shop_settings add column if not exists delivery_zone_mode text not null default 'paint'`);
+		await sql.query(`alter table shop_settings add column if not exists delivery_radius_miles numeric not null default 5`);
+		await sql.query(`alter table shop_settings add column if not exists payment_accounts jsonb not null default '[]'::jsonb`);
+		await sql.query(`alter table shop_settings add column if not exists payment_secrets jsonb not null default '{}'::jsonb`);
+	} catch {
+		/* */
+	}
+	try {
 		await sql.query(`alter table menu_items add column if not exists groups jsonb`);
 	} catch {
 		/* infer groups when column is missing */
@@ -992,6 +1000,8 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		deliveryFee: num(row.delivery_fee),
 		deliveryFeeOn: row.delivery_fee_on === void 0 || row.delivery_fee_on === null ? true : bool(row.delivery_fee_on),
 		hasZones,
+		deliveryZoneMode: parseDeliveryZoneMode(row.delivery_zone_mode),
+		deliveryRadiusMiles: clampDeliveryRadius(row.delivery_radius_miles),
 		taxRate: row.tax_rate === void 0 || row.tax_rate === null || row.tax_rate === "" ? 6.625 : Math.max(0, num(row.tax_rate)),
 		prepMinutes: Math.max(5, Math.round(num(row.prep_minutes) || 25)),
 		deliveryMinutes: Math.max(5, Math.round(num(row.delivery_minutes) || 40)),
@@ -1062,6 +1072,18 @@ async function zoneCells(sql: Sql): Promise<string[]> {
 		return [];
 	}
 	return [];
+}
+
+function zonePolicyFromRow(row: Record<string, unknown>, cells: string[]) {
+	const mode = parseDeliveryZoneMode(row.delivery_zone_mode);
+	const radiusMiles = clampDeliveryRadius(row.delivery_radius_miles);
+	return { mode, radiusMiles, cells, hasZones: deliveryHasZones(mode, radiusMiles, cells.length) };
+}
+
+async function loadZonePolicy(sql: Sql) {
+	const row = await loadSettingsRow(sql);
+	const cells = await zoneCells(sql);
+	return zonePolicyFromRow(row, cells);
 }
 async function ledgerId(kind: string) {
 	return `rew-${kind}-${Date.now().toString(36)}-${randomBytes(4).toString("hex")}`;
@@ -1450,7 +1472,7 @@ async function loadStorefront() {
 	const cats = await loadCategories(sql);
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
-	const settings = publicSettings(row, cells.length > 0);
+	const settings = publicSettings(row, zonePolicyFromRow(row, cells).hasZones);
 	return {
 		restaurant: restaurantFrom(row),
 		footer: String(row.footer || "Ask about extra toppings, wing sauces, and dressing. Prices may change."),
@@ -1887,11 +1909,13 @@ async function assertEmailVerifiedForOrder(sql: Sql, userId: string) {
 }
 export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator((data: { query: string }) => ({ query: data.query.trim() })).handler(async ({ data }) => {
 	if (!data.query) throw new Error("Enter a street address.");
-	const cells = await zoneCells(await getSql());
+	const sql = await getSql();
+	const policy = await loadZonePolicy(sql);
 	const original = data.query;
 	let q = expandDeliveryQuery(original);
+	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : NOMINATIM_VIEWBOX;
 	const lookup = async (query: string) => {
-		const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=us&viewbox=${NOMINATIM_VIEWBOX}&q=${encodeURIComponent(query)}`;
+		const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=1&countrycodes=us&viewbox=${viewbox}&q=${encodeURIComponent(query)}`;
 		const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 		if (!res.ok) throw new Error("Address lookup is unavailable right now.");
 		return (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
@@ -1906,22 +1930,28 @@ export const checkDeliveryAddress = createServerFn({ method: "POST" }).validator
 		label: "",
 		street: "",
 		city: "",
+		county: "",
 		zip: "",
 	};
 	const parsed = parseNominatimHit(hits[0]);
-	const northfield = isNorthfieldDelivery({
+	const deliverable = isAddressDeliverable({
+		mode: policy.mode,
+		radiusMiles: policy.radiusMiles,
+		cells: policy.cells,
+		lat: parsed.lat,
+		lng: parsed.lng,
 		query: original,
 		label: parsed.label,
 		city: parsed.city,
 		zip: parsed.zip,
 	});
-	const deliverable = !northfield && cells.length > 0 && Number.isFinite(parsed.lat) && Number.isFinite(parsed.lng) && cellSetHas(cells, parsed.lat, parsed.lng);
 	return {
 		found: true,
 		deliverable,
 		label: parsed.label,
 		street: parsed.street,
 		city: parsed.city,
+		county: parsed.county,
 		zip: parsed.zip,
 		lat: parsed.lat,
 		lng: parsed.lng,
@@ -1937,9 +1967,10 @@ export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).valid
 	const key = raw.toLowerCase();
 	const cached = suggestCache.get(key);
 	if (cached && Date.now() - cached.at < 5 * 60_000) return { hits: cached.hits };
-	const cells = await zoneCells(await getSql());
+	const policy = await loadZonePolicy(await getSql());
 	const q = expandDeliveryQuery(raw);
-	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=6&countrycodes=us&viewbox=${NOMINATIM_VIEWBOX}&q=${encodeURIComponent(q)}`;
+	const viewbox = policy.mode === "radius" ? nominatimViewboxForRadius(policy.radiusMiles) : NOMINATIM_VIEWBOX;
+	const url = `https://nominatim.openstreetmap.org/search?format=json&addressdetails=1&limit=12&countrycodes=us&viewbox=${viewbox}&q=${encodeURIComponent(q)}`;
 	const res = await fetch(url, { headers: { "User-Agent": "SouthEndPizzaIII/1.0 (delivery-zone)" } });
 	if (!res.ok) throw new Error("Address lookup is unavailable right now.");
 	const rows = (await res.json()) as Array<{ lat: string; lon: string; display_name: string; address?: Record<string, string> }>;
@@ -1951,16 +1982,20 @@ export const suggestDeliveryAddresses = createServerFn({ method: "POST" }).valid
 		const id = `${parsed.street}|${parsed.zip}|${parsed.lat.toFixed(5)}`;
 		if (seen.has(id)) continue;
 		seen.add(id);
-		const northfield = isNorthfieldDelivery({
-			query: raw,
-			label: parsed.label,
-			city: parsed.city,
-			zip: parsed.zip,
-		});
 		hits.push({
 			...parsed,
 			city: parsed.city || "Egg Harbor Township",
-			deliverable: !northfield && cells.length > 0 && cellSetHas(cells, parsed.lat, parsed.lng),
+			deliverable: isAddressDeliverable({
+				mode: policy.mode,
+				radiusMiles: policy.radiusMiles,
+				cells: policy.cells,
+				lat: parsed.lat,
+				lng: parsed.lng,
+				query: raw,
+				label: parsed.label,
+				city: parsed.city,
+				zip: parsed.zip,
+			}),
 		});
 	}
 	if (suggestCache.size > 80) suggestCache.clear();
@@ -2212,17 +2247,21 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 			const need = Math.max(0, Math.round((min - subtotal) * 100) / 100);
 			throw new Error(`Add $${need.toFixed(2)} more for delivery (minimum $${min.toFixed(2)}).`);
 		}
-		const cells = await zoneCells(sql);
-		if (!cells.length) throw new Error("Delivery zones are not set yet. Please choose pickup.");
+		const policy = await loadZonePolicy(sql);
+		if (!policy.hasZones) throw new Error("Delivery zones are not set yet. Please choose pickup.");
 		if (lat == null || lng == null) throw new Error("Check the delivery address first.");
-		if (isNorthfieldDelivery({
+		if (!isAddressDeliverable({
+			mode: policy.mode,
+			radiusMiles: policy.radiusMiles,
+			cells: policy.cells,
+			lat: Number(lat),
+			lng: Number(lng),
 			query: String(data.addressLine ?? ""),
 			city: String(data.city ?? ""),
 			zip: String(data.zip ?? ""),
 		})) {
 			throw new Error("That address is outside our delivery zone.");
 		}
-		if (!cellSetHas(cells, Number(lat), Number(lng))) throw new Error("That address is outside our delivery zone.");
 	}
 	const weeklyHours = parseWeeklyHours(settings.weekly_hours);
 	const scheduledDate = String(data.scheduledDate ?? "").trim();
@@ -2401,6 +2440,8 @@ export const saveShopSettings = createServerFn({ method: "POST" }).middleware([a
 	add("min_order_delivery", data.minOrderDelivery);
 	add("delivery_fee", data.deliveryFee);
 	add("delivery_fee_on", data.deliveryFeeOn === void 0 ? void 0 : Boolean(data.deliveryFeeOn));
+	if (data.deliveryZoneMode !== void 0) add("delivery_zone_mode", parseDeliveryZoneMode(data.deliveryZoneMode));
+	if (data.deliveryRadiusMiles !== void 0) add("delivery_radius_miles", clampDeliveryRadius(data.deliveryRadiusMiles));
 	add("tax_rate", data.taxRate === void 0 ? void 0 : Math.max(0, Math.min(25, Number(data.taxRate))));
 	add("prep_minutes", data.prepMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.prepMinutes)));
 	add("delivery_minutes", data.deliveryMinutes === void 0 ? void 0 : Math.max(5, Math.round(data.deliveryMinutes)));
@@ -2690,7 +2731,7 @@ export const getAdminShop = createServerFn({ method: "GET" }).middleware([authMi
 	await requireAdmin(sql, context.userId);
 	const row = await loadSettingsRow(sql);
 	const cells = await zoneCells(sql);
-	const settings = publicSettings(row, cells.length > 0);
+	const settings = publicSettings(row, zonePolicyFromRow(row, cells).hasZones);
 	const { parsePaymentSecrets, allSecretStatuses } = await import("@/lib/payment-secrets.server");
 	const secretStatus = allSecretStatuses(parsePaymentSecrets(row.payment_secrets));
 	const categories = applyPizzaSizing(await loadCategories(sql), settings);

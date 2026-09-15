@@ -454,11 +454,45 @@ export function DeliveryPanel({
   setSettings: (s: ShopSettingsPublic) => void;
 }) {
   const feeOn = settings.deliveryFeeOn !== false;
+  const mode = settings.deliveryZoneMode === "radius" ? "radius" : "paint";
+  const miles = settings.deliveryRadiusMiles || 5;
   return (
     <section className="page-card">
       <h2>Delivery settings</h2>
+      <div className="seg" role="radiogroup" aria-label="Delivery zone type">
+        <button
+          type="button"
+          data-on={mode === "paint"}
+          onClick={() => setSettings({ ...settings, deliveryZoneMode: "paint" })}
+        >
+          Painted map
+        </button>
+        <button
+          type="button"
+          data-on={mode === "radius"}
+          onClick={() => setSettings({ ...settings, deliveryZoneMode: "radius" })}
+        >
+          Distance from shop
+        </button>
+      </div>
+      {mode === "radius" ? (
+        <label className="ed-field">
+          <span>Deliver within (miles)</span>
+          <input
+            className="ed-input"
+            type="number"
+            min={0.5}
+            max={30}
+            step={0.5}
+            value={miles}
+            onChange={(e) => setSettings({ ...settings, deliveryRadiusMiles: Number(e.target.value) })}
+          />
+        </label>
+      ) : null}
       <p className="ed-sub">
-        Checkout only allows delivery inside the painted map below. Addresses outside it stay pickup-only.
+        {mode === "radius"
+          ? `Checkout allows any address within ${miles} miles of 443 Zion Rd. The painted map is ignored.`
+          : "Checkout only allows addresses inside the painted blocks."}
       </p>
       <label className="toggle-row">
         <input
@@ -515,8 +549,10 @@ export function DeliveryPanel({
       </label>
       <p className="ed-sub">
         {settings.hasZones
-          ? "A delivery zone is painted. Addresses outside it stay pickup-only."
-          : "No zone painted yet — customers can only choose pickup."}
+          ? mode === "radius"
+            ? `Delivery is open within ${miles} miles of the shop.`
+            : "A delivery zone is painted. Addresses outside it stay pickup-only."
+          : "No zone yet — customers can only choose pickup."}
       </p>
     </section>
   );
