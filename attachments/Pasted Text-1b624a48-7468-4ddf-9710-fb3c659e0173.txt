@@ -1,0 +1,62 @@
+Fix a PC freeze: mousedown on a dropdown button, hold left-click, drag — the site locks.
+
+Cause
+- AddressSuggest list items are <button>s. Mousedown focuses the button, blurs the input, and Chrome starts a native drag / text selection.
+- On Delivery, that list sits over ZoneMap. Leaflet hears mousedown/mousemove, sets drawing=true, and apply() calls onChange([...cells]) every pixel. mouseup is only bound on the map, so if the pointer started on the dropdown or leaves the map, drawing never stops.
+- Account header menu items are also undraggable-not-set links/buttons.
+
+Do all of the following. Do not redesign the UI.
+
+1) src/components/address-suggest.tsx
+On each suggestion <button>:
+  type="button"
+  draggable={false}
+  onDragStart={(e) => e.preventDefault()}
+  onMouseDown={(e) => {
+    e.preventDefault();        // keep input focused, block native drag
+    e.stopPropagation();       // do not start ZoneMap paint
+  }}
+  onPointerDown={(e) => e.stopPropagation()}
+  onClick={() => pick(hit)}
+Keep onMouseEnter for the highlight. Do not call pick() on mouseenter or mousedown.
+
+2) src/components/shop-header.tsx
+On every account-menu Link and the Sign out button:
+  draggable={false}
+  onDragStart={(e) => e.preventDefault()}
+  onMouseDown={(e) => e.stopPropagation()}
+
+3) src/components/zone-map.tsx
+- Bind stop-drawing to window, not only the map:
+    pointerup, pointercancel, mouseup, blur
+  so drawing.current becomes false even if the gesture started on the address dropdown or left the map.
+- In apply(), skip work if the cell set did not change. Throttle onChange to at most one parent update per animation frame (raf). Do not call onChange on every mousemove pixel.
+- On the address search tools / AddressSuggest wrapper: onMouseDown and onPointerDown stopPropagation so Leaflet never sees those presses.
+- On map mousedown, if event.originalEvent.target is not the map pane (it's a button, input, or select), return without starting a stroke.
+
+4) src/styles.css
+Add:
+  .addr-suggest-list,
+  .addr-suggest-list button,
+  .account-menu-pop,
+  .account-menu-pop a,
+  .account-menu-pop button,
+  .seg button,
+  .ed-btn,
+  .btn-print {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-user-drag: none;
+  }
+  .addr-suggest-list button,
+  .account-menu-pop a,
+  .account-menu-pop button {
+    touch-action: manipulation;
+  }
+
+Do not create app/app-config.ts. Do not strip Grok chrome.
+
+Verify on a desktop with a mouse:
+- Checkout or Delivery: type a street, open the suggestion list, press a row, hold, drag off it, release. Page stays live. Releasing off the row does not paint the map.
+- Delivery map paint still works when you press on the map itself.
+- Account avatar menu: press a row, drag, release. No freeze. Click still navigates.
