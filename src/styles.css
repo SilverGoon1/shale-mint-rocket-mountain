@@ -2123,12 +2123,16 @@ body:has(.mobile-bag) .support-dock {
   position: sticky;
   top: 0;
   z-index: 30;
+  margin-bottom: 0;
 }
 .cat-search-wrap {
   position: sticky;
-  top: var(--shop-sticky-top, 3.6rem);
+  top: calc(var(--shop-sticky-top, 3.6rem) - 1px);
   z-index: 28;
+  margin-top: 0;
   margin-bottom: 0;
+  padding-top: 0 !important;
+  border-top: 0;
 }
 @media (width <= 900px) {
   .shop-header {
@@ -2136,8 +2140,8 @@ body:has(.mobile-bag) .support-dock {
     top: 0;
   }
   .cat-search-wrap {
-    top: var(--shop-sticky-top, 4.2rem);
-    padding-top: 0.45rem;
+    top: calc(var(--shop-sticky-top, 3.6rem) - 1px);
+    padding-top: 0 !important;
   }
 }
 .cat-rail,
