@@ -5,7 +5,6 @@ import { isTransientFetchError } from "@/lib/fetch-retry";
 import { claimAdmin, getMe, getTwoFactorStatus } from "@/lib/shop-server";
 import { needsSignupOtp } from "@/lib/phone";
 import type { ProfileView, TwoFactorStatus } from "@/lib/shop-types";
-import { needsSignupOtp } from "@/lib/phone";
 import { AccountLoading } from "@/components/pizza-spinner";
 
 function accountLoadMessage(err: unknown) {

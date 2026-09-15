@@ -8,8 +8,6 @@ import { getMe, getStorefront } from "@/lib/shop-server";
 import { retryTransient } from "@/lib/fetch-retry";
 import { needsSignupOtp } from "@/lib/phone";
 import type { ProfileView } from "@/lib/shop-types";
-import { needsSignupOtp } from "@/lib/phone";
-import { Navigate } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/")({
   loader: () => retryTransient(() => getStorefront()),
