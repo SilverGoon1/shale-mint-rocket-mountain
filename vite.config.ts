@@ -260,7 +260,7 @@ export default defineConfig(({ command, isPreview }) => ({
               "/pair-printer": { headers: ADMIN_DEVICE_HEADERS },
               "/_serverFn": { headers: DEVICE_HEADERS },
               "/_serverFn/**": { headers: DEVICE_HEADERS },
-              "/sw.js": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
+              "/sw.js": { headers: { "cache-control": "no-store" } },
               "/version.json": { headers: { ...DEVICE_HEADERS, "cache-control": "no-store" } },
             },
           }),

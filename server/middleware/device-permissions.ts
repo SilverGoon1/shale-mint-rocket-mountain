@@ -84,6 +84,10 @@ export default async function devicePermissionsMiddleware(
   if (result instanceof Response) {
     const headers = new Headers(result.headers);
     stamp(headers, pathname);
+    if (pathname === "/sw.js") {
+      headers.delete("Access-Control-Allow-Origin");
+      headers.set("Cache-Control", "no-store");
+    }
     return new Response(result.body, {
       status: result.status,
       statusText: result.statusText,
