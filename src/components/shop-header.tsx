@@ -2,8 +2,6 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { CircleHelp, LogOut, Monitor, ShoppingBag, UserRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
-import { PizzaSpinner } from "@/components/pizza-spinner";
-import { SignedOut } from "@/lib/auth/gates";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { useCurrentUserState, type AppUser } from "@/lib/auth/use-current-user";
 import { onAdminInbox } from "@/lib/admin-inbox";
@@ -198,6 +196,7 @@ export function ShopHeader({
 }) {
   const { isPending, user } = useCurrentUserState();
   const [authReady, setAuthReady] = useState(false);
+  const [lastUser, setLastUser] = useState<AppUser | null>(null);
   const [adminUnread, setAdminUnread] = useState(profile?.adminInbox ?? 0);
   const [liveProfile, setLiveProfile] = useState(profile ?? null);
   const lines = useCartStore((s) => s.lines);
@@ -210,6 +209,11 @@ export function ShopHeader({
   useEffect(() => {
     setLiveProfile(profile ?? null);
   }, [profile]);
+
+  useEffect(() => {
+    if (user) setLastUser(user);
+    else if (!isPending) setLastUser(null);
+  }, [user, isPending]);
 
   useEffect(() => {
     setAuthReady(true);
@@ -255,6 +259,10 @@ export function ShopHeader({
     };
   }, [isAdmin]);
 
+  const shownUser = user ?? (isPending ? lastUser : null);
+  const knownName = accountLabel(liveProfile, shownUser);
+  const showAccount = Boolean(shownUser || liveProfile?.displayName || liveProfile?.email);
+
   return (
     <header className="shop-header no-print" id="shop-top" ref={headerRef} data-staff={isAdmin ? "true" : undefined}>
       <div className="shop-header-inner">
@@ -265,11 +273,11 @@ export function ShopHeader({
             <span className="shop-brand-name">{title ?? "South End Pizza III"}</span>
           </span>
         </Link>
-        {authReady && !isPending && user ? (
+        {showAccount ? (
           <nav className="shop-nav" aria-label="Shop">
             <AccountMenu
-              label={accountLabel(liveProfile, user)}
-              email={liveProfile?.email || user.primaryEmail || ""}
+              label={knownName}
+              email={liveProfile?.email || shownUser?.primaryEmail || ""}
               phone={liveProfile?.phone || ""}
               points={liveProfile?.points ?? 0}
               avatarUrl={avatarUrl}
@@ -281,19 +289,12 @@ export function ShopHeader({
           </nav>
         ) : null}
         <div className="shop-header-actions">
-          {!authReady || isPending ? (
-            <span className="header-account-wait">
-              <PizzaSpinner size="sm" />
-            </span>
-          ) : null}
-          {authReady && !isPending ? (
-            <SignedOut>
-              <Link to="/login" className="btn-ghost">
-                <UserRound size={16} strokeWidth={2.2} />
-                Sign in
-              </Link>
-            </SignedOut>
-          ) : null}
+          {showAccount ? null : (
+            <Link to="/login" className="btn-ghost">
+              <UserRound size={16} strokeWidth={2.2} />
+              Sign in
+            </Link>
+          )}
           {onOpenCart ? (
             <button
               type="button"
