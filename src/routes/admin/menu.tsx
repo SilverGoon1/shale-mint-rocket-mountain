@@ -1,7 +1,6 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { MenuEditor } from "@/components/menu-editor";
-import { CardEditor } from "@/components/card-editor";
 import { MenuBoard } from "@/components/menu-board";
 import { PrinterSetup } from "@/components/printer-setup";
 import { ZoneMap } from "@/components/zone-map";
@@ -29,13 +28,12 @@ import {
 } from "@/lib/shop-types";
 import type { RestaurantInfo } from "@/data/menu";
 
-const TABS = ["menu", "toppings", "shop", "look", "hours", "payments", "delivery", "printers"] as const;
+const TABS = ["menu", "toppings", "shop", "payments", "delivery", "printers"] as const;
 type MenuTab = (typeof TABS)[number];
 
 function asMenuTab(raw: unknown): MenuTab | undefined {
   let s = typeof raw === "string" ? raw : "";
-  if (s === "vacation") s = "hours";
-  if (s === "cards") s = "look";
+  if (s === "vacation" || s === "hours" || s === "look" || s === "cards") s = "shop";
   if (s === "tax") s = "payments";
   return (TABS as readonly string[]).includes(s) ? (s as MenuTab) : undefined;
 }
@@ -146,8 +144,6 @@ function AdminMenu() {
               ["menu", "Menu"],
               ["toppings", "Toppings"],
               ["shop", "Shop details"],
-              ["look", "Look"],
-              ["hours", "Hours"],
               ["payments", "Payments"],
               ["delivery", "Delivery"],
               ["printers", "Printers"],
@@ -202,41 +198,6 @@ function AdminMenu() {
           <button type="button" className="btn-print" onClick={() => saveMenuAndSettings("Shop details are live.")}>
             Save shop details
           </button>
-          {msg ? <p className="ed-sub">{msg}</p> : null}
-        </div>
-      ) : null}
-
-      {tab !== "menu" && tab !== "look" && !settings ? <div className="page-skel">Loading…</div> : null}
-
-      {tab === "look" ? (
-        <div className="settings-page">
-          <CardEditor />
-          <button
-            type="button"
-            className="btn-print"
-            onClick={() => {
-              const snap = useMenuStore.getState();
-              saveOps(
-                {
-                  cardTextSize: snap.cardTextSize,
-                  cardTextColor: snap.cardTextColor,
-                  cardDescColor: snap.cardDescColor,
-                  cardPriceColor: snap.cardPriceColor,
-                  cardSize: snap.cardSize,
-                  cardBg: snap.cardBg,
-                },
-                "Card style is live.",
-              );
-            }}
-          >
-            Save look
-          </button>
-          {msg ? <p className="ed-sub">{msg}</p> : null}
-        </div>
-      ) : null}
-
-      {tab === "hours" && settings ? (
-        <div className="settings-page">
           <HoursPanel settings={settings} setSettings={setSettings} />
           <VacationPanel settings={settings} setSettings={setSettings} />
           <button
@@ -261,6 +222,8 @@ function AdminMenu() {
           {msg ? <p className="ed-sub">{msg}</p> : null}
         </div>
       ) : null}
+
+      {tab !== "menu" && !settings ? <div className="page-skel">Loading…</div> : null}
 
       {tab === "payments" && settings ? (
         <div className="settings-page">

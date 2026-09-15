@@ -1,8 +1,10 @@
 import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { BrandMark } from "@/components/brand-mark";
+import { CardEditor } from "@/components/card-editor";
 import { DEFAULT_BACKDROP, DEFAULT_LOGO, emitShopBackdrop, emitShopLogo } from "@/lib/admin-nav";
 import { fileToDataImage } from "@/lib/image-file";
+import { useMenuStore } from "@/lib/menu-store";
 import { getAdminShop, saveShopSettings } from "@/lib/shop-server";
 import { SEASON_EFFECTS, sanitizeSeasonEffect, type SeasonEffect } from "@/lib/shop-types";
 
@@ -30,6 +32,14 @@ function AdminBackground() {
         setNotify(d.notifyAudio || "");
         setSeason(sanitizeSeasonEffect(d.settings.seasonEffect));
         setAdminTotpRequired(Boolean(d.settings.adminTotpRequired));
+        useMenuStore.getState().setCardType({
+          cardTextSize: d.settings.cardTextSize,
+          cardTextColor: d.settings.cardTextColor,
+          cardDescColor: d.settings.cardDescColor,
+          cardPriceColor: d.settings.cardPriceColor,
+          cardSize: d.settings.cardSize,
+          cardBg: d.settings.cardBg,
+        });
       })
       .catch((e) => setMsg(e instanceof Error ? e.message : "Could not load"));
   }, []);
@@ -207,6 +217,35 @@ function AdminBackground() {
           </button>
         </div>
         {msg ? <p className="ed-sub">{msg}</p> : null}
+      </section>
+      <section className="page-card">
+        <h2>Card editor</h2>
+        <CardEditor />
+        <button
+          type="button"
+          className="btn-print"
+          disabled={busy}
+          onClick={() => {
+            const snap = useMenuStore.getState();
+            setBusy(true);
+            setMsg("");
+            void saveShopSettings({
+              data: {
+                cardTextSize: snap.cardTextSize,
+                cardTextColor: snap.cardTextColor,
+                cardDescColor: snap.cardDescColor,
+                cardPriceColor: snap.cardPriceColor,
+                cardSize: snap.cardSize,
+                cardBg: snap.cardBg,
+              },
+            })
+              .then(() => setMsg("Card style is live."))
+              .catch((e) => setMsg(e instanceof Error ? e.message : "Could not save"))
+              .finally(() => setBusy(false));
+          }}
+        >
+          Save card style
+        </button>
       </section>
       <section className="page-card">
         <h2>Seasonal effects</h2>

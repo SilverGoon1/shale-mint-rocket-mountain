@@ -27,8 +27,8 @@ function menuTab(search: unknown) {
 function navIsOn(item: AdminNavItem, pathname: string, tab: string) {
   const onMenu = pathname === "/admin/menu" || pathname.startsWith("/admin/menu/");
   if (item.to === "/admin/menu" && onMenu) {
-    if (item.label === "Shop") return ["hours", "payments", "tax", "delivery", "printers"].includes(tab);
-    if (item.label === "Menu") return ["menu", "toppings", "shop", "look", "cards", ""].includes(tab);
+    if (item.label === "Shop") return tab === "shop";
+    if (item.label === "Menu") return ["menu", "toppings", "shop", "payments", "delivery", "printers", ""].includes(tab);
   }
   if (item.exact) return pathname === item.to || pathname === `${item.to}/`;
   return pathname === item.to || pathname.startsWith(`${item.to}/`);

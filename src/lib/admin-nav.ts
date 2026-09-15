@@ -10,7 +10,7 @@ export type AdminNavItem = {
 export const ADMIN_NAV: AdminNavItem[] = [
   { to: "/admin/pos", label: "Tickets" },
   { to: "/admin/menu", label: "Menu" },
-  { to: "/admin/menu", label: "Shop", search: { tab: "hours" } },
+  { to: "/admin/menu", label: "Shop", search: { tab: "shop" } },
   { to: "/admin/center", label: "Customers", pip: true },
   { to: "/admin/financials", label: "Books" },
   { to: "/admin/background", label: "Look" },
