@@ -85,34 +85,37 @@ export function UpdateBanner() {
   if (!open) return null;
 
   return (
-    <div className="page-card update-banner" role="status">
-      <strong>South End has an update</strong>
-      <div className="update-banner-actions">
-        <button
-          type="button"
-          className="btn-print"
-          onClick={() => {
-            void remoteStamp()
-              .then((stamp) => {
-                if (stamp) sessionStorage.setItem(SEEN_KEY, stamp);
-              })
-              .finally(() => {
-                window.location.reload();
-              });
-          }}
-        >
-          Reload
-        </button>
-        <button
-          type="button"
-          className="ed-btn ed-btn-quiet"
-          onClick={() => {
-            sessionStorage.setItem(LATER_KEY, "1");
-            setOpen(false);
-          }}
-        >
-          Later
-        </button>
+    <div className="update-overlay" role="dialog" aria-modal="true" aria-labelledby="update-title">
+      <div className="update-dialog page-card">
+        <h2 id="update-title">South End has an update</h2>
+        <p>Reload to get the latest menu and shop tools.</p>
+        <div className="update-banner-actions">
+          <button
+            type="button"
+            className="btn-print"
+            onClick={() => {
+              void remoteStamp()
+                .then((stamp) => {
+                  if (stamp) sessionStorage.setItem(SEEN_KEY, stamp);
+                })
+                .finally(() => {
+                  window.location.reload();
+                });
+            }}
+          >
+            Reload
+          </button>
+          <button
+            type="button"
+            className="ed-btn ed-btn-quiet"
+            onClick={() => {
+              sessionStorage.setItem(LATER_KEY, "1");
+              setOpen(false);
+            }}
+          >
+            Later
+          </button>
+        </div>
       </div>
     </div>
   );
