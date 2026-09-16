@@ -274,15 +274,17 @@ export function ShopHeader({
     <header className="shop-header no-print" id="shop-top" ref={headerRef} data-staff={isAdmin ? "true" : undefined}>
       <div className="shop-header-inner">
         <AdminMenuToggle />
-        <Link to="/" className="shop-brand">
-          <BrandMark variant="stamp" />
-          <span className="shop-brand-text">
-            <span className="shop-brand-kicker">Egg Harbor Township</span>
-            <span className="shop-brand-name">{title ?? "South End Pizza III"}</span>
-          </span>
-        </Link>
-        {showAccount ? (
-          <nav className="shop-nav" aria-label="Shop">
+        {isAdmin ? null : (
+          <Link to="/" className="shop-brand">
+            <BrandMark variant="stamp" />
+            <span className="shop-brand-text">
+              <span className="shop-brand-kicker">Egg Harbor Township</span>
+              <span className="shop-brand-name">{title ?? "South End Pizza III"}</span>
+            </span>
+          </Link>
+        )}
+        <div className="shop-header-actions">
+          {showAccount ? (
             <AccountMenu
               label={knownName}
               email={liveProfile?.email || shownUser?.primaryEmail || ""}
@@ -294,13 +296,9 @@ export function ShopHeader({
               unreadChats={liveProfile?.unreadChats ?? 0}
               adminExists={liveProfile?.adminExists ?? true}
             />
-          </nav>
-        ) : null}
-        <div className="shop-header-actions">
-          {showAccount ? null : (
-            <Link to="/login" className="btn-ghost">
-              <UserRound size={16} strokeWidth={2.2} />
-              Sign in
+          ) : (
+            <Link to="/login" className="shop-nav-link shop-nav-avatar-btn" aria-label="Sign in">
+              <UserRound size={22} strokeWidth={2.2} />
             </Link>
           )}
           {onOpenCart ? (

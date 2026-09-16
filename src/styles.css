@@ -2509,6 +2509,70 @@ body:has(.mobile-bag) .support-dock {
   }
 }
 
+.shop-header:not([data-staff]) .brand-mark-stamp,
+.shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
+  width: 56px;
+  height: 56px;
+  max-width: 56px;
+  max-height: 56px;
+}
+.shop-header[data-staff="true"] .shop-brand {
+  display: none !important;
+}
+.shop-header[data-staff="true"] .shop-header-inner {
+  justify-content: space-between !important;
+}
+.shop-header[data-staff="true"] .shop-header-actions {
+  margin-left: auto !important;
+}
+.shop-header-actions {
+  display: flex;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 0.2rem;
+}
+.mobile-bag {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+.mobile-bag-login {
+  flex-shrink: 0;
+  box-sizing: border-box;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
+  min-height: 44px;
+  border-radius: 999px;
+  border: 1px solid var(--color-studio-line);
+  background: var(--color-studio-elev);
+  color: var(--color-studio-fg);
+  display: grid;
+  place-items: center;
+  text-decoration: none;
+}
+.mobile-bag .cart-check {
+  flex: 1;
+}
+
+@media (width <= 900px) {
+  .shop-header:not([data-staff]) .brand-mark-stamp,
+  .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
+    width: 34px !important;
+    height: 34px !important;
+    max-width: 34px !important;
+    max-height: 34px !important;
+  }
+  .shop-header:not([data-staff]) .brand-mark-stamp img,
+  .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp img {
+    width: 34px !important;
+    height: 34px !important;
+    max-width: 34px !important;
+    max-height: 34px !important;
+  }
+}
+
+
 
 
 
