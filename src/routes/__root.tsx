@@ -46,6 +46,12 @@ export const Route = createRootRoute({
   component: () => (
     <html lang="en" suppressHydrationWarning className="antialiased">
       <head>
+        <style
+          dangerouslySetInnerHTML={{
+            __html:
+              ".shop-header .brand-mark-stamp,.shop-header .shop-brand .brand-mark-stamp{width:40px;height:40px;max-width:40px;max-height:40px;flex-shrink:0;overflow:hidden}.shop-header .brand-mark-stamp img,.shop-header .shop-brand .brand-mark-stamp img{width:40px;height:40px;max-width:40px;max-height:40px;object-fit:cover;display:block}",
+          }}
+        />
         <HeadContent />
       </head>
       <body>
