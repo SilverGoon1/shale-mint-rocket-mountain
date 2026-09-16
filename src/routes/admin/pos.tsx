@@ -113,11 +113,17 @@ function PosTicketDialog({
           <div>
             <p className="shop-brand-kicker">Ticket #{formatTicketNo(ticket.ticketNo)}</p>
             <h2 id={titleId}>{ticket.customerName}</h2>
-            <p className="ed-sub">
-              {ticket.fulfillment === "delivery" ? "Delivery" : ticket.pickupName ? `Pickup · ${ticket.pickupName}` : "Pickup"}
-              {ticket.scheduledFor ? ` · ${formatShopWhen(ticket.scheduledFor)}` : ""}
-              {ticket.customerPhone ? ` · ${ticket.customerPhone}` : ""}
+            <p className="ed-sub pos-ticket-where">
+              {ticket.fulfillment === "delivery" ? "Delivery" : "Pickup"}
+              {where ? ` — ${where}` : ""}
             </p>
+            {ticket.scheduledFor || ticket.customerPhone ? (
+              <p className="ed-sub">
+                {ticket.scheduledFor ? formatShopWhen(ticket.scheduledFor) : ""}
+                {ticket.scheduledFor && ticket.customerPhone ? " · " : ""}
+                {ticket.customerPhone || ""}
+              </p>
+            ) : null}
           </div>
           <button type="button" className="ed-icon-btn" aria-label="Close ticket" onClick={onClose}>
             <X size={16} strokeWidth={2.2} />
@@ -146,45 +152,47 @@ function PosTicketDialog({
         </fieldset>
         {statusError ? <p className="form-error">{statusError}</p> : null}
 
-        <ul className="cart-lines pos-edit-lines">
-          {ticket.items.map((it, i) => (
-            <li key={`${it.itemId}-${i}`}>
-              <span>
-                {it.name}
-                {it.size ? ` · ${it.size}` : ""}
-                {it.detail ? ` · ${it.detail}` : ""}
-                {it.comment ? <span className="cook-note">{it.comment}</span> : null}
-                <em className="cart-line-price">{formatUsd(it.unitPrice * it.qty)}</em>
-              </span>
-              <span className="qty-step">
-                <button
-                  type="button"
-                  aria-label="Remove one"
-                  disabled={ticket.items.length === 1 && it.qty <= 1}
-                  onClick={() => {
-                    const next = ticket.items
-                      .map((row, idx) => (idx === i ? { ...row, qty: row.qty - 1 } : row))
-                      .filter((row) => row.qty > 0);
-                    onSaveItems(next);
-                  }}
-                >
-                  <Minus size={16} strokeWidth={2.4} />
-                </button>
-                <strong>{it.qty}</strong>
-                <button
-                  type="button"
-                  aria-label="Add one"
-                  onClick={() => {
-                    const next = ticket.items.map((row, idx) => (idx === i ? { ...row, qty: row.qty + 1 } : row));
-                    onSaveItems(next);
-                  }}
-                >
-                  <Plus size={16} strokeWidth={2.4} />
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
+        <section className="pos-ticket-items" aria-label="Order items">
+          <ul className="cart-lines pos-edit-lines">
+            {ticket.items.map((it, i) => (
+              <li key={`${it.itemId}-${i}`}>
+                <span>
+                  {it.name}
+                  {it.size ? ` · ${it.size}` : ""}
+                  {it.detail ? ` · ${it.detail}` : ""}
+                  {it.comment ? <span className="cook-note">{it.comment}</span> : null}
+                  <em className="cart-line-price">{formatUsd(it.unitPrice * it.qty)}</em>
+                </span>
+                <span className="qty-step">
+                  <button
+                    type="button"
+                    aria-label="Remove one"
+                    disabled={ticket.items.length === 1 && it.qty <= 1}
+                    onClick={() => {
+                      const next = ticket.items
+                        .map((row, idx) => (idx === i ? { ...row, qty: row.qty - 1 } : row))
+                        .filter((row) => row.qty > 0);
+                      onSaveItems(next);
+                    }}
+                  >
+                    <Minus size={16} strokeWidth={2.4} />
+                  </button>
+                  <strong>{it.qty}</strong>
+                  <button
+                    type="button"
+                    aria-label="Add one"
+                    onClick={() => {
+                      const next = ticket.items.map((row, idx) => (idx === i ? { ...row, qty: row.qty + 1 } : row));
+                      onSaveItems(next);
+                    }}
+                  >
+                    <Plus size={16} strokeWidth={2.4} />
+                  </button>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
 
         <label className="ed-field pos-item-search">
           <span>Add an item</span>
@@ -307,9 +315,6 @@ function PosTicketDialog({
             </button>
           ) : null}
         </div>
-        <p className="ed-sub">
-          {ticket.fulfillment === "delivery" ? `Deliver to ${where}` : "Customer pickup at the counter."}
-        </p>
       </div>
     </div>
   );

@@ -2629,6 +2629,41 @@ body:has(.mobile-bag) .support-dock {
   }
 }
 
+.pos-ticket-where {
+  color: var(--color-cream);
+  font-weight: 600;
+}
+.pos-ticket-items {
+  background: #000;
+  color: var(--color-cream);
+  border-radius: var(--radius-md);
+  padding: 0.75rem 0.85rem;
+  margin: 0.35rem 0 0.85rem;
+}
+.pos-ticket-items .cart-lines {
+  margin: 0;
+  gap: 0.45rem;
+}
+.pos-ticket-items .cart-lines li {
+  align-items: center;
+  color: var(--color-cream);
+}
+.pos-ticket-items .cart-line-price {
+  color: var(--color-cream);
+  opacity: 0.78;
+}
+.pos-ticket-items .cook-note {
+  background: #1a1a1a;
+  color: var(--color-cream);
+}
+.pos-ticket-items .qty-step {
+  border-color: #333;
+  color: var(--color-cream);
+}
+.pos-ticket-items .qty-step button {
+  color: var(--color-cream);
+}
+
 
 
 
