@@ -63,6 +63,9 @@ export async function sendEmail(input: SendEmailInput): Promise<{ id?: string; s
   if (result.error) {
     const msg = result.error.message || "Could not send email.";
     console.error("[email] Resend error:", msg);
+    if (/testing emails|only send testing|verify a domain|own email/i.test(msg)) {
+      throw new Error("The shop cannot email new accounts yet. Try again in a few minutes, or call the shop.");
+    }
     throw new Error("We could not send that email right now. Try again in a minute.");
   }
 

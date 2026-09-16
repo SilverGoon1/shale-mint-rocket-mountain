@@ -5,9 +5,17 @@ const BEARER_KEY = "grok-auth.bearer-token";
 
 type PopupMessage = { source: "grok-auth-popup"; token: string | null; error?: string };
 
-export function friendlyAuthError(err: unknown, hint?: { username?: boolean }): string {
+export function friendlyAuthError(err: unknown, hint?: { username?: boolean; signup?: boolean }): string {
   const raw = err instanceof Error ? err.message : "Sign-in failed.";
   const lower = raw.toLowerCase().replace(/_/g, " ");
+  if (lower.includes("too many")) {
+    return "Too many tries. Wait a few minutes and try again.";
+  }
+  if (lower.includes("already exists")) {
+    return hint?.username
+      ? "That username is already taken."
+      : "An account with that email already exists. Sign in, or use Forgot password.";
+  }
   if (lower.includes("redirect") && (lower.includes("uri") || lower.includes("url") || lower.includes("mismatch"))) {
     return "Google and X could not return to this shop. Try email, or open the published shop link.";
   }
@@ -20,10 +28,31 @@ export function friendlyAuthError(err: unknown, hint?: { username?: boolean }): 
   if (lower.includes("cancelled") || lower.includes("canceled") || lower.includes("did not finish") || lower === "social") {
     return "Sign-in did not finish. Try again.";
   }
-  if (lower.includes("invalid") || lower.includes("credential") || lower.includes("unauthorized") || lower.includes("password") || lower.includes("not found") || lower.includes("user")) {
+  if (
+    lower.includes("could not send") ||
+    lower.includes("email is not configured") ||
+    lower.includes("code is already") ||
+    lower.includes("cannot email")
+  ) {
+    return raw;
+  }
+  if (hint?.signup) {
+    if (lower.includes("password") && (lower.includes("short") || lower.includes("least"))) {
+      return "Password needs at least 8 characters.";
+    }
+    if (lower.includes("invalid email")) return "Enter a valid email address.";
+    if (raw && raw !== "Sign-in failed.") return raw;
+    return "Could not create the account. Try again, or use a different email.";
+  }
+  if (
+    lower.includes("invalid") ||
+    lower.includes("credential") ||
+    lower.includes("unauthorized") ||
+    lower.includes("not found")
+  ) {
     return hint?.username ? "Invalid username or password." : "Invalid email, username, or password.";
   }
-  return "Invalid email, username, or password.";
+  return hint?.username ? "Invalid username or password." : "Invalid email, username, or password.";
 }
 
 function inSandboxPreview(): boolean {

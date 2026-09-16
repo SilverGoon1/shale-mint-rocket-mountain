@@ -303,18 +303,31 @@ function Login() {
       return false;
     }
     if (!needsEmailOtp(email)) return true;
-    const sent = await sendSignupEmailCode({ data: { email } });
-    if (sent.alreadyVerified) return true;
-    setVerifyStep({
-      email,
-      masked: sent.email,
-      previewCode: sent.previewCode,
-      channel: "email",
-    });
-    setSignupOtp("");
-    setOtpLeft(sent.expiresIn || 120);
-    setOtpExpires(sent.expiresIn || 120);
-    return false;
+    try {
+      const sent = await sendSignupEmailCode({ data: { email } });
+      if (sent.alreadyVerified) return true;
+      setVerifyStep({
+        email,
+        masked: sent.email,
+        previewCode: sent.previewCode,
+        channel: "email",
+      });
+      setSignupOtp("");
+      setOtpLeft(sent.expiresIn || 120);
+      setOtpExpires(sent.expiresIn || 120);
+      return false;
+    } catch (err) {
+      setVerifyStep({
+        email,
+        masked: maskEmail(email),
+        channel: "email",
+      });
+      setSignupOtp("");
+      setOtpLeft(0);
+      setOtpExpires(120);
+      setError(err instanceof Error ? err.message : "We could not send the code. Try Send a new code.");
+      return false;
+    }
   }
 
   async function submit(e: FormEvent) {
@@ -355,7 +368,18 @@ function Login() {
           password,
           name: name || (parsed.phone ? parsed.phone : parsed.email.split("@")[0]),
         });
-        if (err) throw new Error(err.message || "Could not create the account.");
+        if (err) {
+          const code = String((err as { code?: string }).code ?? "");
+          const already = /already exists/i.test(err.message || "") || /USER_ALREADY_EXISTS/i.test(code);
+          if (!already) throw new Error(err.message || "Could not create the account.");
+          const { data, error: signInErr } = await authClient.signIn.email({
+            email: parsed.email,
+            password,
+          });
+          if (signInErr || !data?.user) {
+            throw new Error("An account with that email already exists. Sign in, or use Forgot password.");
+          }
+        }
         if (parsed.phone || name) {
           void updateProfile({ data: { phone: parsed.phone ?? "", displayName: name } }).catch(() => undefined);
         }
@@ -392,9 +416,11 @@ function Login() {
       void navigate({ to: closeTo, replace: true });
     } catch (err) {
       const username = mode === "email" && !identifier.includes("@");
-      setError(friendlyAuthError(err, { username }));
+      setError(friendlyAuthError(err, { username, signup: tab === "up" }));
       setBusy(false);
-      void dropClientSession();
+      if (!verifyStepRef.current) {
+        void dropClientSession();
+      }
     }
   }
 
