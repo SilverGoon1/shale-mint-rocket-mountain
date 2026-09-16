@@ -165,7 +165,7 @@ const staticTrustedOrigins: string[] = [
   ...extraDeployOrigins(),
 ];
 
-const baseURL = {
+const baseURL = explicitBaseURL ?? {
   allowedHosts: [
     ...previewAllowedHosts,
     "localhost",
@@ -178,7 +178,7 @@ const baseURL = {
     "*.southendpizza.app",
   ],
   protocol: "auto" as const,
-  fallback: explicitBaseURL || "http://localhost:8080",
+  fallback: "https://southendpizza.app",
 };
 
 const trustedOrigins = async (request?: Request): Promise<string[]> => {
