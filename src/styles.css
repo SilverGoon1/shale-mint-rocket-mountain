@@ -2472,10 +2472,10 @@ body:has(.mobile-bag) .support-dock {
   }
   .shop-header:not([data-staff]) .brand-mark-stamp img,
   .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp img {
-    width: 40px !important;
-    height: 40px !important;
-    max-width: 40px !important;
-    max-height: 40px !important;
+    width: 100% !important;
+    height: 100% !important;
+    max-width: none !important;
+    max-height: none !important;
     object-fit: cover;
   }
   .shop-header:not([data-staff]) .shop-header-actions,
@@ -2514,12 +2514,23 @@ body:has(.mobile-bag) .support-dock {
   top: calc(var(--shop-sticky-top, 3.6rem) - 4px);
 }
 
-.shop-header:not([data-staff]) .brand-mark-stamp,
-.shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
-  width: 56px;
-  height: 56px;
-  max-width: 56px;
-  max-height: 56px;
+.shop-header .brand-mark-stamp,
+.shop-header .shop-brand .brand-mark-stamp {
+  width: 40px !important;
+  height: 40px !important;
+  max-width: 40px !important;
+  max-height: 40px !important;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.shop-header .brand-mark-stamp img,
+.shop-header .shop-brand .brand-mark-stamp img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  object-position: 50% 48% !important;
 }
 .shop-header[data-staff="true"] .shop-brand {
   display: flex;
@@ -2566,23 +2577,6 @@ body:has(.mobile-bag) .support-dock {
   flex: 1;
 }
 
-@media (width <= 900px) {
-  .shop-header:not([data-staff]) .brand-mark-stamp,
-  .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
-    width: 34px !important;
-    height: 34px !important;
-    max-width: 34px !important;
-    max-height: 34px !important;
-  }
-  .shop-header:not([data-staff]) .brand-mark-stamp img,
-  .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp img {
-    width: 34px !important;
-    height: 34px !important;
-    max-width: 34px !important;
-    max-height: 34px !important;
-  }
-}
-
 .shop-header[data-staff="true"] {
   padding-top: max(0.4rem, env(safe-area-inset-top)) !important;
   padding-bottom: 0.45rem !important;
@@ -2617,10 +2611,10 @@ body:has(.mobile-bag) .support-dock {
 }
 .shop-header[data-staff="true"] .brand-mark-stamp img,
 .shop-header[data-staff="true"] .shop-brand .brand-mark-stamp img {
-  width: 40px !important;
-  height: 40px !important;
-  max-width: 40px !important;
-  max-height: 40px !important;
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
   object-fit: cover;
 }
 .shop-header[data-staff="true"] .shop-header-actions,

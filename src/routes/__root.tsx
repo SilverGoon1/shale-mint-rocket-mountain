@@ -49,7 +49,7 @@ export const Route = createRootRoute({
         <style
           dangerouslySetInnerHTML={{
             __html:
-              ".shop-header .brand-mark-stamp,.shop-header .shop-brand .brand-mark-stamp{width:40px;height:40px;max-width:40px;max-height:40px;flex-shrink:0;overflow:hidden}.shop-header .brand-mark-stamp img,.shop-header .shop-brand .brand-mark-stamp img{width:40px;height:40px;max-width:40px;max-height:40px;object-fit:cover;display:block}",
+              ".shop-header .brand-mark-stamp,.shop-header .shop-brand .brand-mark-stamp{width:40px;height:40px;max-width:40px;max-height:40px;flex-shrink:0;overflow:hidden}.shop-header .brand-mark-stamp img,.shop-header .shop-brand .brand-mark-stamp img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:50% 48%;display:block}",
           }}
         />
         <HeadContent />

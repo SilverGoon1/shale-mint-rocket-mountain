@@ -27,9 +27,20 @@ export function BrandMark({
   }, [fallback]);
 
   const layout = variant === "stamp" ? 40 : compact ? 96 : 800;
+  const stampStyle =
+    variant === "stamp"
+      ? ({
+          width: 40,
+          height: 40,
+          maxWidth: 40,
+          maxHeight: 40,
+          flexShrink: 0,
+          overflow: "hidden",
+        } as const)
+      : undefined;
 
   return (
-    <span className={`brand-mark brand-mark-${variant} ${className}`.trim()}>
+    <span className={`brand-mark brand-mark-${variant} ${className}`.trim()} style={stampStyle}>
       <img
         src={src}
         alt="South End Pizza III — a chicken riding a buffalo"
@@ -37,6 +48,11 @@ export function BrandMark({
         height={layout}
         decoding="async"
         fetchPriority={variant === "hero" || variant === "stamp" ? "high" : "low"}
+        style={
+          variant === "stamp"
+            ? { width: "100%", height: "100%", maxWidth: "none", maxHeight: "none", objectFit: "cover" }
+            : undefined
+        }
       />
     </span>
   );
