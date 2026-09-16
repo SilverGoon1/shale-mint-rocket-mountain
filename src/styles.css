@@ -2436,6 +2436,63 @@ body:has(.mobile-bag) .support-dock {
   margin-top: 0;
 }
 
+@media (width <= 900px) {
+  .shop-header:not([data-staff]) {
+    overflow: hidden;
+    padding: 0.3rem 0.4rem 0.3rem 0.55rem !important;
+  }
+  .shop-header:not([data-staff]) .shop-header-inner {
+    display: flex;
+    flex-wrap: nowrap !important;
+    align-items: center;
+    justify-content: space-between !important;
+    min-height: 52px;
+    height: 52px;
+    padding-left: 0 !important;
+    padding-right: 0 !important;
+  }
+  .shop-header:not([data-staff]) .shop-brand {
+    height: 52px !important;
+    min-height: 52px !important;
+    align-items: center;
+    overflow: hidden;
+    min-width: 0;
+  }
+  .shop-header:not([data-staff]) .brand-mark-stamp,
+  .shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
+    width: 44px !important;
+    height: 44px !important;
+    flex-shrink: 0;
+  }
+  .shop-header:not([data-staff]) .shop-header-actions,
+  .shop-header:not([data-staff]) .shop-nav {
+    margin-left: auto !important;
+    margin-right: 0 !important;
+    width: auto !important;
+    flex: 0 0 auto !important;
+    justify-content: flex-end !important;
+    height: 52px;
+    min-height: 52px;
+  }
+  .shop-header:not([data-staff]) .shop-nav-avatar-btn {
+    width: 40px !important;
+    height: 40px !important;
+    min-height: 40px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .shop-header:not([data-staff]) .shop-nav-avatar-btn .account-avatar {
+    width: 36px;
+    height: 36px;
+  }
+  .shop-shell:not([data-pos]) .cat-search-wrap {
+    top: 3.4rem;
+    margin-top: 0 !important;
+    padding-top: 0 !important;
+  }
+}
+
+
 
 
 
