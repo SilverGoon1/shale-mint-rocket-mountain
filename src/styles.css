@@ -2241,5 +2241,49 @@ body:has(.mobile-bag) .support-dock {
   padding-top: 0.28rem;
 }
 
+@media (width <= 900px) {
+  .admin-top-cluster {
+    position: fixed;
+    top: calc(3.7rem + env(safe-area-inset-top));
+    left: 0.65rem;
+    right: 0.65rem;
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.4rem;
+    z-index: 90;
+  }
+  .admin-top-cluster .admin-drawer-toggle,
+  .admin-drawer-toggle {
+    position: static !important;
+    top: auto;
+    left: auto;
+  }
+  .admin-top-extra,
+  .pos-chrome {
+    position: static;
+    left: auto;
+    top: auto;
+    flex: 1;
+  }
+  .admin-top-extra .seg,
+  .pos-desk-tabs {
+    width: 100%;
+    display: flex;
+  }
+  .admin-top-extra .seg button {
+    flex: 1;
+  }
+  .shop-shell[data-pos="true"] .shop-header-inner {
+    padding-left: 0.85rem;
+    padding-right: 4.25rem;
+  }
+  .shop-shell[data-pos="true"] .admin-main,
+  .shop-shell[data-pos="true"] .pos-page {
+    padding-top: 3.6rem;
+  }
+}
+
+
 
 
