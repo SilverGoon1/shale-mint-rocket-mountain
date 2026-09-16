@@ -1,6 +1,6 @@
 import { createFileRoute, Outlet, useRouterState } from "@tanstack/react-router";
 import { ShopHeader } from "@/components/shop-header";
-import { AdminDrawer } from "@/components/admin-drawer";
+import { AdminDrawer, AdminMenuProvider } from "@/components/admin-drawer";
 import { IncomingOrderQueue } from "@/components/incoming-order-queue";
 import { SessionGate } from "@/components/guards";
 
@@ -14,7 +14,7 @@ function AdminLayout() {
     <div className="shop-shell" data-pos={posMode || undefined}>
       <SessionGate needAdmin>
         {({ profile }) => (
-          <>
+          <AdminMenuProvider>
             <ShopHeader profile={profile} />
             <div className="admin-layout">
               <AdminDrawer />
@@ -23,7 +23,7 @@ function AdminLayout() {
               </main>
             </div>
             <IncomingOrderQueue />
-          </>
+          </AdminMenuProvider>
         )}
       </SessionGate>
     </div>

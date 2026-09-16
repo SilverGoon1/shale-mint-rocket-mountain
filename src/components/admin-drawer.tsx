@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { Link, useRouterState } from "@tanstack/react-router";
 import { LogOut, Menu, X } from "lucide-react";
 import { ADMIN_NAV, type AdminNavItem } from "@/lib/admin-nav";
@@ -44,19 +44,20 @@ function diagUnlocked() {
   }
 }
 
-export function AdminDrawer() {
+const AdminMenuCtx = createContext<{
+  open: boolean;
+  setOpen: (next: boolean | ((cur: boolean) => boolean)) => void;
+  unread: number;
+} | null>(null);
+
+export function AdminMenuProvider({ children }: { children: ReactNode }) {
   const pathname = useRouterState({ select: (s) => s.location.pathname });
   const search = useRouterState({ select: (s) => s.location.search });
-  const tab = menuTab(search);
   const [open, setOpen] = useState(false);
   const [unread, setUnread] = useState(0);
-  const [outMsg, setOutMsg] = useState("");
-  const [signingOut, setSigningOut] = useState(false);
-  const [diag, setDiag] = useState(false);
 
   useEffect(() => {
     setOpen(false);
-    setDiag(diagUnlocked());
   }, [pathname, search]);
 
   useEffect(() => {
@@ -83,21 +84,52 @@ export function AdminDrawer() {
     return () => window.removeEventListener("keydown", onKey);
   }, [open]);
 
+  const value = useMemo(() => ({ open, setOpen, unread }), [open, unread]);
+  return <AdminMenuCtx.Provider value={value}>{children}</AdminMenuCtx.Provider>;
+}
+
+export function AdminMenuToggle() {
+  const ctx = useContext(AdminMenuCtx);
+  if (!ctx) return null;
+  const { open, setOpen, unread } = ctx;
+  return (
+    <button
+      type="button"
+      className="admin-drawer-toggle"
+      aria-expanded={open}
+      aria-controls="admin-drawer"
+      {...noDragProps()}
+      onClick={() => setOpen((v) => !v)}
+    >
+      {open ? <X size={18} strokeWidth={2.2} /> : <Menu size={18} strokeWidth={2.2} />}
+      {open ? "Close" : "Menu"}
+      {!open && unread > 0 ? <span className="nav-pip">{unread}</span> : null}
+    </button>
+  );
+}
+
+function useAdminMenu() {
+  const ctx = useContext(AdminMenuCtx);
+  if (!ctx) throw new Error("Admin menu needs AdminMenuProvider");
+  return ctx;
+}
+
+export function AdminDrawer() {
+  const pathname = useRouterState({ select: (s) => s.location.pathname });
+  const search = useRouterState({ select: (s) => s.location.search });
+  const tab = menuTab(search);
+  const { open, setOpen, unread } = useAdminMenu();
+  const [outMsg, setOutMsg] = useState("");
+  const [signingOut, setSigningOut] = useState(false);
+  const [diag, setDiag] = useState(false);
+
+  useEffect(() => {
+    setDiag(diagUnlocked());
+  }, [pathname, search]);
+
   return (
     <>
       <div className="admin-top-cluster">
-        <button
-          type="button"
-          className="admin-drawer-toggle"
-          aria-expanded={open}
-          aria-controls="admin-drawer"
-          {...noDragProps()}
-          onClick={() => setOpen((v) => !v)}
-        >
-          {open ? <X size={18} strokeWidth={2.2} /> : <Menu size={18} strokeWidth={2.2} />}
-          {open ? "Close" : "Menu"}
-          {!open && unread > 0 ? <span className="nav-pip">{unread}</span> : null}
-        </button>
         <div id="admin-top-extra" className="admin-top-extra" />
       </div>
       {open ? (

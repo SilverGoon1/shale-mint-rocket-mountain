@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import { CircleHelp, LogOut, Monitor, ShoppingBag, UserRound } from "lucide-react";
 import { BrandMark } from "@/components/brand-mark";
+import { AdminMenuToggle } from "@/components/admin-drawer";
 import { authEnabled, signOut } from "@/lib/auth/client";
 import { useCurrentUserState, type AppUser } from "@/lib/auth/use-current-user";
 import { onAdminInbox } from "@/lib/admin-inbox";
@@ -272,6 +273,7 @@ export function ShopHeader({
   return (
     <header className="shop-header no-print" id="shop-top" ref={headerRef} data-staff={isAdmin ? "true" : undefined}>
       <div className="shop-header-inner">
+        <AdminMenuToggle />
         <Link to="/" className="shop-brand">
           <BrandMark variant="stamp" />
           <span className="shop-brand-text">
