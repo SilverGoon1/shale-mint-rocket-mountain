@@ -2502,7 +2502,7 @@ body:has(.mobile-bag) .support-dock {
     height: 36px;
   }
   .shop-shell:not([data-pos]) .cat-search-wrap {
-    top: var(--shop-sticky-top, calc(env(safe-area-inset-top, 0px) + 3.7rem)) !important;
+    top: calc(var(--shop-sticky-top, calc(env(safe-area-inset-top, 0px) + 3.7rem)) - 4px) !important;
     margin-top: 0 !important;
     padding-top: 4px !important;
     z-index: 28;
@@ -2511,6 +2511,7 @@ body:has(.mobile-bag) .support-dock {
 
 .cat-search-wrap {
   padding-top: 4px !important;
+  top: calc(var(--shop-sticky-top, 3.6rem) - 4px);
 }
 
 .shop-header:not([data-staff]) .brand-mark-stamp,
