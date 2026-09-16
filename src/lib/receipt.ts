@@ -34,8 +34,8 @@ function wrap(text: string, width: number) {
   return lines;
 }
 
-function rule(width: number, ch = "-") {
-  return ch.repeat(width);
+function rule(width: number) {
+  return ".".repeat(width);
 }
 
 function payLabel(method: string) {
@@ -51,7 +51,6 @@ export function buildReceiptText(opts: {
   paper?: PrinterProfile["paper"];
 }) {
   const width = paperCols(opts.paper);
-  const r = opts.restaurant;
   const o = opts.order;
   const when = new Date(o.createdAt);
   const lines: string[] = [];
@@ -61,37 +60,39 @@ export function buildReceiptText(opts: {
     return " ".repeat(padL) + t;
   };
 
-  lines.push(center(r.name.toUpperCase()));
-  for (const row of wrap(r.address, width)) lines.push(center(row));
-  for (const row of wrap(r.city, width)) lines.push(center(row));
-  lines.push(center(r.phone));
+  lines.push(center("SOUTH END PIZZA III"));
+  lines.push(center("Est. 2005"));
+  lines.push(center("443 Zion Rd"));
+  lines.push(center("Egg Harbor Township, NJ 08234"));
+  lines.push(center("(609) 788-8512"));
+  lines.push(center("southendpizza.app"));
   if (opts.receipt.taxId.trim()) {
     lines.push(center(`NJ Tax ID ${opts.receipt.taxId.trim()}`));
   }
   lines.push(rule(width));
-  lines.push(center(opts.kind === "store" ? "*** STORE COPY ***" : "*** CUSTOMER COPY ***"));
+  lines.push(center(`TICKET #${formatTicketNo(o.ticketNo)}`));
+  lines.push(center(o.fulfillment === "delivery" ? "DELIVERY" : "PICKUP"));
   lines.push(rule(width));
-  if (o.notes.trim()) {
-    lines.push("NOTES");
-    lines.push(...wrap(o.notes, width));
-    lines.push(rule(width));
-  }
-  lines.push(pad("Ticket", formatTicketNo(o.ticketNo), width));
   lines.push(pad("Date", when.toLocaleDateString(), width));
   lines.push(pad("Time", when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }), width));
-  lines.push(pad("Type", o.fulfillment === "delivery" ? "Delivery" : "Pickup", width));
+  if (o.pickupName) {
+    lines.push(pad("Name", o.pickupName, width));
+  }
   if (o.scheduledFor) {
     const whenAt = new Date(o.scheduledFor);
-    lines.push(pad("When", whenAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }), width));
-  }
-  if (o.fulfillment === "pickup" && o.pickupName) {
-    lines.push(pad("Name", o.pickupName, width));
+    lines.push(
+      pad(
+        "When",
+        whenAt.toLocaleString([], { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }),
+        width,
+      ),
+    );
   }
   lines.push(pad("Status", o.status.replaceAll("_", " "), width));
   lines.push(rule(width));
 
   for (const it of o.items) {
-    const name = `${it.qty} ${it.name}${it.size ? ` ${it.size}` : ""}`;
+    const name = `${it.qty}x ${it.name}${it.size ? ` ${it.size}` : ""}`;
     const price = formatUsd(it.unitPrice * it.qty);
     const chunks = wrap(name, Math.max(10, width - price.length - 1));
     lines.push(pad(chunks[0] ?? name, price, width));
@@ -112,34 +113,39 @@ export function buildReceiptText(opts: {
     }
   }
 
-  lines.push(rule(width));
   lines.push(pad("Subtotal", formatUsd(o.subtotal), width));
   if (o.discount) lines.push(pad("Discounts", `-${formatUsd(o.discount)}`, width));
   if (o.deliveryFee) lines.push(pad("Delivery", formatUsd(o.deliveryFee), width));
   lines.push(pad(`NJ sales tax ${opts.taxRate}%`, formatUsd(o.tax), width));
   if (o.tip) lines.push(pad("Tip", formatUsd(o.tip), width));
+  lines.push(rule(width));
   lines.push(pad("TOTAL", formatUsd(o.total), width));
   lines.push(rule(width));
   lines.push(pad("Tender", payLabel(o.paymentMethod), width));
   if (o.pointsEarned) lines.push(pad("Points earned", String(o.pointsEarned), width));
   if (o.pointsSpent) lines.push(pad("Points redeemed", String(o.pointsSpent), width));
 
-  if (opts.kind === "store") {
-    if (o.fulfillment === "delivery" && o.addressLine) {
-      lines.push(rule(width));
-      lines.push("Deliver to");
-      lines.push(...wrap(`${o.addressLine}, ${o.city} ${o.zip}`.trim(), width));
-    }
-    lines.push(rule(width));
-    lines.push(center("Not a customer receipt"));
-  } else {
-    if (o.fulfillment === "pickup") {
-      lines.push(...wrap("Pickup at 443 Zion Rd, Egg Harbor Township.", width));
-    }
-    lines.push(rule(width));
-    const footer = opts.receipt.footer.trim() || "Thank you. Keep this receipt.";
-    for (const row of wrap(footer, width)) lines.push(center(row));
+  if (o.fulfillment === "delivery" && o.addressLine) {
+    lines.push("Deliver to");
+    lines.push(...wrap(o.addressLine, width));
+    const cityZip = `${o.city} ${o.zip}`.trim();
+    if (cityZip) lines.push(...wrap(cityZip, width));
+  } else if (opts.kind === "customer" && o.fulfillment === "pickup") {
+    lines.push(...wrap("Pickup at 443 Zion Rd, Egg Harbor Township.", width));
+  }
+
+  if (opts.kind === "customer") {
+    lines.push(center("Thank you. Keep this receipt."));
+    lines.push(center("Open daily 11 AM - 8 PM"));
     lines.push(center("Sales tax separately stated"));
+    lines.push(center("CUSTOMER COPY"));
+    const extra = opts.receipt.footer.trim();
+    if (extra) {
+      for (const row of wrap(extra, width)) lines.push(center(row));
+    }
+  } else {
+    lines.push(center("STORE COPY -- not a customer receipt"));
+    lines.push(center("Cook notes are for the kitchen."));
   }
 
   lines.push("");
