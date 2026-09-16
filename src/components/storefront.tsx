@@ -1,6 +1,6 @@
 import { memo, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link } from "@tanstack/react-router";
-import { ChevronLeft, ChevronRight, Clock, MapPin, Minus, Phone, Plus, Search, UserRound, X } from "lucide-react";
+import { ChevronLeft, ChevronRight, Clock, MapPin, Minus, Phone, Plus, Search, X } from "lucide-react";
 import { ItemConfirm } from "@/components/item-confirm";
 import { PizzaCustomize } from "@/components/pizza-customize";
 import { WingsCustomize } from "@/components/wings-customize";
@@ -197,7 +197,6 @@ export function Storefront({
   restaurant,
   categories,
   settings,
-  profile,
 }: {
   restaurant: RestaurantInfo;
   categories: MenuCategory[];
@@ -603,13 +602,6 @@ export function Storefront({
       ) : null}
       {count > 0 && !settings.vacationOn && !bagOpen ? (
         <div className="mobile-bag">
-          <Link
-            to={profile ? "/account" : "/login"}
-            className="mobile-bag-login"
-            aria-label={profile ? "Account" : "Sign in"}
-          >
-            <UserRound size={22} strokeWidth={2.2} />
-          </Link>
           <Link to="/checkout" className="btn-print cart-check">
             Checkout · {count} · {formatUsd(subtotal)}
           </Link>

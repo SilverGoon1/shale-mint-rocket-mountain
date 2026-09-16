@@ -2558,21 +2558,6 @@ body:has(.mobile-bag) .support-dock {
   align-items: center;
   gap: 0.45rem;
 }
-.mobile-bag-login {
-  flex-shrink: 0;
-  box-sizing: border-box;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  min-height: 44px;
-  border-radius: 999px;
-  border: 1px solid var(--color-studio-line);
-  background: var(--color-studio-elev);
-  color: var(--color-studio-fg);
-  display: grid;
-  place-items: center;
-  text-decoration: none;
-}
 .mobile-bag .cart-check {
   flex: 1;
 }
