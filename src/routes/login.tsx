@@ -5,6 +5,8 @@ import { GROK_PROVIDERS, authClient, authEnabled, dropClientSession } from "@/li
 import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { friendlyAuthError, startSocialSignIn } from "@/lib/login-social";
 import { identifierToEmail, maskEmail, maskPhone, needsEmailOtp, needsPhoneOtp, PHONE_SIGNUP_ENABLED } from "@/lib/phone";
+
+const SOCIAL_SIGNIN_ENABLED = false;
 import { captureReferral, peekReferral } from "@/lib/referral";
 import {
   claimReferral,
@@ -659,21 +661,25 @@ function Login() {
                 </Link>
               ) : null}
             </form>
-            <div className="login-split">or continue with</div>
-            <div className="login-socials">
-              {GROK_PROVIDERS.map((p) => (
-                <button
-                  key={p.providerId}
-                  type="button"
-                  className="login-social"
-                  disabled={busy}
-                  onClick={() => void social(p.providerId)}
-                >
-                  {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
-                  {p.label}
-                </button>
-              ))}
-            </div>
+            {SOCIAL_SIGNIN_ENABLED ? (
+              <>
+                <div className="login-split">or continue with</div>
+                <div className="login-socials">
+                  {GROK_PROVIDERS.map((p) => (
+                    <button
+                      key={p.providerId}
+                      type="button"
+                      className="login-social"
+                      disabled={busy}
+                      onClick={() => void social(p.providerId)}
+                    >
+                      {busy ? <PizzaSpinner size="sm" /> : providerMark(p.label)}
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </>
+            ) : null}
             {next === "/checkout" ? (
               <Link to="/checkout" className="login-back">
                 Checkout as a guest
