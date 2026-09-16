@@ -766,6 +766,11 @@ async function applySettingsSchema(sql: Sql) {
     created_at timestamptz not null default now()
   )`);
 	await sql.query(`create index if not exists rewards_ledger_user_idx on rewards_ledger (user_id, created_at desc)`);
+	try {
+		await oneShotPurgeGuestEmail(sql, "valmir_19@hotmail.com", "purge-valmir-hotmail-2026-09-15");
+	} catch {
+		/* guest reset must not block boot */
+	}
 }
 function isMissingAdminModeColumn(err: unknown) {
 	const msg = err instanceof Error ? err.message : String(err);
@@ -3574,6 +3579,36 @@ async function purgeAccountRecords(sql: Sql, userId: string, email: string) {
 	}
 	await sql.query(`delete from "user" where id = $1`, [userId]);
 	await sql`delete from profiles where user_id = ${userId}`;
+}
+
+async function oneShotPurgeGuestEmail(sql: Sql, email: string, key: string) {
+	const target = String(email ?? "").trim().toLowerCase();
+	const shot = String(key ?? "").trim();
+	if (!target || !shot || !target.includes("@")) return;
+	await sql.query(
+		`create table if not exists shop_oneshots (id text primary key, ran_at timestamptz not null default now())`,
+	);
+	const done = await sql.query(`select 1 from shop_oneshots where id = $1 limit 1`, [shot]);
+	if (done[0]) return;
+	const users = await sql.query(`select id from "user" where lower(email) = $1 limit 1`, [target]);
+	if (users[0]) {
+		const userId = String(users[0].id);
+		try {
+			await sql.query(
+				`update orders set pickup_name = 'Deleted account' where user_id = $1 and (pickup_name is null or pickup_name = '' or pickup_name = 'Val')`,
+				[userId],
+			);
+		} catch {
+			/* orders table may not exist on a fresh boot */
+		}
+		await purgeAccountRecords(sql, userId, target);
+	}
+	try {
+		await sql.query(`delete from rate_events where k ilike $1`, [`%${target}%`]);
+	} catch {
+		/* rate table is optional */
+	}
+	await sql.query(`insert into shop_oneshots (id) values ($1) on conflict (id) do nothing`, [shot]);
 }
 
 const deleteAccountFails = new Map<string, { n: number; start: number }>();
