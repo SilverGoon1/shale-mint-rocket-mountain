@@ -2407,6 +2407,36 @@ body:has(.mobile-bag) .support-dock {
   right: auto !important;
 }
 
+.shop-header[data-staff="true"] {
+  padding-bottom: 0;
+  margin-bottom: 0;
+}
+.admin-top-cluster:not(:has(.admin-top-extra:not(:empty), .pos-chrome, .pos-desk-tabs)) {
+  display: none;
+}
+.admin-top-cluster {
+  margin-top: 0;
+  margin-bottom: 0;
+  min-height: 0;
+}
+.admin-main,
+.shop-shell:has(.admin-top-cluster) .admin-main,
+.shop-shell:has(.admin-top-cluster) .pos-page,
+.shop-shell:has(.admin-top-cluster) .admin-layout,
+.shop-shell[data-pos="true"] .admin-main,
+.shop-shell[data-pos="true"] .pos-page {
+  padding-top: 0.4rem !important;
+}
+.admin-main > .page-card:first-child,
+.admin-main > .menu-ops-page,
+.admin-main > .settings-page,
+.admin-main > .center-page,
+.admin-main > .pos-page,
+.admin-main > .dash-page {
+  margin-top: 0;
+}
+
+
 
 
 
