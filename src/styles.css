@@ -2578,6 +2578,57 @@ body:has(.mobile-bag) .support-dock {
   }
 }
 
+.shop-header[data-staff="true"] {
+  padding-top: max(0.4rem, env(safe-area-inset-top)) !important;
+  padding-bottom: 0.45rem !important;
+}
+.shop-header[data-staff="true"] .shop-header-inner {
+  min-height: 52px;
+  height: 52px;
+  max-height: 52px;
+  align-items: center;
+}
+.shop-header[data-staff="true"] .admin-drawer-toggle {
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px;
+  padding-top: 0.35rem;
+  padding-bottom: 0.35rem;
+}
+.shop-header[data-staff="true"] .shop-brand {
+  height: 52px !important;
+  min-height: 52px !important;
+  max-height: 52px !important;
+  align-items: center;
+  overflow: hidden;
+}
+.shop-header[data-staff="true"] .brand-mark-stamp,
+.shop-header[data-staff="true"] .shop-brand .brand-mark-stamp {
+  width: 40px !important;
+  height: 40px !important;
+  max-width: 40px !important;
+  max-height: 40px !important;
+  align-self: center;
+}
+.shop-header[data-staff="true"] .brand-mark-stamp img,
+.shop-header[data-staff="true"] .shop-brand .brand-mark-stamp img {
+  width: 40px !important;
+  height: 40px !important;
+  max-width: 40px !important;
+  max-height: 40px !important;
+  object-fit: cover;
+}
+.shop-header[data-staff="true"] .shop-header-actions,
+.shop-header[data-staff="true"] .shop-nav-avatar-btn {
+  height: 44px !important;
+  min-height: 44px !important;
+  max-height: 44px;
+}
+.shop-header[data-staff="true"] .shop-nav-avatar-btn {
+  width: 44px !important;
+}
+
+
 
 
 
