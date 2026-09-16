@@ -2612,6 +2612,23 @@ body:has(.mobile-bag) .support-dock {
   width: 44px !important;
 }
 
+@media (width > 900px) {
+  .shop-header .cart-btn {
+    height: 56px !important;
+    min-height: 56px !important;
+    max-height: 56px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  .cart-pop .cart-check,
+  .cart-panel .cart-check {
+    min-height: 37px;
+    height: 37px;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
 
 
 
