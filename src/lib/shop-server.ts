@@ -4,7 +4,7 @@ import { createServerFn } from "@tanstack/react-start";
 import { authMiddleware } from "@/lib/auth/middleware";
 import { getSql, dbSource, type Sql } from "@/lib/db";
 import { RESTAURANT, type CategoryKind, type MenuCategory, type MenuItem, type PriceCol, type RestaurantInfo } from "@/data/menu";
-import { CELL, MAP_CENTER, SHOP_LAT, SHOP_LNG, cellKey, deliveryFailReason, expandDeliveryQuery, isAddressDeliverable, isMapsQuery, milesBetween, nominatimViewboxForRadius, parseMapsLatLng, parseNominatimHit, SEARCH_VIEWBOX, type AddressSuggestion, type DeliveryFailReason } from "@/lib/geo";
+import { CELL, MAP_CENTER, SHOP_LAT, SHOP_LNG, cellKey, deliveryFailReason, expandDeliveryQuery, isAddressDeliverable, isDefaultDeliveryTown, isMapsQuery, milesBetween, nominatimViewboxForRadius, parseMapsLatLng, parseNominatimHit, SEARCH_VIEWBOX, type AddressSuggestion, type DeliveryFailReason } from "@/lib/geo";
 import { formatPhone, identifierToEmail, isPhoneAuthEmail, needsEmailOtp, needsPhoneOtp, phoneFromAuthEmail, PHONE_SIGNUP_ENABLED, toE164, toTenDigitPhone, maskPhone } from "@/lib/phone";
 import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
@@ -610,7 +610,8 @@ async function applySettingsSchema(sql: Sql) {
 	try {
 		await sql.query(`alter table shop_settings add column if not exists delivery_zone_mode text not null default 'paint'`);
 		await sql.query(`alter table shop_settings add column if not exists delivery_radius_miles numeric not null default 5`);
-		await sql.query(`alter table shop_settings add column if not exists block_northfield boolean not null default true`);
+		await sql.query(`alter table shop_settings add column if not exists block_northfield boolean not null default false`);
+		await sql.query(`update shop_settings set block_northfield = false where block_northfield is true`);
 		await sql.query(`alter table shop_settings add column if not exists payment_accounts jsonb not null default '[]'::jsonb`);
 		await sql.query(`alter table shop_settings add column if not exists payment_secrets jsonb not null default '{}'::jsonb`);
 		await sql.query(`alter table orders add column if not exists voided_at timestamptz`);
@@ -1010,7 +1011,7 @@ function publicSettings(row: Record<string, unknown>, hasZones: boolean): ShopSe
 		hasZones,
 		deliveryZoneMode: parseDeliveryZoneMode(row.delivery_zone_mode),
 		deliveryRadiusMiles: clampDeliveryRadius(row.delivery_radius_miles),
-		blockNorthfield: row.block_northfield === void 0 || row.block_northfield === null ? true : bool(row.block_northfield),
+		blockNorthfield: false,
 		taxRate: row.tax_rate === void 0 || row.tax_rate === null || row.tax_rate === "" ? 6.625 : Math.max(0, num(row.tax_rate)),
 		prepMinutes: Math.max(5, Math.round(num(row.prep_minutes) || 25)),
 		deliveryMinutes: Math.max(5, Math.round(num(row.delivery_minutes) || 40)),
@@ -1086,7 +1087,7 @@ async function zoneCells(sql: Sql): Promise<string[]> {
 function zonePolicyFromRow(row: Record<string, unknown>, cells: string[]) {
 	const mode = parseDeliveryZoneMode(row.delivery_zone_mode);
 	const radiusMiles = clampDeliveryRadius(row.delivery_radius_miles);
-	const blockNorthfield = row.block_northfield === void 0 || row.block_northfield === null ? true : bool(row.block_northfield);
+	const blockNorthfield = false;
 	return { mode, radiusMiles, cells, blockNorthfield, hasZones: deliveryHasZones(mode, radiusMiles, cells.length) };
 }
 
@@ -2391,8 +2392,13 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 			throw new Error(`Add $${need.toFixed(2)} more for delivery (minimum $${min.toFixed(2)}).`);
 		}
 		const policy = await loadZonePolicy(sql);
-		if (!policy.hasZones) throw new Error("Delivery zones are not set yet. Please choose pickup.");
 		if (lat == null || lng == null) throw new Error("Check the delivery address first.");
+		const townOk = isDefaultDeliveryTown({
+			query: String(data.addressLine ?? ""),
+			city: String(data.city ?? ""),
+			zip: String(data.zip ?? ""),
+		});
+		if (!policy.hasZones && !townOk) throw new Error("Delivery zones are not set yet. Please choose pickup.");
 		if (!isAddressDeliverable({
 			mode: policy.mode,
 			radiusMiles: policy.radiusMiles,
@@ -2402,7 +2408,7 @@ async function writePlacedOrder(sql: Sql, userId: string, data: any) {
 			query: String(data.addressLine ?? ""),
 			city: String(data.city ?? ""),
 			zip: String(data.zip ?? ""),
-			blockNorthfield: policy.blockNorthfield,
+			blockNorthfield: false,
 		})) {
 			throw new Error("That address is outside our delivery zone.");
 		}

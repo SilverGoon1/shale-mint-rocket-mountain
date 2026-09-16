@@ -137,6 +137,26 @@ export function isNorthfieldDelivery(input: {
   return true;
 }
 
+const DEFAULT_TOWN_ZIPS = new Set(["08221", "08225", "08244"]);
+
+/** Linwood, Northfield, and Somers Point take delivery without paint or the old Northfield block. */
+export function isDefaultDeliveryTown(input: {
+  query?: string;
+  label?: string;
+  city?: string;
+  zip?: string;
+}) {
+  const zip = String(input.zip ?? "").replace(/\D/g, "").slice(0, 5);
+  if (DEFAULT_TOWN_ZIPS.has(zip)) return true;
+  const blob = [input.query, input.label, input.city]
+    .map((s) => String(s ?? "").toLowerCase())
+    .join(" , ");
+  if (/\bsomers\s*point\b/.test(blob)) return true;
+  if (/\blinwood\b/.test(blob)) return true;
+  if (/\bnorthfield\b/.test(blob) && !/\begg harbor\b/.test(blob)) return true;
+  return false;
+}
+
 export function milesBetween(lat1: number, lng1: number, lat2: number, lng2: number) {
   const toRad = (d: number) => (d * Math.PI) / 180;
   const dLat = toRad(lat2 - lat1);
@@ -179,10 +199,10 @@ export function deliveryFailReason(opts: {
   blockNorthfield?: boolean;
 }): DeliveryFailReason {
   if (!Number.isFinite(opts.lat) || !Number.isFinite(opts.lng)) return "not found";
+  if (isDefaultDeliveryTown(opts)) return "";
   if (opts.mode === "radius") {
     return inRadius(opts.lat, opts.lng, opts.radiusMiles) ? "" : "outside radius";
   }
-  if (opts.blockNorthfield !== false && isNorthfieldDelivery(opts)) return "Northfield blocked";
   if (!opts.cells.length || !cellSetHas(opts.cells, opts.lat, opts.lng)) return "outside painted zone";
   return "";
 }

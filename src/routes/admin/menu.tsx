@@ -305,7 +305,7 @@ function AdminMenu() {
                     deliveryMinutes: settings.deliveryMinutes,
                     deliveryZoneMode: settings.deliveryZoneMode,
                     deliveryRadiusMiles: settings.deliveryRadiusMiles,
-                    blockNorthfield: settings.blockNorthfield !== false,
+                    blockNorthfield: false,
                   },
                 }),
                 saveDeliveryZone({ data: { cells } }),

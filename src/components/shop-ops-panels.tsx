@@ -557,17 +557,6 @@ export function DeliveryPanel({
             : "A delivery zone is painted. Addresses outside it stay pickup-only."
           : "No zone yet — customers can only choose pickup."}
       </p>
-      {mode === "paint" ? (
-        <label className="toggle-row">
-          <input
-            className="toggle"
-            type="checkbox"
-            checked={settings.blockNorthfield !== false}
-            onChange={(e) => setSettings({ ...settings, blockNorthfield: e.target.checked })}
-          />
-          <span>Do not deliver to Northfield</span>
-        </label>
-      ) : null}
       <TestAddressCard />
     </section>
   );
