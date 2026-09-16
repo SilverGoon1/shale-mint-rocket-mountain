@@ -2439,7 +2439,7 @@ body:has(.mobile-bag) .support-dock {
 @media (width <= 900px) {
   .shop-header:not([data-staff]) {
     overflow: visible;
-    padding: max(0.3rem, env(safe-area-inset-top)) 0.4rem 0 0.55rem !important;
+    padding: max(0.3rem, env(safe-area-inset-top)) 0.4rem 0.4rem 0.55rem !important;
   }
   .shop-header:not([data-staff]) .shop-header-inner {
     display: flex;
@@ -2502,7 +2502,7 @@ body:has(.mobile-bag) .support-dock {
     height: 36px;
   }
   .shop-shell:not([data-pos]) .cat-search-wrap {
-    top: calc(var(--shop-sticky-top, 3.55rem) - 1px) !important;
+    top: var(--shop-sticky-top, calc(env(safe-area-inset-top, 0px) + 3.7rem)) !important;
     margin-top: 0 !important;
     padding-top: 0 !important;
     z-index: 28;

@@ -244,12 +244,22 @@ export function ShopHeader({
     const el = headerRef.current;
     if (!el) return;
     const apply = () => {
-      document.documentElement.style.setProperty("--shop-sticky-top", `${el.offsetHeight}px`);
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) document.documentElement.style.setProperty("--shop-sticky-top", `${h}px`);
     };
     apply();
     const ro = new ResizeObserver(apply);
     ro.observe(el);
-    return () => ro.disconnect();
+    const imgs = el.querySelectorAll("img");
+    imgs.forEach((img) => img.addEventListener("load", apply));
+    window.addEventListener("resize", apply);
+    const raf = requestAnimationFrame(apply);
+    return () => {
+      cancelAnimationFrame(raf);
+      ro.disconnect();
+      imgs.forEach((img) => img.removeEventListener("load", apply));
+      window.removeEventListener("resize", apply);
+    };
   }, [isAdmin, adminUnread, count, authReady, isPending, user, avatarUrl]);
 
   useEffect(() => {
