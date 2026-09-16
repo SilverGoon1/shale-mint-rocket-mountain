@@ -8,9 +8,9 @@ import { useCartHydrated } from "@/components/cart-hydrate";
 import { AccountLoading } from "@/components/pizza-spinner";
 import { OrderReceived } from "@/components/order-received";
 import { cartTotals, useCartStore } from "@/lib/cart-store";
-import { needsSignupOtp } from "@/lib/phone";
+import { needsSignupOtp, toTenDigitPhone } from "@/lib/phone";
 import { googleMapsCoordUrl } from "@/lib/geo";
-import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder } from "@/lib/shop-server";
+import { checkDeliveryAddress, getStorefront, placeGuestOrder, placeOrder, updateProfile } from "@/lib/shop-server";
 import { AddressSuggest } from "@/components/address-suggest";
 import { retryTransient } from "@/lib/fetch-retry";
 import { PROCESSOR_CATALOG } from "@/lib/payment-catalog";
@@ -209,6 +209,7 @@ function CheckoutForm({
   const [guestName, setGuestName] = useState(profile?.displayName || "");
   const [guestPhone, setGuestPhone] = useState(profile?.phone || "");
   const [pickupPhone, setPickupPhone] = useState(profile?.phone || "");
+  const [savePhone, setSavePhone] = useState(false);
   const guest = !profile;
   const accounts = settings.paymentAccounts ?? [];
   const cardLive = anyProcessorLive(accounts) && CARD_PROCESSOR_LIVE;
@@ -448,6 +449,10 @@ function CheckoutForm({
       .then((r) => {
         clear();
         setPlaced({ id: r.id, ticketNo: r.ticketNo, total: r.total, status: r.status });
+        if (!guest && savePhone && !(profile?.phone || "").trim()) {
+          const n = toTenDigitPhone(pickupPhone || guestPhone);
+          if (n.length === 10) void updateProfile({ data: { phone: n } }).catch(() => undefined);
+        }
       })
       .catch((err) => setError(err instanceof Error ? err.message : "Could not place the order"))
       .finally(() => setBusy(false));
@@ -556,6 +561,16 @@ function CheckoutForm({
                 required
               />
             </label>
+            {!(profile.phone || "").trim() ? (
+              <label className="pay-opt">
+                <input
+                  type="checkbox"
+                  checked={savePhone}
+                  onChange={(e) => setSavePhone(e.target.checked)}
+                />
+                Use this number for future orders
+              </label>
+            ) : null}
           </div>
         ) : null}
         {!settings.hasZones ? (
@@ -570,6 +585,29 @@ function CheckoutForm({
                 : ""}
               . We check the painted zone after you pick an address.
             </p>
+            {!guest && !(profile?.phone || "").trim() ? (
+              <>
+                <label className="ed-field">
+                  <span>Phone</span>
+                  <input
+                    className="ed-input"
+                    value={pickupPhone}
+                    onChange={(e) => setPickupPhone(e.target.value)}
+                    autoComplete="tel"
+                    inputMode="tel"
+                    placeholder="e.g. (609) 555-0100"
+                  />
+                </label>
+                <label className="pay-opt">
+                  <input
+                    type="checkbox"
+                    checked={savePhone}
+                    onChange={(e) => setSavePhone(e.target.checked)}
+                  />
+                  Use this number for future orders
+                </label>
+              </>
+            ) : null}
             {hasSaved && useSaved ? (
               <div className="saved-address">
                 <p className="shop-brand-kicker">Primary delivery</p>

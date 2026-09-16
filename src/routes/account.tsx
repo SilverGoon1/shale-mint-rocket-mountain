@@ -42,15 +42,19 @@ function asTab(raw: unknown): AccountTab {
 }
 
 export const Route = createFileRoute("/account")({
-  validateSearch: (search: Record<string, unknown>): { tab?: AccountTab } => {
+  validateSearch: (search: Record<string, unknown>): { tab?: AccountTab; ticket?: string } => {
     const tab = asTab(search.tab);
-    return tab === "details" ? {} : { tab };
+    const ticket = String(search.ticket ?? "").trim();
+    const out: { tab?: AccountTab; ticket?: string } = {};
+    if (tab !== "details") out.tab = tab;
+    if (ticket) out.ticket = ticket;
+    return out;
   },
   component: AccountPage,
 });
 
 function AccountPage() {
-  const { tab } = Route.useSearch();
+  const { tab, ticket } = Route.useSearch();
   return (
     <div className="shop-shell">
       <SessionGate>
@@ -58,7 +62,12 @@ function AccountPage() {
           <>
             <ShopHeader profile={profile} />
             <main className="shop-main account-main" id="main">
-              <AccountBody profile={profile} totpLocked={twoFactor.locked} tab={asTab(tab)} />
+              <AccountBody
+                profile={profile}
+                totpLocked={twoFactor.locked}
+                tab={asTab(tab)}
+                ticket={ticket}
+              />
             </main>
           </>
         )}
@@ -67,7 +76,17 @@ function AccountPage() {
   );
 }
 
-function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpLocked: boolean; tab: AccountTab }) {
+function AccountBody({
+  profile,
+  totpLocked,
+  tab,
+  ticket,
+}: {
+  profile: ProfileView;
+  totpLocked: boolean;
+  tab: AccountTab;
+  ticket?: string;
+}) {
   const navigate = useNavigate();
   const add = useCartStore((s) => s.add);
   const setNotes = useCartStore((s) => s.setNotes);
@@ -164,9 +183,13 @@ function AccountBody({ profile, totpLocked, tab }: { profile: ProfileView; totpL
       {tab === "orders" ? (
         <section className="page-card">
           <h2>Order history</h2>
-          <OrderDateTrays orders={orders} empty="No orders yet.">
+          <OrderDateTrays
+            orders={orders}
+            empty="No orders yet."
+            openTicket={ticket || orders[0]?.ticketNo}
+          >
             {(o) => (
-              <li key={o.id} className="account-order">
+              <li key={o.id} className="account-order" data-ticket={String(o.ticketNo ?? "").replace(/\D/g, "")}>
                 <div>
                   <strong>#{formatTicketNo(o.ticketNo)}</strong>
                   <span className="order-meta">

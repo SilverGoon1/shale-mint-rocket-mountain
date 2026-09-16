@@ -58,11 +58,11 @@ export function OrderReceived({
             Menu
           </Link>
           {guest ? (
-            <Link to="/login" search={{ next: "/account" }} className="order-recv-btn">
+            <Link to="/login" search={{ next: "/account?tab=orders" }} className="order-recv-btn">
               Review Order
             </Link>
           ) : (
-            <Link to="/account" hash="recent-orders" className="order-recv-btn">
+            <Link to="/account" search={{ tab: "orders", ticket: String(ticketNo) }} className="order-recv-btn">
               Review Order
             </Link>
           )}
