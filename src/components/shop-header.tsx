@@ -274,15 +274,13 @@ export function ShopHeader({
     <header className="shop-header no-print" id="shop-top" ref={headerRef} data-staff={isAdmin ? "true" : undefined}>
       <div className="shop-header-inner">
         <AdminMenuToggle />
-        {isAdmin ? null : (
-          <Link to="/" className="shop-brand">
-            <BrandMark variant="stamp" />
-            <span className="shop-brand-text">
-              <span className="shop-brand-kicker">Egg Harbor Township</span>
-              <span className="shop-brand-name">{title ?? "South End Pizza III"}</span>
-            </span>
-          </Link>
-        )}
+        <Link to="/" className="shop-brand">
+          <BrandMark variant="stamp" />
+          <span className="shop-brand-text">
+            <span className="shop-brand-kicker">Egg Harbor Township</span>
+            <span className="shop-brand-name">{title ?? "South End Pizza III"}</span>
+          </span>
+        </Link>
         <div className="shop-header-actions">
           {showAccount ? (
             <AccountMenu

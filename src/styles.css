@@ -2517,10 +2517,16 @@ body:has(.mobile-bag) .support-dock {
   max-height: 56px;
 }
 .shop-header[data-staff="true"] .shop-brand {
-  display: none !important;
+  display: flex;
+  height: 66px;
+  min-height: 66px;
+  flex: 0 1 auto;
+  min-width: 0;
+  align-items: center;
+  overflow: hidden;
 }
 .shop-header[data-staff="true"] .shop-header-inner {
-  justify-content: space-between !important;
+  justify-content: flex-start !important;
 }
 .shop-header[data-staff="true"] .shop-header-actions {
   margin-left: auto !important;
