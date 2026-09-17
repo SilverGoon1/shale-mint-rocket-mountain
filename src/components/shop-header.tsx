@@ -304,6 +304,8 @@ export function ShopHeader({
               unreadChats={liveProfile?.unreadChats ?? 0}
               adminExists={liveProfile?.adminExists ?? true}
             />
+          ) : isPending ? (
+            <span className="auth-skel" aria-hidden />
           ) : (
             <Link to="/login" className="shop-nav-link shop-nav-avatar-btn" aria-label="Sign in">
               <UserRound size={22} strokeWidth={2.2} />

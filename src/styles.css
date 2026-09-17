@@ -2664,14 +2664,27 @@ body:has(.mobile-bag) .support-dock {
   color: var(--color-cream);
 }
 
-
-
-
-
-
-
-
-
-
-
-
+/* Stabilize title bar + sticky cat rail on first paint / refresh */
+:root {
+  --shop-header-row: 66px;
+  --shop-sticky-top: calc(
+    var(--shop-header-row) + 0.75rem + max(0.75rem, env(safe-area-inset-top, 0px))
+  );
+}
+.shop-header {
+  box-sizing: border-box;
+  min-height: var(--shop-sticky-top);
+}
+.shop-header .brand-mark-stamp,
+.shop-header .shop-brand .brand-mark-stamp {
+  width: 66px;
+  height: 66px;
+}
+.shop-header .auth-skel {
+  box-sizing: border-box;
+  width: 66px;
+  height: 66px;
+  min-height: 66px;
+  flex: 0 0 66px;
+  border-radius: 999px;
+}
