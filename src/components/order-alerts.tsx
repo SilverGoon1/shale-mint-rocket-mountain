@@ -1,13 +1,101 @@
 import { useEffect, useState } from "react";
 import { Bell } from "lucide-react";
+import { useCurrentUserState } from "@/lib/auth/use-current-user";
 import { enableOrderAlerts, registerShopWorker } from "@/lib/push-client";
 
-/** Registers the shop service worker quietly. Permission is requested only from Enable alerts. */
+const ASK_KEY = "southend-notif-ask-v1";
+
+function markAsked() {
+  try {
+    localStorage.setItem(ASK_KEY, "1");
+  } catch {
+    /* private mode / blocked storage */
+  }
+}
+
+function wasAsked() {
+  try {
+    return localStorage.getItem(ASK_KEY) === "1";
+  } catch {
+    return true;
+  }
+}
+
+/** Registers the shop service worker quietly. Soft-asks once for permission when signed in. */
 export function OrderAlerts() {
+  const { user, isPending } = useCurrentUserState();
+  const [showAsk, setShowAsk] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
   useEffect(() => {
     void registerShopWorker();
   }, []);
-  return null;
+
+  useEffect(() => {
+    if (isPending || !user) {
+      setShowAsk(false);
+      return;
+    }
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    if (Notification.permission !== "default") return;
+    if (wasAsked()) return;
+    setShowAsk(true);
+  }, [user, isPending]);
+
+  if (!showAsk) return null;
+
+  return (
+    <div className="notif-ask-overlay" role="dialog" aria-modal="true" aria-labelledby="notif-ask-title">
+      <div className="notif-ask-card page-card">
+        <h2 id="notif-ask-title">Get order alerts?</h2>
+        <p className="ed-sub">
+          We can ping you when the kitchen accepts your order and when it is complete. You can enable this later in
+          Account settings under Security.
+        </p>
+        {err ? <p className="form-error">{err}</p> : null}
+        <div className="notif-ask-actions">
+          <button
+            type="button"
+            className="btn-print"
+            disabled={busy}
+            onClick={() => {
+              setBusy(true);
+              setErr("");
+              void enableOrderAlerts()
+                .then(() => {
+                  markAsked();
+                  setShowAsk(false);
+                })
+                .catch((e) => {
+                  if (typeof Notification !== "undefined" && Notification.permission !== "default") {
+                    markAsked();
+                    setShowAsk(false);
+                    return;
+                  }
+                  setErr(e instanceof Error ? e.message : "Could not enable alerts.");
+                })
+                .finally(() => setBusy(false));
+            }}
+          >
+            <Bell size={16} strokeWidth={2.2} />
+            {busy ? "Allowing…" : "Enable"}
+          </button>
+          <button
+            type="button"
+            className="ed-btn ed-btn-quiet"
+            disabled={busy}
+            onClick={() => {
+              markAsked();
+              setShowAsk(false);
+            }}
+          >
+            Not now
+          </button>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export function EnableAlertsButton({ compact }: { compact?: boolean }) {
@@ -18,6 +106,7 @@ export function EnableAlertsButton({ compact }: { compact?: boolean }) {
 
   useEffect(() => {
     setSupported("Notification" in window);
+    if ("Notification" in window && Notification.permission === "granted") setOn(true);
   }, []);
 
   if (!supported) return null;
@@ -35,6 +124,7 @@ export function EnableAlertsButton({ compact }: { compact?: boolean }) {
             .then(() => {
               setOn(true);
               setMsg("Order alerts are on.");
+              markAsked();
             })
             .catch((e) => setMsg(e instanceof Error ? e.message : "Could not enable alerts."))
             .finally(() => setBusy(false));

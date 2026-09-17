@@ -2688,3 +2688,41 @@ body:has(.mobile-bag) .support-dock {
   flex: 0 0 66px;
   border-radius: 999px;
 }
+
+/* One-time order-alerts soft ask (signed-in, permission default) */
+.notif-ask-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 78;
+  display: grid;
+  place-items: end center;
+  padding: 1rem;
+  padding-bottom: max(1rem, env(safe-area-inset-bottom));
+  background: rgba(20, 14, 12, 0.45);
+  pointer-events: auto;
+}
+.notif-ask-card {
+  width: min(24rem, 100%);
+  margin: 0;
+  box-shadow: 0 12px 36px rgba(40, 22, 12, 0.28);
+}
+.notif-ask-card h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.2rem;
+}
+.notif-ask-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.85rem;
+}
+.alerts-cta {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  align-items: flex-start;
+}
+.alerts-cta-compact {
+  display: inline-flex;
+  flex-direction: column;
+}

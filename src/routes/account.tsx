@@ -31,6 +31,7 @@ import {
   type RewardsView,
 } from "@/lib/shop-types";
 import { OrderDateTrays } from "@/components/order-trays";
+import { EnableAlertsButton } from "@/components/order-alerts";
 
 const TABS = ["details", "security", "orders", "rewards"] as const;
 type AccountTab = (typeof TABS)[number];
@@ -565,6 +566,15 @@ function AccountBody({
               </div>
             )}
             {msg ? <p className="ed-sub">{msg}</p> : null}
+          </section>
+
+          <section className="page-card">
+            <h2>Order alerts</h2>
+            <p className="ed-sub">
+              Turn on pings when an order is accepted and when it is completed. Uses this device's notification
+              permission.
+            </p>
+            <EnableAlertsButton />
           </section>
 
           <section className="page-card">

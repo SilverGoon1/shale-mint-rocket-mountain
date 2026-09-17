@@ -2826,7 +2826,7 @@ async function notifyOrderPush(sql: Sql, order: OrderView, status: string) {
 			: status === "out_for_delivery"
 				? `Ticket ${ticket} is out for delivery.`
 				: status === "accepted"
-					? `Ticket ${ticket} is in the kitchen.`
+					? `Ticket ${ticket} was accepted and is in the kitchen.`
 					: `Ticket ${ticket} is ready.`;
 	const payload = JSON.stringify({
 		title: "South End Pizza",
