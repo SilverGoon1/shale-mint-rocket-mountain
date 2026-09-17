@@ -2695,3 +2695,9 @@ body:has(.mobile-bag) .support-dock {
   padding: 0 !important;
   border-radius: 999px;
 }
+
+/* Category titles must clear sticky header + category carousel */
+.store-main .cat-panel,
+.cat-panel {
+  scroll-margin-top: calc(var(--shop-sticky-top, 5.7rem) + 4.75rem);
+}

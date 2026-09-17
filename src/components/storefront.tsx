@@ -259,6 +259,16 @@ export function Storefront({
     window.setTimeout(() => btn.classList.remove("is-pulse"), 220);
   }
 
+
+  function stickyMenuClearY() {
+    const header = document.getElementById("shop-top");
+    const wrap = document.querySelector(".cat-search-wrap");
+    const headerH = header instanceof HTMLElement ? header.getBoundingClientRect().height : 0;
+    const wrapH = wrap instanceof HTMLElement ? wrap.getBoundingClientRect().height : 0;
+    // Sticky stack is header then category carousel — titles must clear both.
+    return headerH + wrapH + 12;
+  }
+
   function pickCategory(id: string) {
     const stacked = spyLock.current;
     setActive(id);
@@ -268,12 +278,11 @@ export function Storefront({
     window.setTimeout(() => {
       if (gen !== spyGen.current) return;
       const panel = document.getElementById(`menu-${id}`);
-      const wrap = document.querySelector(".cat-search-wrap");
       if (!panel) {
         spyLock.current = false;
         return;
       }
-      const offset = wrap instanceof HTMLElement ? wrap.getBoundingClientRect().height + 10 : 88;
+      const offset = stickyMenuClearY();
       const y = window.scrollY + panel.getBoundingClientRect().top - offset;
       const how: ScrollBehavior = stacked || railBehavior() === "auto" ? "auto" : "smooth";
       try {
@@ -362,10 +371,7 @@ export function Storefront({
     const sections = Array.from(document.querySelectorAll<HTMLElement>(".cat-panel[data-cat]"));
     if (!sections.length) return;
     let tick: number | null = null;
-    const spyLine = () => {
-      const wrap = document.querySelector(".cat-search-wrap");
-      return wrap instanceof HTMLElement ? wrap.getBoundingClientRect().bottom + 10 : 96;
-    };
+    const spyLine = () => stickyMenuClearY();
     const pickVisible = () => {
       if (spyLock.current) return;
       const line = spyLine();
