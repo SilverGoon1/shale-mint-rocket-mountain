@@ -46,18 +46,19 @@ export function OrderAlerts() {
   if (!showAsk) return null;
 
   return (
-    <div className="notif-ask-overlay" role="dialog" aria-modal="true" aria-labelledby="notif-ask-title">
-      <div className="notif-ask-card page-card">
+    <div className="order-recv-scrim notif-ask-overlay" role="dialog" aria-modal="true" aria-labelledby="notif-ask-title">
+      <section className="order-recv-card notif-ask-card">
+        <p className="shop-brand-kicker">South End Pizza III</p>
         <h2 id="notif-ask-title">Get order alerts?</h2>
         <p className="ed-sub">
           We can ping you when the kitchen accepts your order and when it is complete. You can enable this later in
           Account settings under Security.
         </p>
         {err ? <p className="form-error">{err}</p> : null}
-        <div className="notif-ask-actions">
+        <div className="order-recv-actions notif-ask-actions">
           <button
             type="button"
-            className="btn-print"
+            className="order-recv-btn"
             disabled={busy}
             onClick={() => {
               setBusy(true);
@@ -83,7 +84,8 @@ export function OrderAlerts() {
           </button>
           <button
             type="button"
-            className="ed-btn ed-btn-quiet"
+            className="order-recv-btn"
+            data-quiet="true"
             disabled={busy}
             onClick={() => {
               markAsked();
@@ -93,7 +95,7 @@ export function OrderAlerts() {
             Not now
           </button>
         </div>
-      </div>
+      </section>
     </div>
   );
 }

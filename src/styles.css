@@ -2689,33 +2689,6 @@ body:has(.mobile-bag) .support-dock {
   border-radius: 999px;
 }
 
-/* One-time order-alerts soft ask (signed-in, permission default) */
-.notif-ask-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: 78;
-  display: grid;
-  place-items: end center;
-  padding: 1rem;
-  padding-bottom: max(1rem, env(safe-area-inset-bottom));
-  background: rgba(20, 14, 12, 0.45);
-  pointer-events: auto;
-}
-.notif-ask-card {
-  width: min(24rem, 100%);
-  margin: 0;
-  box-shadow: 0 12px 36px rgba(40, 22, 12, 0.28);
-}
-.notif-ask-card h2 {
-  margin: 0 0 0.45rem;
-  font-size: 1.2rem;
-}
-.notif-ask-actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-  margin-top: 0.85rem;
-}
 .alerts-cta {
   display: flex;
   flex-direction: column;
@@ -2780,4 +2753,27 @@ body:has(.mobile-bag) .support-dock {
 .shop-header .shop-brand-kicker,
 .shop-header .shop-brand-name {
   line-height: 1.15;
+}
+
+/* Notif ask: share Order Received cream/gold palette */
+.notif-ask-overlay.order-recv-scrim {
+  place-items: center;
+  padding: 1.25rem 1rem;
+}
+.order-recv-btn[data-quiet="true"] {
+  background: transparent;
+  color: var(--color-ink);
+  border-color: var(--color-rule);
+}
+.order-recv-btn[data-quiet="true"]:hover,
+.order-recv-btn[data-quiet="true"]:focus-visible {
+  filter: none;
+  background: color-mix(in oklab, var(--color-ink) 6%, transparent);
+}
+.notif-ask-card .order-recv-btn {
+  gap: 0.4rem;
+}
+.notif-ask-card .form-error {
+  text-align: left;
+  margin-top: 0.55rem;
 }
