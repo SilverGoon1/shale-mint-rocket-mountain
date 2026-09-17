@@ -2701,3 +2701,14 @@ body:has(.mobile-bag) .support-dock {
 .cat-panel {
   scroll-margin-top: calc(var(--shop-sticky-top, 5.7rem) + 4.75rem);
 }
+
+/* Cart-line qty in customize / item-confirm footer */
+.pizza-modal-actions .qty-step {
+  flex: none;
+  align-self: center;
+}
+.pizza-modal-actions .qty-step strong {
+  min-width: 1.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}

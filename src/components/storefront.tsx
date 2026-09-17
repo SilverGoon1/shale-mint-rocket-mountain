@@ -631,6 +631,7 @@ export function Storefront({
               toppings: result.toppings,
               condiments: result.condiments,
               unitPrice: result.unitPrice,
+              qty: result.qty,
             });
             setCustom(null);
           }}
@@ -694,6 +695,7 @@ export function Storefront({
               comment: result.comment,
               condiments: result.condiments,
               unitPrice: result.unitPrice,
+              qty: result.qty,
             });
             setSalad(null);
           }}
