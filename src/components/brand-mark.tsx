@@ -26,21 +26,12 @@ export function BrandMark({
     return () => window.removeEventListener(SHOP_LOGO_EVENT, sync);
   }, [fallback]);
 
-  const layout = variant === "stamp" ? 40 : compact ? 96 : 800;
-  const stampStyle =
-    variant === "stamp"
-      ? ({
-          width: 40,
-          height: 40,
-          maxWidth: 40,
-          maxHeight: 40,
-          flexShrink: 0,
-          overflow: "hidden",
-        } as const)
-      : undefined;
+  // Header stamp size is owned by CSS (.shop-header .brand-mark-stamp → 66×66).
+  // Keep width/height attrs at 66 for intrinsic ratio; do not set conflicting inline box size.
+  const layout = variant === "stamp" ? 66 : compact ? 96 : 800;
 
   return (
-    <span className={`brand-mark brand-mark-${variant} ${className}`.trim()} style={stampStyle}>
+    <span className={`brand-mark brand-mark-${variant} ${className}`.trim()}>
       <img
         src={src}
         alt="South End Pizza III — a chicken riding a buffalo"

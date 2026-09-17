@@ -39,7 +39,7 @@ export const Route = createRootRoute({
       { rel: "preconnect", href: "https://fonts.gstatic.com", crossOrigin: "anonymous" },
       {
         rel: "stylesheet",
-        href: "https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:wght@500;600;700&display=swap",
+        href: "https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=Fraunces:wght@500;600;700&display=optional",
       },
     ],
   }),
@@ -49,7 +49,7 @@ export const Route = createRootRoute({
         <style
           dangerouslySetInnerHTML={{
             __html:
-              ".shop-header .brand-mark-stamp,.shop-header .shop-brand .brand-mark-stamp{width:40px;height:40px;max-width:40px;max-height:40px;flex-shrink:0;overflow:hidden}.shop-header .brand-mark-stamp img,.shop-header .shop-brand .brand-mark-stamp img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:50% 48%;display:block}",
+              ".shop-header .brand-mark-stamp,.shop-header .shop-brand .brand-mark-stamp{box-sizing:border-box;width:66px;height:66px;max-width:66px;max-height:66px;flex-shrink:0;overflow:hidden}.shop-header .brand-mark-stamp img,.shop-header .shop-brand .brand-mark-stamp img{width:100%;height:100%;max-width:none;max-height:none;object-fit:cover;object-position:50% 48%;display:block}",
           }}
         />
         <HeadContent />

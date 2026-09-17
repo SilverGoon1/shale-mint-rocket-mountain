@@ -2726,3 +2726,58 @@ body:has(.mobile-bag) .support-dock {
   display: inline-flex;
   flex-direction: column;
 }
+
+/* Lock header brand + login control sizes (refresh: no jump) */
+.shop-header .brand-mark-stamp,
+.shop-header .shop-brand .brand-mark-stamp,
+.shop-header:not([data-staff]) .brand-mark-stamp,
+.shop-header:not([data-staff]) .shop-brand .brand-mark-stamp {
+  box-sizing: border-box;
+  width: 66px !important;
+  height: 66px !important;
+  max-width: 66px !important;
+  max-height: 66px !important;
+  flex-shrink: 0;
+  overflow: hidden;
+}
+.shop-header .brand-mark-stamp img,
+.shop-header .shop-brand .brand-mark-stamp img,
+.shop-header:not([data-staff]) .brand-mark-stamp img,
+.shop-header:not([data-staff]) .shop-brand .brand-mark-stamp img {
+  width: 100% !important;
+  height: 100% !important;
+  max-width: none !important;
+  max-height: none !important;
+  object-fit: cover !important;
+  object-position: 50% 48% !important;
+  display: block;
+}
+.shop-header .auth-skel,
+.shop-header .shop-nav-avatar-btn,
+.shop-header:not([data-staff]) .shop-nav-avatar-btn {
+  box-sizing: border-box;
+  width: 66px !important;
+  height: 66px !important;
+  min-width: 66px !important;
+  min-height: 66px !important;
+  max-width: 66px !important;
+  max-height: 66px !important;
+  flex: 0 0 66px !important;
+  padding: 0 !important;
+  border-radius: 999px;
+}
+.shop-header .shop-brand {
+  box-sizing: border-box;
+  min-height: 66px;
+}
+.shop-header .shop-brand-text {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-height: 66px;
+}
+.shop-header .shop-brand-kicker,
+.shop-header .shop-brand-name {
+  line-height: 1.15;
+}
