@@ -45,6 +45,7 @@ export type PizzaCustomizeResult = {
   comment?: string;
   toppings: PizzaToppingPick[];
   condiments: CondimentPick[];
+  qty: number;
 };
 
 function isDipCondiment(c: { id?: string; name?: string }) {
@@ -82,6 +83,7 @@ export function PizzaCustomize({
   const [dip, setDip] = useState<WingIncludedDip | "">("");
   const [extraRanch, setExtraRanch] = useState(0);
   const [extraBlue, setExtraBlue] = useState(0);
+  const [cartQty, setCartQty] = useState(1);
   const buffalo = hasGroup({ id: categoryId || "" }, item, GROUP_BUFFALO);
   const condiments = (item.condiments ?? []).filter((c) => !buffalo || !isDipCondiment(c));
   const photo = item.hideImage ? "" : itemPhoto(item, categoryId);
@@ -159,6 +161,7 @@ export function PizzaCustomize({
       toppings,
       comment: note || undefined,
       condiments: [...(dipBuilt?.condiments ?? []), ...condPicks],
+      qty: cartQty,
     });
   }
 
@@ -328,6 +331,8 @@ export function PizzaCustomize({
           helper="Pick Ranch, Blue cheese, or none."
           onClose={onClose}
           onConfirm={confirm}
+          qty={cartQty}
+          onQtyChange={setCartQty}
         />
       </div>
     </div>

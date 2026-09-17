@@ -25,6 +25,7 @@ export type SaladCustomizeResult = {
   detail: string;
   comment?: string;
   condiments: CondimentPick[];
+  qty: number;
 };
 
 function priceNum(p: string) {
@@ -51,6 +52,7 @@ export function SaladCustomize({
   const [size, setSize] = useState(sizes[0]?.label || "");
   const [dressing, setDressing] = useState<SaladDressing | "">("");
   const [extra, setExtra] = useState(0);
+  const [cartQty, setCartQty] = useState(1);
   const photo = item.hideImage ? "" : itemPhoto(item, categoryId);
   useDialogLock(onClose, panelRef);
 
@@ -76,6 +78,7 @@ export function SaladCustomize({
       detail: preview.detail,
       comment: note || undefined,
       condiments: preview.condiments,
+      qty: cartQty,
     });
   }
 
@@ -151,6 +154,8 @@ export function SaladCustomize({
           helper="Pick a dressing to add this to your bag."
           onClose={onClose}
           onConfirm={confirm}
+          qty={cartQty}
+          onQtyChange={setCartQty}
         />
       </div>
     </div>
