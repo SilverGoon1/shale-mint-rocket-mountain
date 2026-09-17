@@ -34,7 +34,7 @@ export type ItemConfirmResult = {
   detail?: string;
   comment?: string;
   condiments: CondimentPick[];
-  /** Piece/count qty for wings (step 10). Other items omit (cart defaults to 1). */
+  /** Cart-line qty (default 1). Wings piece count stays in `size`; wings pass qty 1. */
   qty?: number;
 };
 
@@ -72,6 +72,7 @@ export function ItemConfirm({
   const platter = isPastaPlatter(cat, item);
   const pack = parseWingQty(sizes[0]?.label) || WING_QTY_MIN;
   const [pieceQty, setPieceQty] = useState(pack);
+  const [cartQty, setCartQty] = useState(1);
   const condiments = item.condiments ?? [];
   useDialogLock(onClose, panelRef);
 
@@ -126,6 +127,7 @@ export function ItemConfirm({
       detail: detail || undefined,
       comment: note || undefined,
       condiments: allPicks,
+      qty: cartQty,
     });
   }
 
@@ -272,7 +274,15 @@ export function ItemConfirm({
           <CookNoteField key={item.id || item.name} id={noteId} noteRef={noteRef} />
         </div>
 
-        <CustomizeFooter total={unitPrice} ready={ready} helper={helper} onClose={onClose} onConfirm={confirm} />
+        <CustomizeFooter
+          total={unitPrice}
+          ready={ready}
+          helper={helper}
+          onClose={onClose}
+          onConfirm={confirm}
+          qty={isWings ? undefined : cartQty}
+          onQtyChange={isWings ? undefined : setCartQty}
+        />
       </div>
     </div>
   );

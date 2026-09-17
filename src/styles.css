@@ -2624,6 +2624,17 @@ body:has(.mobile-bag) .support-dock {
   border-radius: 999px;
 }
 
+/* Cart-line qty in customize / item-confirm footer */
+.pizza-modal-actions .qty-step {
+  flex: none;
+  align-self: center;
+}
+.pizza-modal-actions .qty-step strong {
+  min-width: 1.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
 .alerts-cta {
   display: flex;
   flex-direction: column;
