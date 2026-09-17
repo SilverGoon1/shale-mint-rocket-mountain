@@ -1,0 +1,139 @@
+Workshop Build paste — select all, copy into Grok Build:
+
+```markdown
+# Workshop Build — Cart quantity on selected item
+**Date:** 2026-09-17  
+**Live target:** southendpizza.app  
+**Blueprint PR:** https://github.com/SilverGoon1/shale-mint-rocket-mountain/pull/2  
+**Commit:** `d9f6e0b` on `feat/item-cart-qty-stepper`
+
+## Goal
+When a guest opens/selects a menu item (pizza customize, salad customize, or simple item confirm), show a − / + quantity control in the footer. Default 1, min 1, max 99. **Add** uses that cart-line qty and shows `unitPrice × qty`. One bag line with that qty.
+
+## MUST NOT
+- Touch auth, Neon, POS, delivery zones, bots, or `.vercel/output`
+- Add a cart-qty stepper on **wings** piece flows (they keep piece −/+ only; still add cart qty 1)
+- Break condiment / Extra Ranch·Blue steppers (`ExtraStepChip`)
+- Hide Cancel / Add; keep existing `.qty-step` styling
+
+## Files to change (6)
+
+### 1) `src/components/customize-chrome.tsx` — shared footer qty
+- Add `CART_QTY_MAX = 99`
+- Extend `CustomizeFooter` with optional `qty?: number` and `onQtyChange?: (qty: number) => void`
+- When both passed: show `.qty-step` with Minus / count / Plus before Cancel
+- `lineTotal = showQty ? round(total * qty, 2) : total`
+- Add button label: `` `Add · ${formatUsd(lineTotal)}` ``
+- Omit qty props → wings / any sheet that should not show cart qty
+
+### 2) `src/components/item-confirm.tsx`
+- `const [cartQty, setCartQty] = useState(1)`
+- Include `qty: cartQty` on confirm result
+- Pass to footer: `qty={isWings ? undefined : cartQty}` and `onQtyChange={isWings ? undefined : setCartQty}`
+- Update result comment: cart-line qty; wings piece stays in `size`
+
+### 3) `src/components/pizza-customize.tsx`
+- Add `qty: number` to `PizzaCustomizeResult`
+- `const [cartQty, setCartQty] = useState(1)`
+- Confirm result includes `qty: cartQty`
+- Footer: `qty={cartQty}` `onQtyChange={setCartQty}`
+
+### 4) `src/components/salad-customize.tsx`
+- Same pattern as pizza: result `qty`, state `cartQty`, wire footer
+
+### 5) `src/components/storefront.tsx`
+- Pizza `add({…})`: pass `qty: result.qty`
+- Salad `add({…})`: pass `qty: result.qty`
+- (Item-confirm path should already forward `result.qty` if it did before — keep it)
+
+### 6) `src/styles.css` — append
+```css
+/* Cart-line qty in customize / item-confirm footer */
+.pizza-modal-actions .qty-step {
+  flex: none;
+  align-self: center;
+}
+.pizza-modal-actions .qty-step strong {
+  min-width: 1.5rem;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+```
+
+## Exact `CustomizeFooter` shape (apply in customize-chrome)
+
+```tsx
+const CART_QTY_MAX = 99;
+
+export function CustomizeFooter({
+  total,
+  ready,
+  helper,
+  onClose,
+  onConfirm,
+  qty,
+  onQtyChange,
+}: {
+  /** Unit price (or pre-multiplied line total when qty is omitted). */
+  total: number;
+  ready: boolean;
+  helper?: string;
+  onClose: () => void;
+  onConfirm: () => void;
+  /** Cart-line quantity. Pass with onQtyChange to show −/+ (omit for wings piece flows). */
+  qty?: number;
+  onQtyChange?: (qty: number) => void;
+}) {
+  const showQty = typeof qty === "number" && typeof onQtyChange === "function";
+  const lineTotal = showQty ? Math.round(total * qty * 100) / 100 : total;
+  return (
+    <footer className="pizza-modal-foot">
+      {!ready && helper ? <p className="ed-sub pizza-modal-help">{helper}</p> : null}
+      <div className="pizza-modal-actions">
+        {showQty ? (
+          <span className="qty-step" aria-label="Quantity">
+            <button
+              type="button"
+              aria-label="Fewer items"
+              disabled={qty <= 1}
+              onClick={() => onQtyChange(Math.max(1, qty - 1))}
+            >
+              <Minus size={14} />
+            </button>
+            <strong aria-live="polite">{qty}</strong>
+            <button
+              type="button"
+              aria-label="More items"
+              disabled={qty >= CART_QTY_MAX}
+              onClick={() => onQtyChange(Math.min(CART_QTY_MAX, qty + 1))}
+            >
+              <Plus size={14} />
+            </button>
+          </span>
+        ) : null}
+        <button type="button" className="ed-btn" onClick={onClose}>
+          Cancel
+        </button>
+        <button type="button" className="btn-print" disabled={!ready} onClick={onConfirm}>
+          {`Add · ${formatUsd(lineTotal)}`}
+        </button>
+      </div>
+    </footer>
+  );
+}
+```
+(`Minus` / `Plus` already imported in this file from lucide-react.)
+
+## Smoke after Build + Export
+1. Simple item → footer −/+ → qty 3 → Add shows 3× price → bag line qty 3  
+2. Pizza customize → same  
+3. Salad customize → same  
+4. Wings → piece stepper only; no footer cart qty; bag qty 1  
+5. Extra Ranch/Blue steppers still independent  
+6. Checkout bag setQty still works  
+
+## After Workshop Build
+Export → Storefront must run a **real** `npm run build` (not prebuilt `.vercel/output`). Optionally merge Blueprint PR #2 so GitHub matches Workshop.
+
+**Status:** Paste into Grok Workshop Build as-is.
+```
