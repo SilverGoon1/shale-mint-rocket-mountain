@@ -1,0 +1,59 @@
+SOUTH END PIZZA — header flash patch
+Paste this whole block into Grok Build. One change set only.
+
+Fix the flashing title-bar buffalo and the flashing account icon.
+Do not rewrite styles.css, POS, receipts, or delivery.
+
+--------------------------------
+1) src/components/brand-mark.tsx
+--------------------------------
+
+BrandMark currently does:
+  useState(fallback)           // /mark-sm.jpg
+  useEffect → setSrc(custom)   // shop logo
+That swap is the buffalo flash.
+
+Change it:
+- Initial src = document.documentElement.dataset.shopLogo if that string is non-empty, otherwise the existing fallback (DEFAULT_LOGO_SM for stamp/mast, DEFAULT_LOGO otherwise).
+- Guard dataset access so SSR / first paint does not throw (check typeof document).
+- In the southend-logo listener, call setSrc only when the next URL is different from the current src.
+- Keep decoding="async", the stamp 66 intrinsic size, and the existing stamp inline style.
+- Do not add a second <img>.
+
+--------------------------------
+2) src/components/shop-header.tsx
+--------------------------------
+
+A) AccountAvatar
+- Always render the same node type.
+- If src is set, keep the <img className="account-avatar">.
+- Add onError that hides the broken photo and shows the UserRound fallback (set a local failed flag, or swap to the fallback span). A bad avatar URL must not flash a broken image.
+
+B) Header right-side control
+Stop unmounting three different controls (auth-skel → Sign in link → AccountMenu).
+
+Replace the showAccount / isPending / login Link branch with one stable control:
+
+- Always render a single .shop-nav-avatar-btn in that slot.
+- If shownUser or liveProfile email/name exists → keep AccountMenu as today (dropdown).
+- Else → the same-looking button/link to /login with UserRound, aria-label="Sign in".
+- Do not render .auth-skel at all.
+
+shownUser is already: user ?? (isPending ? lastUser : null). Keep that so a refresh does not drop a signed-in face for a skeleton.
+
+C) ResizeObserver that writes --shop-sticky-top
+Current deps: [isAdmin, adminUnread, count, authReady, isPending, user, avatarUrl]
+
+Change apply() so it only writes --shop-sticky-top when the new pixel height differs from the last written value by 2px or more.
+
+Change the effect deps to [isAdmin] only (header chrome changes when staff mode toggles). Inbox pips, cart count, session pending, and avatar URL must not rebuild the observer.
+
+Keep observing the header element, img load, resize, and rAF first measure.
+
+--------------------------------
+Stop.
+Do not touch src/styles.css.
+Do not change AdminDrawer, POS tabs, or receipt.ts.
+
+After it ships: hard-refresh https://southendpizza.app/
+The buffalo should not tick. The account circle should not go empty → person. Signed-out stays the person icon the whole time.

@@ -1,0 +1,127 @@
+SOUTH END PIZZA — lock header icon POSITION
+Paste this whole block into Grok Build. One change set only.
+
+The white flash is quieter. The remaining bug is a layout jump:
+the buffalo and the login/account circle sit in a slightly different
+place after load (52px vs 66px rules, data-staff flip, 22px vs 40px
+glyph, stamp src crop).
+
+Do not rewrite POS tabs, receipts, or delivery.
+
+--------------------------------
+1) src/components/brand-mark.tsx
+--------------------------------
+For variant="stamp" only:
+- After the first src is chosen, do not change it. Ignore later
+  southend-logo events for the stamp.
+- decoding="sync" on the stamp img so the hole is not empty.
+- Keep one <img>. No remount, no key change.
+
+Other variants (hero, login, settings) may still listen for logo updates.
+
+--------------------------------
+2) src/components/shop-header.tsx
+--------------------------------
+- Sign-in UserRound must be size={28} strokeWidth={2.2}
+  (same visual size as the account glyph).
+- Keep the Sign in Link vs AccountMenu branch.
+- Keep data-staff on the header (admin chrome still needs it).
+- Do not add .auth-skel back.
+- In shop-header-actions, always reserve a cart slot the same size as
+  .cart-btn. If onOpenCart is missing (HomePending first paint), render
+  <span className="cart-btn cart-btn-slot" aria-hidden /> so the
+  person icon does not slide left when the real Cart button mounts.
+
+--------------------------------
+3) END of src/styles.css
+--------------------------------
+If a previous guest-header / 44px / 52px lock is already at the bottom,
+REPLACE that block with this. Do not stack a second copy.
+
+.shop-header .brand-mark-stamp,
+.shop-header .shop-brand .brand-mark-stamp,
+.shop-header:not([data-staff]) .brand-mark-stamp,
+.shop-header[data-staff="true"] .brand-mark-stamp {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+  flex: 0 0 48px !important;
+  overflow: hidden;
+  background: #161311;
+}
+.shop-header .brand-mark-stamp img,
+.shop-header .shop-brand .brand-mark-stamp img {
+  width: 48px !important;
+  height: 48px !important;
+  object-fit: cover !important;
+  object-position: 50% 50% !important;
+  display: block;
+  background: #161311;
+}
+.shop-header .shop-nav-avatar-btn,
+.shop-header .shop-nav-avatar-btn.shop-nav-link,
+.shop-header .auth-skel {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 48px !important;
+  box-sizing: border-box !important;
+}
+.shop-header .shop-nav-avatar-btn .account-avatar,
+.shop-header .shop-nav-avatar-btn svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+.shop-header .shop-header-inner,
+.shop-header .shop-brand,
+.shop-header .shop-header-actions {
+  min-height: 56px !important;
+  height: 56px !important;
+  align-items: center !important;
+}
+.shop-header .shop-header-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.35rem;
+  margin-left: auto !important;
+}
+.shop-header .cart-btn,
+.shop-header .cart-btn-slot {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  flex: 0 0 40px !important;
+}
+.shop-header .cart-btn-slot {
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (width <= 900px) {
+  .shop-header,
+  .shop-header:not([data-staff]),
+  .shop-header[data-staff="true"] {
+    padding: 0.3rem 0.4rem 0.3rem 0.5rem !important;
+  }
+  .shop-header .cart-btn,
+  .shop-header .cart-btn-slot {
+    display: none !important;
+  }
+}
+
+Stop.
+
+After it ships: hard-refresh https://southendpizza.app/
+The buffalo box and the right-side circle must occupy the same pixels
+before and after the page finishes loading. No slide, no size pop.
