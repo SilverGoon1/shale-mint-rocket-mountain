@@ -650,6 +650,7 @@ function CheckoutForm({
                   <span>Street</span>
                   <AddressSuggest
                     street={address}
+                    suppress={Boolean(geo)}
                     onStreetChange={(v) => {
                       setAddress(v);
                       setGeo(null);
