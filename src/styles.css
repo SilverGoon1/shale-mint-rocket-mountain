@@ -2883,3 +2883,19 @@ body:has(.mobile-bag) .support-dock {
     display: none !important;
   }
 }
+
+.paper .item-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+.paper .item-desc {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-wrap: unset;
+  line-height: 1.3;
+  max-height: calc(1.3em * 2);
+}
