@@ -31,8 +31,21 @@ export function AccountAvatar({
   name: string;
   size?: number;
 }) {
-  if (src) {
-    return <img className="account-avatar" src={src} alt="" width={size} height={size} />;
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    setFailed(false);
+  }, [src]);
+  if (src && !failed) {
+    return (
+      <img
+        className="account-avatar"
+        src={src}
+        alt=""
+        width={size}
+        height={size}
+        onError={() => setFailed(true)}
+      />
+    );
   }
   return (
     <span className="account-avatar account-avatar-fallback" style={{ width: size, height: size }} aria-hidden>
@@ -243,9 +256,13 @@ export function ShopHeader({
   useEffect(() => {
     const el = headerRef.current;
     if (!el) return;
+    let last = 0;
     const apply = () => {
       const h = Math.ceil(el.getBoundingClientRect().height);
-      if (h > 0) document.documentElement.style.setProperty("--shop-sticky-top", `${h}px`);
+      if (h <= 0) return;
+      if (Math.abs(h - last) < 2) return;
+      last = h;
+      document.documentElement.style.setProperty("--shop-sticky-top", `${h}px`);
     };
     apply();
     const ro = new ResizeObserver(apply);
@@ -260,7 +277,7 @@ export function ShopHeader({
       imgs.forEach((img) => img.removeEventListener("load", apply));
       window.removeEventListener("resize", apply);
     };
-  }, [isAdmin, adminUnread, count, authReady, isPending, user, avatarUrl]);
+  }, [isAdmin]);
 
   useEffect(() => {
     if (!isAdmin) return;
@@ -304,8 +321,6 @@ export function ShopHeader({
               unreadChats={liveProfile?.unreadChats ?? 0}
               adminExists={liveProfile?.adminExists ?? true}
             />
-          ) : isPending ? (
-            <span className="auth-skel" aria-hidden />
           ) : (
             <Link to="/login" className="shop-nav-link shop-nav-avatar-btn" aria-label="Sign in">
               <UserRound size={22} strokeWidth={2.2} />

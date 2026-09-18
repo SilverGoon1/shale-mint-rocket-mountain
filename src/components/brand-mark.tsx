@@ -5,6 +5,12 @@ type MarkVariant = "stamp" | "hero" | "login" | "mast" | "settings";
 
 const SMALL = new Set<MarkVariant>(["stamp", "mast"]);
 
+function readShopLogo(fallback: string) {
+  if (typeof document === "undefined") return fallback;
+  const custom = String(document.documentElement.dataset.shopLogo || "").trim();
+  return custom || fallback;
+}
+
 export function BrandMark({
   variant = "stamp",
   className = "",
@@ -14,12 +20,12 @@ export function BrandMark({
 }) {
   const compact = SMALL.has(variant);
   const fallback = compact ? DEFAULT_LOGO_SM : DEFAULT_LOGO;
-  const [src, setSrc] = useState(fallback);
+  const [src, setSrc] = useState(() => readShopLogo(fallback));
 
   useEffect(() => {
     const sync = () => {
-      const custom = document.documentElement.dataset.shopLogo || "";
-      setSrc(custom || fallback);
+      const next = readShopLogo(fallback);
+      setSrc((cur) => (cur === next ? cur : next));
     };
     sync();
     window.addEventListener(SHOP_LOGO_EVENT, sync);
