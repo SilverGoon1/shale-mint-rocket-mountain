@@ -87,6 +87,7 @@ export default async function devicePermissionsMiddleware(
     if (pathname === "/sw.js") {
       headers.delete("Access-Control-Allow-Origin");
       headers.set("Cache-Control", "no-store");
+      headers.set("Cross-Origin-Resource-Policy", "same-origin");
     }
     return new Response(result.body, {
       status: result.status,

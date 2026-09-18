@@ -13,6 +13,7 @@ export const SECURITY_HEADERS = {
   "X-Content-Type-Options": "nosniff",
   "Referrer-Policy": "strict-origin-when-cross-origin",
   "X-Frame-Options": "SAMEORIGIN",
+  "Strict-Transport-Security": "max-age=63072000; includeSubDomains",
 };
 
 export const CUSTOMER_PERMISSIONS_POLICY =
