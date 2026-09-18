@@ -37,7 +37,8 @@ export function allowPreviewOAuthFallback() {
 
 export function socialSignInConfigured() {
   const id = (process.env.GROK_AUTH_CLIENT_ID ?? "").trim();
-  if (id && id !== PREVIEW_CLIENT_ID) return true;
+  const secret = (process.env.GROK_AUTH_CLIENT_SECRET ?? "").trim();
+  if (id && id !== PREVIEW_CLIENT_ID && secret) return true;
   if (allowPreviewOAuthFallback()) return true;
   return false;
 }
