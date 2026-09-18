@@ -323,7 +323,7 @@ export function ShopHeader({
             />
           ) : (
             <Link to="/login" className="shop-nav-link shop-nav-avatar-btn" aria-label="Sign in">
-              <UserRound size={22} strokeWidth={2.2} />
+              <UserRound size={28} strokeWidth={2.2} />
             </Link>
           )}
           {onOpenCart ? (
@@ -343,7 +343,9 @@ export function ShopHeader({
                 </span>
               ) : null}
             </button>
-          ) : null}
+          ) : (
+            <span className="cart-btn cart-btn-slot" aria-hidden />
+          )}
         </div>
       </div>
     </header>

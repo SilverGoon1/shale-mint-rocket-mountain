@@ -23,6 +23,7 @@ export function BrandMark({
   const [src, setSrc] = useState(() => readShopLogo(fallback));
 
   useEffect(() => {
+    if (variant === "stamp") return;
     const sync = () => {
       const next = readShopLogo(fallback);
       setSrc((cur) => (cur === next ? cur : next));
@@ -30,7 +31,7 @@ export function BrandMark({
     sync();
     window.addEventListener(SHOP_LOGO_EVENT, sync);
     return () => window.removeEventListener(SHOP_LOGO_EVENT, sync);
-  }, [fallback]);
+  }, [fallback, variant]);
 
   // Header stamp size is owned by CSS (.shop-header .brand-mark-stamp → 66×66).
   // Keep width/height attrs at 66 for intrinsic ratio; do not set conflicting inline box size.
@@ -43,7 +44,7 @@ export function BrandMark({
         alt="South End Pizza III — a chicken riding a buffalo"
         width={layout}
         height={layout}
-        decoding="async"
+        decoding={variant === "stamp" ? "sync" : "async"}
         fetchPriority={variant === "hero" || variant === "stamp" ? "high" : "low"}
         style={
           variant === "stamp"

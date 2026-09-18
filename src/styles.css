@@ -2546,8 +2546,10 @@ body:has(.mobile-bag) .support-dock {
   align-items: center;
   overflow: hidden;
 }
-.shop-header[data-staff="true"] .shop-header-actions,
-.shop-header[data-staff="true"].shop-header[data-staff="true"]@media (width > 900px) {
+.shop-header[data-staff="true"] .shop-header-actions {
+  margin-left: auto !important;
+}
+@media (width > 900px) {
   .shop-header .cart-btn {
     height: 56px !important;
     min-height: 56px !important;
@@ -2670,41 +2672,86 @@ body:has(.mobile-bag) .support-dock {
 }
 
 /* Canonical header stamp + login sizes — first paint and settled */
-.brand-mark-stamp,
 .shop-header .brand-mark-stamp,
-.shop-header .shop-brand .brand-mark-stamp {
-  box-sizing: border-box;
-  width: 66px !important;
-  height: 66px !important;
-  max-width: 66px !important;
-  max-height: 66px !important;
-  flex-shrink: 0;
+.shop-header .shop-brand .brand-mark-stamp,
+.shop-header:not([data-staff]) .brand-mark-stamp,
+.shop-header[data-staff="true"] .brand-mark-stamp {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
+  flex: 0 0 48px !important;
   overflow: hidden;
-  background: var(--color-cream);
+  background: #161311;
 }
 .shop-header .brand-mark-stamp img,
 .shop-header .shop-brand .brand-mark-stamp img {
-  width: 100% !important;
-  height: 100% !important;
-  max-width: none !important;
-  max-height: none !important;
+  width: 48px !important;
+  height: 48px !important;
   object-fit: cover !important;
-  object-position: 50% 48% !important;
+  object-position: 50% 50% !important;
   display: block;
+  background: #161311;
 }
-.auth-skel,
-.shop-header .auth-skel,
-.shop-header .shop-nav-avatar-btn {
-  box-sizing: border-box;
-  width: 66px !important;
-  height: 66px !important;
-  min-width: 66px !important;
-  min-height: 66px !important;
-  max-width: 66px !important;
-  max-height: 66px !important;
-  flex: 0 0 66px !important;
+.shop-header .shop-nav-avatar-btn,
+.shop-header .shop-nav-avatar-btn.shop-nav-link,
+.shop-header .auth-skel {
+  width: 48px !important;
+  height: 48px !important;
+  min-width: 48px !important;
+  min-height: 48px !important;
+  max-width: 48px !important;
+  max-height: 48px !important;
   padding: 0 !important;
-  border-radius: 999px;
+  margin: 0 !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex: 0 0 48px !important;
+  box-sizing: border-box !important;
+}
+.shop-header .shop-nav-avatar-btn .account-avatar,
+.shop-header .shop-nav-avatar-btn svg {
+  width: 28px !important;
+  height: 28px !important;
+}
+.shop-header .shop-header-inner,
+.shop-header .shop-brand,
+.shop-header .shop-header-actions {
+  min-height: 56px !important;
+  height: 56px !important;
+  align-items: center !important;
+}
+.shop-header .shop-header-actions {
+  display: flex !important;
+  align-items: center !important;
+  gap: 0.35rem;
+  margin-left: auto !important;
+}
+.shop-header .cart-btn,
+.shop-header .cart-btn-slot {
+  width: 40px !important;
+  min-width: 40px !important;
+  height: 40px !important;
+  min-height: 40px !important;
+  flex: 0 0 40px !important;
+}
+.shop-header .cart-btn-slot {
+  visibility: hidden;
+  pointer-events: none;
+}
+@media (width <= 900px) {
+  .shop-header,
+  .shop-header:not([data-staff]),
+  .shop-header[data-staff="true"] {
+    padding: 0.3rem 0.4rem 0.3rem 0.5rem !important;
+  }
+  .shop-header .cart-btn,
+  .shop-header .cart-btn-slot {
+    display: none !important;
+  }
 }
 
 /* Category titles must clear sticky header + category carousel */
