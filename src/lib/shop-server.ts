@@ -10,7 +10,7 @@ import { lineSummary } from "@/lib/ticket-line";
 import { generateTotpSecret, totpUri, verifyTotp } from "@/lib/totp";
 import { condimentDetail, condimentListedPrice, condimentTotal, isExtraKind, mergeItemDetail, sanitizeCondimentPicks, sanitizeCondiments, upsertExtraCondiments, type ExtraKind } from "@/lib/condiments";
 import { isWingsBuild, parseWingQty, sanitizeBuffaloPicks, sanitizeWingPicks, WING_QTY_MIN } from "@/lib/wings";
-import { GROUP_BUFFALO, GROUP_PASTA, GROUP_SALAD, GROUP_SAUCE_DIP, hasGroup, isPastaPlatter, parseGroups, pastaBreadFromPicks, pastaBreadPick, pastaDressingFromPicks, pastaDressingPick, pastaShapeFromPicks, pastaShapePick } from "@/lib/modifiers";
+import { GROUP_BUFFALO, GROUP_PASTA, GROUP_SALAD, GROUP_SAUCE_DIP, defaultGroups, hasGroup, isPastaPlatter, parseGroups, pastaBreadFromPicks, pastaBreadPick, pastaDressingFromPicks, pastaDressingPick, pastaShapeFromPicks, pastaShapePick } from "@/lib/modifiers";
 import { sanitizeSaladPicks } from "@/lib/salads";
 import { isVercelProduction, socialSignInConfigured } from "@/lib/prod-guard.server";
 import { seedMenu } from "@/lib/menu-store";
@@ -93,6 +93,47 @@ async function seedIfEmpty(sql: Sql) {
 	const span = CELL * 8;
 	for (let lat = lat0 - span; lat <= lat0 + span; lat += CELL) for (let lng = lng0 - span; lng <= lng0 + span; lng += CELL) keys.add(cellKey(lat, lng));
 	await sql.query(`update delivery_zones set cells = $1::jsonb, name = $2 where id = 1`, [JSON.stringify([...keys]), "Egg Harbor Township"]);
+}
+
+/** Insert seed categories the live DB never got (seedIfEmpty only runs on an empty menu). */
+async function backfillMissingSeedCategories(sql: Sql) {
+	const seeded = seedMenu();
+	const have = await sql.query<{ id: string }>(`select id from menu_categories`);
+	const ids = new Set(have.map((r) => r.id));
+	let added = 0;
+	for (let i = 0; i < seeded.categories.length; i++) {
+		const cat = seeded.categories[i];
+		if (ids.has(cat.id)) continue;
+		await sql.query(
+			`insert into menu_categories (id, name, note, kind, icon, sort_order)
+       values ($1,$2,$3,$4,$5,$6)
+       on conflict (id) do nothing`,
+			[cat.id, cat.name, cat.note ?? "", cat.kind, cat.icon ?? cat.id, i],
+		);
+		let j = 0;
+		for (const item of cat.items) {
+			const groups = parseGroups(item.groups) ?? defaultGroups(cat, item);
+			await sql.query(
+				`insert into menu_items (id, category_id, name, description, prices, highlight, sort_order, condiments, groups)
+         values ($1,$2,$3,$4,$5::jsonb,$6,$7,$8::jsonb,$9::jsonb)
+         on conflict (id) do nothing`,
+				[
+					item.id,
+					cat.id,
+					item.name,
+					item.description ?? "",
+					JSON.stringify(item.prices),
+					Boolean(item.highlight),
+					j,
+					JSON.stringify(sanitizeCondiments(item.condiments)),
+					groups.length ? JSON.stringify(groups) : null,
+				],
+			);
+			j += 1;
+		}
+		added += 1;
+	}
+	if (added) bustStorefrontCache();
 }
 async function backfillSeedCondiments(sql: Sql) {
 	const existing = await sql`select id from menu_items where jsonb_typeof(condiments) = 'array' and jsonb_array_length(condiments) > 0 limit 1`;
@@ -920,6 +961,7 @@ async function applyLiveMoneyLocks(sql: Sql) {
 
 async function runShopPatches(sql: Sql) {
 	await seedIfEmpty(sql);
+	await backfillMissingSeedCategories(sql);
 	await backfillSeedCondiments(sql);
 	await ensureWingExtraCondiments(sql);
 	await seedDemoSalesIfEmpty(sql);
