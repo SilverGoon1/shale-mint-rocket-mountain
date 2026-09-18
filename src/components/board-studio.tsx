@@ -152,7 +152,7 @@ export function BoardStudio({
   if (embedded) {
     return (
       <div className="board-ops">
-        <div className="page-card">
+        <div className="page-card no-print">
           <h2>Wall board</h2>
           {toolbar}
         </div>

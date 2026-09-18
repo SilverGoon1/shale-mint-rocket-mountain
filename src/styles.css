@@ -2752,4 +2752,19 @@ body:has(.mobile-bag) .support-dock {
     break-inside: avoid;
     page-break-inside: avoid;
   }
+  .shop-header,
+  .shop-header-inner,
+  .admin-drawer,
+  .admin-drawer-toggle,
+  .admin-top-cluster,
+  .menu-ops-tabs,
+  .menu-ops-page > .page-card,
+  .board-ops .page-card,
+  .studio-toolbar,
+  .support-dock,
+  .update-banner,
+  .skip-link,
+  .no-print {
+    display: none !important;
+  }
 }

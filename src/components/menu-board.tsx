@@ -355,6 +355,7 @@ function BoardFace({
   printScale,
   anchor = true,
   pageCats,
+  showMast = true,
 }: {
   paper: PaperSize;
   showDesc: boolean;
@@ -363,6 +364,7 @@ function BoardFace({
   printScale: number;
   anchor?: boolean;
   pageCats?: MenuCategory[];
+  showMast?: boolean;
 }) {
   const restaurant = useMenuStore((s) => s.restaurant);
   const footer = useMenuStore((s) => s.footer);
@@ -381,20 +383,22 @@ function BoardFace({
       data-pack={isLetterPack(paper) ? paper : undefined}
       style={{ ["--print-scale" as string]: String(Math.max(0.9, Math.min(1.6, printScale / 100))) }}
     >
-      <header className="masthead">
-        {showMark ? <BrandMark variant="mast" /> : null}
-        <div className="mast-kicker">
-          Egg Harbor Township · Est. {restaurant.established}
-        </div>
-        <h1 className="mast-name">{restaurant.name}</h1>
-        <div className="mast-meta">
-          <span>{restaurant.address}</span>
-          <span>{restaurant.city}</span>
-          <a href={restaurant.phoneHref}>{restaurant.phone}</a>
-          <span>{restaurant.hours}</span>
-        </div>
-        <SizeLegend xl={xl} xlInches={xlInches} />
-      </header>
+      {showMast ? (
+        <header className="masthead">
+          {showMark ? <BrandMark variant="mast" /> : null}
+          <div className="mast-kicker">
+            Egg Harbor Township · Est. {restaurant.established}
+          </div>
+          <h1 className="mast-name">{restaurant.name}</h1>
+          <div className="mast-meta">
+            <span>{restaurant.address}</span>
+            <span>{restaurant.city}</span>
+            <a href={restaurant.phoneHref}>{restaurant.phone}</a>
+            <span>{restaurant.hours}</span>
+          </div>
+          <SizeLegend xl={xl} xlInches={xlInches} />
+        </header>
+      ) : null}
 
       <div className="menu-columns">
         {groups.map((col) => (
@@ -406,10 +410,12 @@ function BoardFace({
         ))}
       </div>
 
-      <footer className="board-foot">
-        <span>{footer}</span>
-        <span>Wall menu · {restaurant.name}</span>
-      </footer>
+      {showMast ? (
+        <footer className="board-foot">
+          <span>{footer}</span>
+          <span>Wall menu · {restaurant.name}</span>
+        </footer>
+      ) : null}
     </article>
   );
 }
@@ -456,6 +462,7 @@ export function MenuBoard({
             printScale={printScale}
             anchor={i === 0}
             pageCats={pageCats}
+            showMast={i === 0}
           />
         </section>
       ))}
