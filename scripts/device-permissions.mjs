@@ -6,7 +6,7 @@
  * unless the document is allowed to use location.
  */
 export const CONTENT_SECURITY_POLICY =
-  "default-src 'self'; script-src 'self' https://grok.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org https://geocoding.geo.census.gov https://grok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'";
+  "default-src 'self'; script-src 'self' 'unsafe-inline' https://grok.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data: blob: https://*.tile.openstreetmap.org; connect-src 'self' https://nominatim.openstreetmap.org https://geocoding.geo.census.gov https://grok.com; frame-ancestors 'self'; base-uri 'self'; form-action 'self'; object-src 'none'";
 
 export const SECURITY_HEADERS = {
   "Content-Security-Policy": CONTENT_SECURITY_POLICY,
