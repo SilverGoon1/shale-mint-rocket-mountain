@@ -94,6 +94,8 @@ function AccountBody({
   const [phone, setPhone] = useState(profile.phone);
   const [name, setName] = useState(profile.displayName);
   const [address, setAddress] = useState(profile.addressLine);
+  /** After Save profile: suppress address suggestions until the user edits the street. */
+  const [addressCommitted, setAddressCommitted] = useState(false);
   const [city, setCity] = useState(profile.city);
   const [zip, setZip] = useState(profile.zip);
   const [orders, setOrders] = useState<OrderView[]>([]);
@@ -319,7 +321,11 @@ function AccountBody({
               <span>Street address</span>
               <AddressSuggest
                 street={address}
-                onStreetChange={setAddress}
+                suppress={addressCommitted}
+                onStreetChange={(v) => {
+                  setAddressCommitted(false);
+                  setAddress(v);
+                }}
                 onPick={(hit) => {
                   setAddress(hit.street);
                   if (hit.city) setCity(hit.city);
@@ -358,7 +364,10 @@ function AccountBody({
                 void updateProfile({
                   data: { phone, displayName: name, addressLine: address, city, zip },
                 })
-                  .then(() => setMsg("Saved."))
+                  .then(() => {
+                    setAddressCommitted(true);
+                    setMsg("Saved.");
+                  })
                   .catch((e) => setMsg(e instanceof Error ? e.message : "Could not save"));
               }}
             >
