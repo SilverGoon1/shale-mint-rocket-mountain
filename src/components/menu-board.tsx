@@ -404,11 +404,6 @@ function BoardFace({
           </div>
           <SizeLegend xl={xl} xlInches={xlInches} />
         </header>
-      ) : isLetterPack(paper) ? (
-        <header className="masthead masthead-run">
-          <strong>{restaurant.name}</strong>
-          <span>{restaurant.phone}</span>
-        </header>
       ) : null}
 
       <div className="menu-columns">

@@ -2885,9 +2885,9 @@ body:has(.mobile-bag) .support-dock {
 }
 
 .paper .item-name {
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
   max-width: 100%;
 }
 .paper .item-desc {
