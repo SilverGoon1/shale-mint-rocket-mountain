@@ -986,14 +986,12 @@ async function bootShop(sql: Sql) {
 			console.error("[southend] shop boot failed", err);
 		});
 	}
-	if (shopBoot.__southendHasMenu__) return;
-	const existing = await sql.query(`select 1 from menu_categories limit 1`);
-	if (existing.length) {
-		shopBoot.__southendHasMenu__ = true;
-		return;
-	}
+	// Always await patches. Early-return when menu already exists skipped
+	// backfillMissingSeedCategories (pasta/desserts/beverages never inserted).
 	await shopBoot.__southendBoot__;
-	shopBoot.__southendHasMenu__ = (await sql.query(`select 1 from menu_categories limit 1`)).length > 0;
+	if (!shopBoot.__southendHasMenu__) {
+		shopBoot.__southendHasMenu__ = (await sql.query(`select 1 from menu_categories limit 1`)).length > 0;
+	}
 }
 async function loadCategories(sql: Sql): Promise<MenuCategory[]> {
 	const cats = await sql`select id, name, note, kind, icon from menu_categories order by sort_order, name`;

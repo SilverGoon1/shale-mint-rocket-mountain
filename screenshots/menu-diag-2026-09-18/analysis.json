@@ -1,0 +1,46 @@
+{
+  "dataCat": [
+    "pizza",
+    "gourmet",
+    "appetizers",
+    "salads",
+    "sides",
+    "wings",
+    "turnovers",
+    "sandwiches",
+    "clubs",
+    "hot-subs",
+    "cold-subs",
+    "steak-subs",
+    "burgers",
+    "wraps",
+    "gyros"
+  ],
+  "h2": [
+    "Pizza",
+    "Gourmet Pizza",
+    "Appetizers",
+    "Salads",
+    "Side Orders",
+    "Wings",
+    "Pizza Turnovers",
+    "Sandwiches",
+    "Club Sandwiches",
+    "Hot Subs",
+    "Cold Subs",
+    "Steak Subs",
+    "Burgers",
+    "Wraps",
+    "Gyro Sandwiches"
+  ],
+  "hasPastaSection": false,
+  "hasDessert": false,
+  "hasBeverage": false,
+  "lastH2": [
+    "Cold Subs",
+    "Steak Subs",
+    "Burgers",
+    "Wraps",
+    "Gyro Sandwiches"
+  ]
+}

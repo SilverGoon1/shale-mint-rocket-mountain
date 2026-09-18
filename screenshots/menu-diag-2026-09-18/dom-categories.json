@@ -1,0 +1,26 @@
+{
+  "candidates": [
+    {
+      "tag": "NAV",
+      "cls": "cat-rail",
+      "text": "Pizza\nGourmet Pizza\nAppetizers\nSalads\nSide Orders\nWings\nPizza Turnovers\nSandwiches\nClub Sandwiches\nHot Subs\nCold Subs\nSteak Subs\nBurgers\nWraps\nGyro Sandwiches"
+    }
+  ],
+  "headings": [
+    "Pizza",
+    "Gourmet Pizza",
+    "Appetizers",
+    "Salads",
+    "Side Orders",
+    "Wings",
+    "Pizza Turnovers",
+    "Sandwiches",
+    "Club Sandwiches",
+    "Hot Subs",
+    "Cold Subs",
+    "Steak Subs",
+    "Burgers",
+    "Wraps",
+    "Gyro Sandwiches"
+  ]
+}
