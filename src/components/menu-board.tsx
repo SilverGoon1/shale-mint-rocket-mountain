@@ -125,6 +125,7 @@ function PizzaRow({
         </div>
         {showDesc && item.description ? <div className="item-desc">{item.description}.</div> : null}
       </div>
+      <span className="dots" aria-hidden />
       {cols.map((col, i) => (
         <div key={i} className="price" data-size={col?.label}>
           {col ? money(col.price) : "—"}
@@ -142,6 +143,7 @@ function BeverageRow({ item }: { item: MenuItem }) {
       <div className="item-copy">
         <div className="item-name">{item.name}</div>
       </div>
+      <span className="dots" aria-hidden />
       <div className="split-prices">
         {prices.map((p, i) => (
           <div className="pair" key={i}>
@@ -174,14 +176,17 @@ function ItemRow({
         {showDesc && item.description ? <div className="item-desc">{item.description}.</div> : null}
       </div>
       {multi ? (
-        <div className="split-prices">
-          {prices.map((p, i) => (
-            <div className="pair" key={i}>
-              {p.label ? <span className="lbl">{p.label}</span> : null}
-              <span className="price">{money(p.price)}</span>
-            </div>
-          ))}
-        </div>
+        <>
+          <span className="dots" aria-hidden />
+          <div className="split-prices">
+            {prices.map((p, i) => (
+              <div className="pair" key={i}>
+                {p.label ? <span className="lbl">{p.label}</span> : null}
+                <span className="price">{money(p.price)}</span>
+              </div>
+            ))}
+          </div>
+        </>
       ) : (
         <div className="lead-price">
           <span className="dots" aria-hidden />
@@ -220,6 +225,7 @@ function Section({
       {note ? <p className="section-note">{note}</p> : null}
       {pizza ? (
         <div className="pizza-cols" data-xl={xl ? "true" : undefined} aria-hidden>
+          <span />
           <span />
           <span />
           <span>
@@ -397,6 +403,11 @@ function BoardFace({
             <span>{restaurant.hours}</span>
           </div>
           <SizeLegend xl={xl} xlInches={xlInches} />
+        </header>
+      ) : isLetterPack(paper) ? (
+        <header className="masthead masthead-run">
+          <strong>{restaurant.name}</strong>
+          <span>{restaurant.phone}</span>
         </header>
       ) : null}
 

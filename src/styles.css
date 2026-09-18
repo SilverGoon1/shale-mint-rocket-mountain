@@ -2720,6 +2720,88 @@ body:has(.mobile-bag) .support-dock {
   gap: 0.45rem;
   margin: 0.55rem 0 0.35rem;
 }
+
+.menu-columns {
+  display: grid;
+  grid-template-columns: repeat(var(--paper-cols), minmax(0, 1fr));
+  gap: 0 1.25rem;
+  align-items: start;
+}
+.menu-col {
+  border-right: 0 !important;
+  padding-right: 0;
+  min-width: 0;
+  position: relative;
+}
+.menu-col:not(:last-child)::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: -0.625rem;
+  width: 0;
+  border-right: 1px solid var(--color-rule);
+  pointer-events: none;
+}
+
+.item-row {
+  display: grid;
+  align-items: baseline;
+  column-gap: 0.35rem;
+}
+.item-row[data-kind="single"] {
+  grid-template-columns: var(--pip) minmax(0, 1fr) minmax(3.4rem, auto);
+}
+.item-row[data-kind="split"] {
+  grid-template-columns: var(--pip) minmax(0, 1fr) minmax(1rem, 1fr) auto;
+}
+.item-row[data-kind="pizza"] {
+  grid-template-columns: var(--pip) minmax(0, 1fr) minmax(1rem, 1.2fr) var(--price-col) var(--price-col) var(--price-col);
+}
+.item-row[data-kind="pizza"][data-xl="true"],
+.pizza-cols[data-xl="true"] {
+  grid-template-columns: var(--pip) minmax(0, 1fr) minmax(1rem, 1.2fr) var(--price-col) var(--price-col) var(--price-col) var(--price-col);
+}
+.pizza-cols {
+  grid-template-columns: var(--pip) minmax(0, 1fr) minmax(1rem, 1.2fr) var(--price-col) var(--price-col) var(--price-col);
+}
+.dots {
+  border-bottom: 1px dotted var(--color-rule);
+  opacity: 0.75;
+  flex: 1 1 auto;
+  min-width: 0.75rem;
+  align-self: end;
+  transform: translateY(-0.22rem);
+  pointer-events: none;
+}
+.lead-price {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+  min-width: 3.4rem;
+  width: 100%;
+}
+.item-row[data-kind="pizza"] .dots,
+.item-row[data-kind="split"] .dots {
+  grid-column: auto;
+  min-width: 1rem;
+}
+
+.masthead-run {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.55rem;
+  padding-bottom: 0.28rem;
+  border-bottom: 2px solid var(--color-tomato);
+  font-size: 0.82rem;
+}
+.masthead-run strong {
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+}
+
 .letter-pack[data-orient="portrait"] .menu-columns {
   grid-template-columns: 1fr 1fr;
 }
@@ -2734,6 +2816,23 @@ body:has(.mobile-bag) .support-dock {
   width: 100%;
   height: auto;
   min-height: 100%;
+  --paper-cols: 2;
+  --type-name: 0.95rem;
+  --type-desc: 0.72rem;
+  --type-price: 0.95rem;
+  --type-cat: 1.05rem;
+  --pip: 0.45rem;
+  --price-col: 3.75rem;
+  padding: 0.55in 0.5in 0.45in;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+.letter-pack[data-orient="landscape"] .letter-sheet .paper {
+  --paper-cols: 3;
+  --type-name: 0.9rem;
+  --type-price: 0.9rem;
+  --type-cat: 1rem;
+  padding: 0.4in 0.45in 0.35in;
 }
 .menu-section,
 .item-row,
@@ -2742,13 +2841,29 @@ body:has(.mobile-bag) .support-dock {
   break-inside: avoid;
   page-break-inside: avoid;
 }
+.sheet-mark {
+  display: none !important;
+}
 @media print {
   .letter-sheet {
     overflow: hidden;
+    width: 8.5in;
+    height: 11in;
+    break-after: page;
+    page-break-after: always;
+  }
+  .letter-pack[data-orient="landscape"] .letter-sheet {
+    width: 11in;
+    height: 8.5in;
+  }
+  .letter-sheet:last-child {
+    break-after: auto;
+    page-break-after: auto;
   }
   .menu-section,
   .item-row,
-  .section-head {
+  .section-head,
+  .pizza-cols {
     break-inside: avoid;
     page-break-inside: avoid;
   }

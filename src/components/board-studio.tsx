@@ -11,12 +11,14 @@ const PRINT_SCALE_PRESETS = [100, 110, 125, 150] as const;
 
 function readPrintScale() {
   try {
-    const n = Number(localStorage.getItem(PRINT_SCALE_KEY));
+    const raw = localStorage.getItem(PRINT_SCALE_KEY);
+    if (raw == null || raw === "") return 125;
+    const n = Number(raw);
     if (Number.isFinite(n) && n >= 90 && n <= 160) return Math.round(n);
   } catch {
     /* ignore */
   }
-  return 100;
+  return 125;
 }
 
 export function BoardStudio({
@@ -136,7 +138,7 @@ export function BoardStudio({
       </div>
       <p className="ed-sub">
         {isLetterPack(paper)
-          ? "Four letter pages. Portrait or landscape. Categories stay whole on a sheet so the cut does not slice a heading or an item."
+          ? "Four letter pages. Names use dotted leaders to prices. Category blocks stay whole — cuts and column rules never slice an item. Turn on background graphics."
           : "Print this board and post it on the wall. Turn on background graphics so the cream paper and red headers come through."}
       </p>
       {isLetterPack(paper) ? null : <CategoryJump />}
