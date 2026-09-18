@@ -7,17 +7,16 @@ self.addEventListener("activate", (event) => {
   event.waitUntil(self.clients.claim());
 });
 
-function sameOriginUrl(raw) {
+function safePushPath(raw) {
   const fallback = "/account";
   try {
-    const next = new URL(String(raw || fallback), self.location.origin);
-    if (next.origin !== self.location.origin) return new URL(fallback, self.location.origin).href;
-    if (next.protocol !== "http:" && next.protocol !== "https:") {
-      return new URL(fallback, self.location.origin).href;
-    }
-    return next.href;
+    const base = self.location.origin;
+    const u = new URL(String(raw || fallback), base);
+    if (u.origin !== base) return fallback;
+    if (u.protocol !== "https:" && u.protocol !== "http:") return fallback;
+    return u.pathname + u.search + u.hash || fallback;
   } catch {
-    return new URL(fallback, self.location.origin).href;
+    return fallback;
   }
 }
 
@@ -42,14 +41,14 @@ self.addEventListener("push", (event) => {
       body: data.body || "Your order is ready.",
       icon: "/icon-192.png",
       badge: "/icon-192.png",
-      data: { url: sameOriginUrl(data.url) },
+      data: { url: safePushPath(data.url || "/account") },
     }),
   );
 });
 
 self.addEventListener("notificationclick", (event) => {
   event.notification.close();
-  const url = sameOriginUrl(event.notification.data?.url);
+  const url = safePushPath(event.notification.data?.url || "/account");
   event.waitUntil(
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
       for (const client of windows) {

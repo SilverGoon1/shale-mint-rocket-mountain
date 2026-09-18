@@ -124,8 +124,8 @@ function completionResponse(message: PopupMessage): Response {
 
 /** Minimal HTML: postMessage the token to the opener and close. No React. */
 function completionHtml(message: PopupMessage): string {
-  // JSON is safe inside a <script type="application/json"> block; the inline
-  // script only reads it. Avoids escaping pitfalls of embedding in JS source.
+  // JSON is safe inside a <script type="application/json"> block; auth-popup.js
+  // only reads it. Avoids escaping pitfalls of embedding in JS source.
   const payload = JSON.stringify(message).replace(/</g, "\\u003c");
   return `<!doctype html>
 <html lang="en">
@@ -142,17 +142,7 @@ function completionHtml(message: PopupMessage): string {
 <body>
 <main><p>Signing you in…</p></main>
 <script type="application/json" id="grok-auth-popup-msg">${payload}</script>
-<script>
-(function () {
-  var el = document.getElementById("grok-auth-popup-msg");
-  var msg = { source: "grok-auth-popup", token: null };
-  try { if (el && el.textContent) msg = JSON.parse(el.textContent); } catch (e) {}
-  try {
-    if (window.opener) window.opener.postMessage(msg, window.location.origin);
-  } catch (e) {}
-  try { window.close(); } catch (e) {}
-})();
-</script>
+<script src="/auth-popup.js"></script>
 </body>
 </html>`;
 }

@@ -263,6 +263,7 @@ export default defineConfig(({ command, isPreview }) => ({
               "/sw.js": {
                 headers: {
                   "cache-control": "no-store",
+                  "access-control-allow-origin": "https://southendpizza.app",
                   "cross-origin-resource-policy": "same-origin",
                 },
               },

@@ -588,12 +588,19 @@ ${slips
       `<section class="slip"><div class="kind">${escapeHtml(s.title)}</div><pre>${escapeHtml(s.body)}</pre></section>`,
   )
   .join("")}
-<script>window.onload=function(){setTimeout(function(){window.print()},150)}</script>
 </body></html>`;
   const w = window.open("", "receipts", "width=420,height=720");
   if (!w) throw new Error("Allow pop-ups to print a paper copy.");
   w.document.write(html);
   w.document.close();
+  setTimeout(() => {
+    try {
+      w.focus();
+      w.print();
+    } catch {
+      /* user can print from the window */
+    }
+  }, 150);
 }
 
 function escapeHtml(s: string) {
