@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { createFileRoute } from "@tanstack/react-router";
 import { MenuEditor } from "@/components/menu-editor";
 import { MenuBoard } from "@/components/menu-board";
+import { BoardStudio } from "@/components/board-studio";
 import { PrinterSetup } from "@/components/printer-setup";
 import { ZoneMap } from "@/components/zone-map";
 import {
@@ -28,7 +29,7 @@ import {
 } from "@/lib/shop-types";
 import type { RestaurantInfo } from "@/data/menu";
 
-const TABS = ["menu", "toppings", "shop", "payments", "delivery", "printers"] as const;
+const TABS = ["menu", "toppings", "shop", "payments", "delivery", "printers", "board"] as const;
 type MenuTab = (typeof TABS)[number];
 
 function asMenuTab(raw: unknown): MenuTab | undefined {
@@ -147,6 +148,7 @@ function AdminMenu() {
               ["payments", "Payments"],
               ["delivery", "Delivery"],
               ["printers", "Printers"],
+              ["board", "Board"],
             ] as const
           ).map(([id, label]) => (
             <button
@@ -364,6 +366,8 @@ function AdminMenu() {
           {msg ? <p className="ed-sub">{msg}</p> : null}
         </div>
       ) : null}
+
+      {tab === "board" && settings ? <BoardStudio embedded settings={settings} /> : null}
     </div>
   );
 }

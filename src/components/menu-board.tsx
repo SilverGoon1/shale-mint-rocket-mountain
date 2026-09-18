@@ -255,7 +255,62 @@ function Section({
   );
 }
 
+const LETTER4P_PAGES = [
+  ["pizza", "gourmet"],
+  ["appetizers", "salads", "sides", "wings"],
+  ["turnovers", "sandwiches", "clubs", "hot-subs", "cold-subs"],
+  ["steak-subs", "burgers", "wraps", "gyros", "pasta", "desserts", "beverages"],
+];
+
+const LETTER4L_PAGES = [
+  ["pizza", "gourmet"],
+  ["appetizers", "salads", "sides", "wings"],
+  ["turnovers", "sandwiches", "clubs", "hot-subs", "cold-subs", "steak-subs"],
+  ["burgers", "wraps", "gyros", "pasta", "desserts", "beverages"],
+];
+
+function splitCols(cats: MenuCategory[], n: number): MenuCategory[][] {
+  if (n <= 1 || cats.length <= 1) return [cats.filter(Boolean)];
+  const weights = cats.map((c) => Math.max(1, c.items.length));
+  const total = weights.reduce((a, b) => a + b, 0);
+  const target = total / n;
+  const cols: MenuCategory[][] = Array.from({ length: n }, () => []);
+  let i = 0;
+  let acc = 0;
+  for (let ci = 0; ci < cats.length; ci++) {
+    if (i < n - 1 && acc >= target && cols[i].length) {
+      i += 1;
+      acc = 0;
+    }
+    cols[i].push(cats[ci]);
+    acc += weights[ci];
+  }
+  return cols.filter((col) => col.length > 0);
+}
+
+function packLetterPages(paper: PaperSize, cats: MenuCategory[]): MenuCategory[][] {
+  const ids = paper === "letter4l" ? LETTER4L_PAGES : LETTER4P_PAGES;
+  const byId = new Map(cats.map((c) => [c.id, c]));
+  const used = new Set<string>();
+  const pages = ids.map((group) => {
+    const page: MenuCategory[] = [];
+    for (const id of group) {
+      const c = byId.get(id);
+      if (c) {
+        page.push(c);
+        used.add(id);
+      }
+    }
+    return page;
+  });
+  for (const c of cats) {
+    if (!used.has(c.id)) pages[pages.length - 1]?.push(c);
+  }
+  return pages.filter((page) => page.length > 0);
+}
+
 function layoutColumns(paper: PaperSize, cats: MenuCategory[]): MenuCategory[][] {
+  if (isLetterPack(paper)) return splitCols(cats, paper === "letter4l" ? 3 : 2);
   const presets = paper === "letter" ? LETTER_GROUPS : WIDE_GROUPS;
   const byId = new Map(cats.map((c) => [c.id, c]));
   const used = new Set<string>();
@@ -299,6 +354,7 @@ function BoardFace({
   settings,
   printScale,
   anchor = true,
+  pageCats,
 }: {
   paper: PaperSize;
   showDesc: boolean;
@@ -306,11 +362,13 @@ function BoardFace({
   settings?: ShopSettingsPublic;
   printScale: number;
   anchor?: boolean;
+  pageCats?: MenuCategory[];
 }) {
   const restaurant = useMenuStore((s) => s.restaurant);
   const footer = useMenuStore((s) => s.footer);
-  const categories = useMenuStore((s) => s.categories);
-  const face = isLetterPack(paper) ? "poster" : paper;
+  const storeCats = useMenuStore((s) => s.categories);
+  const categories = pageCats ?? storeCats;
+  const face = isLetterPack(paper) ? "letter" : paper;
   const groups = layoutColumns(paper, categories);
   const xl = categories.some((c) => c.kind === "pizza" && c.items.some(pizzaHasXl));
   const xlInches =
@@ -369,6 +427,7 @@ export function MenuBoard({
   settings?: ShopSettingsPublic;
   printScale?: number;
 }) {
+  const storeCats = useMenuStore((s) => s.categories);
   const face = (
     <BoardFace paper={paper} showDesc={showDesc} showMark={showMark} settings={settings} printScale={printScale} />
   );
@@ -383,23 +442,21 @@ export function MenuBoard({
   }
 
   const landscape = paper === "letter4l";
+  const pages = packLetterPages(paper, storeCats);
   return (
     <div className="letter-pack" data-orient={landscape ? "landscape" : "portrait"}>
       <style>{pageCss(paper, printScale)}</style>
-      {LETTER4_QUADS.map((q) => (
-        <section className="letter-sheet" key={q.id} data-quad={q.id}>
-          <div className="letter-sheet-clip">
-            <div className="letter-sheet-shift">
-              <BoardFace
-                paper={paper}
-                showDesc={showDesc}
-                showMark={showMark}
-                settings={settings}
-                printScale={printScale}
-                anchor={q.id === "tl"}
-              />
-            </div>
-          </div>
+      {pages.map((pageCats, i) => (
+        <section className="letter-sheet" key={pageCats.map((c) => c.id).join("-")} data-quad={LETTER4_QUADS[i]?.id}>
+          <BoardFace
+            paper={paper}
+            showDesc={showDesc}
+            showMark={showMark}
+            settings={settings}
+            printScale={printScale}
+            anchor={i === 0}
+            pageCats={pageCats}
+          />
         </section>
       ))}
     </div>

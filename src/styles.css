@@ -2712,3 +2712,44 @@ body:has(.mobile-bag) .support-dock {
 .cat-panel {
   scroll-margin-top: calc(var(--shop-sticky-top, 5.7rem) + 4.75rem);
 }
+
+.board-ops-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin: 0.55rem 0 0.35rem;
+}
+.letter-pack[data-orient="portrait"] .menu-columns {
+  grid-template-columns: 1fr 1fr;
+}
+.letter-pack[data-orient="landscape"] .menu-columns {
+  grid-template-columns: 1fr 1fr 1fr;
+}
+.letter-sheet {
+  overflow: auto;
+  height: auto;
+}
+.letter-sheet .paper {
+  width: 100%;
+  height: auto;
+  min-height: 100%;
+}
+.menu-section,
+.item-row,
+.section-head,
+.pizza-cols {
+  break-inside: avoid;
+  page-break-inside: avoid;
+}
+@media print {
+  .letter-sheet {
+    overflow: hidden;
+  }
+  .menu-section,
+  .item-row,
+  .section-head {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+}
