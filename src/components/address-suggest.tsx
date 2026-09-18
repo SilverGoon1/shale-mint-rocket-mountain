@@ -8,12 +8,15 @@ export function AddressSuggest({
   onPick,
   placeholder = "Start typing a street",
   disabled,
+  suppress = false,
 }: {
   street: string;
   onStreetChange: (value: string) => void;
   onPick: (hit: AddressSuggestion) => void;
   placeholder?: string;
   disabled?: boolean;
+  /** When true: close list, clear hits, skip lookups (e.g. after Save / delivery confirm). Parent clears when the user edits the street. */
+  suppress?: boolean;
 }) {
   const listId = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -22,39 +25,58 @@ export function AddressSuggest({
   const [active, setActive] = useState(0);
   const [busy, setBusy] = useState(false);
   const [lookupFail, setLookupFail] = useState(false);
-  const skip = useRef(false);
+  /** Stay true after pick until the user types again (avoids reopen on programmatic street fills). */
+  const skipUntilType = useRef(false);
+  /** Monotonic id so stale suggestDeliveryAddresses responses are ignored. */
+  const reqGen = useRef(0);
 
   useEffect(() => {
-    if (skip.current) {
-      skip.current = false;
+    if (suppress || skipUntilType.current) {
+      reqGen.current += 1;
+      setHits([]);
+      setOpen(false);
+      setLookupFail(false);
+      setBusy(false);
       return;
     }
     const q = street.trim();
     if (disabled || q.length < 3) {
+      reqGen.current += 1;
       setHits([]);
       setOpen(false);
       setLookupFail(false);
+      setBusy(false);
       return;
     }
+    const gen = ++reqGen.current;
     const t = window.setTimeout(() => {
       setBusy(true);
       setLookupFail(false);
       void suggestDeliveryAddresses({ data: { query: q } })
         .then((r) => {
+          if (gen !== reqGen.current) return;
           setHits(r.hits);
           setActive(0);
           setOpen(r.hits.length > 0);
           setLookupFail(r.hits.length === 0);
         })
         .catch(() => {
+          if (gen !== reqGen.current) return;
           setHits([]);
           setOpen(false);
           setLookupFail(true);
         })
-        .finally(() => setBusy(false));
+        .finally(() => {
+          if (gen !== reqGen.current) return;
+          setBusy(false);
+        });
     }, 320);
-    return () => window.clearTimeout(t);
-  }, [street, disabled]);
+    return () => {
+      window.clearTimeout(t);
+      // Invalidate in-flight / pending work for this generation.
+      if (reqGen.current === gen) reqGen.current += 1;
+    };
+  }, [street, disabled, suppress]);
 
   useEffect(() => {
     function hide(e: MouseEvent) {
@@ -65,9 +87,12 @@ export function AddressSuggest({
   }, []);
 
   function pick(hit: AddressSuggestion) {
-    skip.current = true;
-    setOpen(false);
+    skipUntilType.current = true;
+    reqGen.current += 1;
     setHits([]);
+    setOpen(false);
+    setLookupFail(false);
+    setBusy(false);
     onPick(hit);
   }
 
@@ -84,10 +109,12 @@ export function AddressSuggest({
         aria-expanded={open}
         aria-controls={listId}
         onChange={(e) => {
+          skipUntilType.current = false;
           onStreetChange(e.target.value);
-          setOpen(true);
+          if (!suppress) setOpen(true);
         }}
         onFocus={() => {
+          if (suppress || skipUntilType.current) return;
           if (hits.length) setOpen(true);
         }}
         onKeyDown={(e) => {
