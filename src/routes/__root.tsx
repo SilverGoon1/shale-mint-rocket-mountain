@@ -32,7 +32,7 @@ export const Route = createRootRoute({
       { rel: "icon", type: "image/png", sizes: "32x32", href: "/icon-32.png" },
       { rel: "apple-touch-icon", href: "/icon-180.png" },
       { rel: "stylesheet", href: appCss },
-      { rel: "manifest", href: "/__grok/manifest.webmanifest" },
+      { rel: "manifest", href: "/manifest.webmanifest" },
       { rel: "preload", href: "/mark.jpg", as: "image" },
       { rel: "preload", href: "/mark-sm.jpg", as: "image" },
       { rel: "preconnect", href: "https://fonts.googleapis.com" },

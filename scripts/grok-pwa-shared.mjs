@@ -62,30 +62,13 @@ function placeholderCardColor(site = {}) {
  * "wild-race.grok.me" → "Wild Race". Only published app hosts encode the
  * display name in the first label. Preview / guest hosts are image origins
  * only — slugifying them produced internal names like "Hds Abc 3000 Xy".
- * This shop never installs as "Grok App".
  */
-export function isSouthEndHost(hostHeader) {
-  const host = String(hostHeader ?? "")
-    .split(",")[0]
-    .trim()
-    .split(":")[0]
-    .toLowerCase();
-  return (
-    host.includes("southendpizza.app") ||
-    host === "southendpizza.vercel.app" ||
-    host.endsWith(".southendpizza.vercel.app")
-  );
-}
-
 export function appNameFromHost(hostHeader) {
   const host = String(hostHeader ?? "")
     .split(",")[0]
     .trim()
     .split(":")[0]
     .toLowerCase();
-  if (isSouthEndHost(hostHeader)) {
-    return SOUTHEND_PWA_NAME;
-  }
   if (!host.endsWith(".grok.me")) {
     return DEFAULT_APP_NAME;
   }
@@ -115,7 +98,8 @@ function themeFromSite(site = {}) {
 
 /**
  * Install name for the web manifest / Apple home-screen title.
- * site.pwaName wins, then site.title, then a real host slug, then South End.
+ * This repo is South End Pizza only — never platform "Grok App".
+ * site.color still drives theme; names are fixed.
  */
 export function resolvePwaIdentity(hostHeader, cwdOrSite) {
   let site = {};
@@ -127,26 +111,10 @@ export function resolvePwaIdentity(hostHeader, cwdOrSite) {
     site = readOgSite(process.cwd());
   }
 
-  const shopHost =
-    isSouthEndHost(hostHeader) ||
-    isSouthEndHost(process.env?.VITE_PUBLIC_HOSTNAME) ||
-    isSouthEndHost(process.env?.BETTER_AUTH_URL);
-  const fromSitePwa = String(site.pwaName ?? "").trim();
-  const fromSiteTitle = String(site.title ?? "").trim();
-  const fromHost = appNameFromHost(hostHeader);
-  const name = shopHost
-    ? SOUTHEND_PWA_NAME
-    : fromSitePwa ||
-      fromSiteTitle ||
-      (fromHost && fromHost !== DEFAULT_APP_NAME ? fromHost : "") ||
-      SOUTHEND_PWA_NAME;
-  const shortName = shopHost
-    ? SOUTHEND_PWA_SHORT
-    : String(site.shortName ?? "").trim() || (name === SOUTHEND_PWA_NAME ? SOUTHEND_PWA_SHORT : name);
   const themeColor = themeFromSite(site);
   return {
-    name,
-    shortName,
+    name: SOUTHEND_PWA_NAME,
+    shortName: SOUTHEND_PWA_SHORT,
     themeColor,
     backgroundColor: themeColor || SOUTHEND_BG,
   };
@@ -258,13 +226,11 @@ export function renderWebManifest(hostHeader, cwdOrSite) {
   );
 }
 
-export function grokPwaHeadTags(appName = DEFAULT_APP_NAME, themeColor = SOUTHEND_THEME) {
-  const title = String(appName ?? "").trim() || DEFAULT_APP_NAME;
+export function grokPwaHeadTags(appName = SOUTHEND_PWA_NAME, themeColor = SOUTHEND_THEME) {
+  const title = String(appName ?? "").trim() || SOUTHEND_PWA_NAME;
   const theme = String(themeColor ?? "").trim() || SOUTHEND_THEME;
   return [
-    // Standalone display comes from the manifest ("display": "standalone");
-    // the legacy *-web-app-capable metas it replaces are deliberately absent.
-    ["manifest", '<link rel="manifest" href="/__grok/manifest.webmanifest">'],
+    ["manifest", '<link rel="manifest" href="/manifest.webmanifest">'],
     ["apple-touch-icon", '<link rel="apple-touch-icon" href="/icon-180.png">'],
     [
       "apple-mobile-web-app-title",
@@ -511,12 +477,17 @@ export function injectGrokPwaHead(html, ctx = {}) {
     documentTitle,
   );
   const identity = resolvePwaIdentity(host, site);
-  const appleTitle = String(site.shortName ?? "").trim() || appName;
+  const appleTitle = identity.shortName;
   let next = stripShareMetaTags(html);
 
   const missing = grokPwaHeadTags(appleTitle, identity.themeColor)
     .filter(([key]) => {
-      if (key === "manifest") return !next.includes('href="/__grok/manifest.webmanifest"');
+      if (key === "manifest") {
+        return !(
+          next.includes('href="/manifest.webmanifest"') ||
+          next.includes('href="/__grok/manifest.webmanifest"')
+        );
+      }
       if (key === "apple-touch-icon") return !next.includes('rel="apple-touch-icon"');
       return !next.includes(`name="${key}"`);
     })

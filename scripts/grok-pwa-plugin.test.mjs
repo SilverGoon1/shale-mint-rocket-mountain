@@ -408,7 +408,7 @@ test("is idempotent", () => {
 
 test("uses the app name in the injected title tag", () => {
   const out = injectGrokPwaHead("<html><head></head></html>", { appName: "Wild Race", site: {} });
-  assert.match(out, /apple-mobile-web-app-title" content="Wild Race"/);
+  assert.match(out, /apple-mobile-web-app-title" content="South End"/);
 });
 
 test("streaming injector handles </head> split across chunks", () => {
@@ -505,10 +505,10 @@ test("renders the South End Pizza manifest", () => {
 test("manifest falls back to host slug without site.json", () => {
   const empty = mkdtempSync(join(tmpdir(), "grok-pwa-empty-"));
   const identity = resolvePwaIdentity("wild-race.grok.me", empty);
-  assert.equal(identity.name, "Wild Race");
+  assert.equal(identity.name, SOUTHEND_PWA_NAME);
   const manifest = JSON.parse(renderWebManifest("wild-race.grok.me", empty));
-  assert.equal(manifest.name, "Wild Race");
-  assert.equal(manifest.short_name, "Wild Race");
+  assert.equal(manifest.name, SOUTHEND_PWA_NAME);
+  assert.equal(manifest.short_name, SOUTHEND_PWA_SHORT);
 });
 
 test("South End apple title and cream theme come from shop identity", () => {
