@@ -2802,21 +2802,22 @@ body:has(.mobile-bag) .support-dock {
   font-size: 1.05rem;
 }
 
-.letter-pack[data-orient="portrait"] .menu-columns {
-  grid-template-columns: 1fr 1fr;
-}
+.letter-pack[data-orient="portrait"] .menu-columns,
 .letter-pack[data-orient="landscape"] .menu-columns {
-  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-columns: repeat(var(--paper-cols), minmax(0, 1fr));
 }
 .letter-sheet {
-  overflow: auto;
+  overflow: hidden;
   height: auto;
+  display: flex;
 }
 .letter-sheet .paper {
   width: 100%;
-  height: auto;
+  height: 100%;
   min-height: 100%;
-  --paper-cols: 2;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   --type-name: 0.95rem;
   --type-desc: 0.72rem;
   --type-price: 0.95rem;
@@ -2827,12 +2828,36 @@ body:has(.mobile-bag) .support-dock {
   print-color-adjust: exact;
   -webkit-print-color-adjust: exact;
 }
+.letter-sheet .menu-columns {
+  flex: 1 1 auto;
+  align-items: stretch;
+}
 .letter-pack[data-orient="landscape"] .letter-sheet .paper {
-  --paper-cols: 3;
   --type-name: 0.9rem;
   --type-price: 0.9rem;
   --type-cat: 1rem;
   padding: 0.4in 0.45in 0.35in;
+}
+.letter-sheet .item-name {
+  white-space: nowrap;
+  overflow: visible;
+  text-overflow: unset;
+}
+.letter-sheet .item-row[data-kind="single"] {
+  grid-template-columns: var(--pip) auto minmax(3.4rem, 1fr);
+}
+.letter-sheet .item-row[data-kind="split"] {
+  grid-template-columns: var(--pip) auto minmax(0.75rem, 1fr) auto;
+}
+.letter-sheet .item-row[data-kind="pizza"] {
+  grid-template-columns: var(--pip) auto minmax(0.75rem, 1fr) var(--price-col) var(--price-col) var(--price-col);
+}
+.letter-sheet .item-row[data-kind="pizza"][data-xl="true"],
+.letter-sheet .pizza-cols[data-xl="true"] {
+  grid-template-columns: var(--pip) auto minmax(0.75rem, 1fr) var(--price-col) var(--price-col) var(--price-col) var(--price-col);
+}
+.letter-sheet .pizza-cols {
+  grid-template-columns: var(--pip) auto minmax(0.75rem, 1fr) var(--price-col) var(--price-col) var(--price-col);
 }
 .menu-section,
 .item-row,
@@ -2885,10 +2910,10 @@ body:has(.mobile-bag) .support-dock {
 }
 
 .paper .item-name {
-  white-space: normal;
+  white-space: nowrap;
   overflow: visible;
   text-overflow: unset;
-  max-width: 100%;
+  max-width: none;
 }
 .paper .item-desc {
   display: -webkit-box;

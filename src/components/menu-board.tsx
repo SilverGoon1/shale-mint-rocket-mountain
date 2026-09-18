@@ -316,7 +316,10 @@ function packLetterPages(paper: PaperSize, cats: MenuCategory[]): MenuCategory[]
 }
 
 function layoutColumns(paper: PaperSize, cats: MenuCategory[]): MenuCategory[][] {
-  if (isLetterPack(paper)) return splitCols(cats, paper === "letter4l" ? 3 : 2);
+  if (isLetterPack(paper)) {
+    const want = paper === "letter4l" ? (cats.length <= 2 ? 2 : 3) : 2;
+    return splitCols(cats, want);
+  }
   const presets = paper === "letter" ? LETTER_GROUPS : WIDE_GROUPS;
   const byId = new Map(cats.map((c) => [c.id, c]));
   const used = new Set<string>();
@@ -387,7 +390,11 @@ function BoardFace({
       className="paper"
       data-paper={face}
       data-pack={isLetterPack(paper) ? paper : undefined}
-      style={{ ["--print-scale" as string]: String(Math.max(0.9, Math.min(1.6, printScale / 100))) }}
+      data-cols={groups.length}
+      style={{
+        ["--print-scale" as string]: String(Math.max(0.9, Math.min(1.6, printScale / 100))),
+        ["--paper-cols" as string]: String(Math.max(1, groups.length)),
+      }}
     >
       {showMast ? (
         <header className="masthead">
