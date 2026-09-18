@@ -29,9 +29,11 @@ export function AddressSuggest({
   const skipUntilType = useRef(false);
   /** Monotonic id so stale suggestDeliveryAddresses responses are ignored. */
   const reqGen = useRef(0);
+  /** Lookups stay off until the customer clicks the street field. */
+  const [armed, setArmed] = useState(false);
 
   useEffect(() => {
-    if (suppress || skipUntilType.current) {
+    if (!armed || suppress || skipUntilType.current) {
       reqGen.current += 1;
       setHits([]);
       setOpen(false);
@@ -76,7 +78,7 @@ export function AddressSuggest({
       // Invalidate in-flight / pending work for this generation.
       if (reqGen.current === gen) reqGen.current += 1;
     };
-  }, [street, disabled, suppress]);
+  }, [street, disabled, suppress, armed]);
 
   useEffect(() => {
     function hide(e: MouseEvent) {
@@ -111,9 +113,11 @@ export function AddressSuggest({
         onChange={(e) => {
           skipUntilType.current = false;
           onStreetChange(e.target.value);
-          if (!suppress) setOpen(true);
+          if (!suppress && armed) setOpen(true);
         }}
+        onClick={() => setArmed(true)}
         onFocus={() => {
+          setArmed(true);
           if (suppress || skipUntilType.current) return;
           if (hits.length) setOpen(true);
         }}

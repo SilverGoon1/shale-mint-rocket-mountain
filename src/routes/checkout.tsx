@@ -188,11 +188,13 @@ function CheckoutForm({
   const settings = loadedSettings;
   const [fulfillment, setFulfillment] = useState<"pickup" | "delivery">("pickup");
   const savedStreet = (profile?.addressLine || "").trim();
+  const savedUnit = (profile?.addressUnit || "").trim();
   const savedCity = (profile?.city || "").trim();
   const savedZip = (profile?.zip || "").trim();
   const hasSaved = Boolean(savedStreet);
   const [useSaved, setUseSaved] = useState(hasSaved);
   const [address, setAddress] = useState(profile?.addressLine || "");
+  const [addressUnit, setAddressUnit] = useState(profile?.addressUnit || "");
   const [city, setCity] = useState(profile?.city || "Egg Harbor Township");
   const [zip, setZip] = useState(profile?.zip || "08234");
   const [geo, setGeo] = useState<{ lat: number; lng: number; label: string; deliverable: boolean; mapsUrl: string } | null>(
@@ -420,7 +422,7 @@ function CheckoutForm({
     const payload = {
       fulfillment,
       notes: notes.trim() || undefined,
-      addressLine: address,
+      addressLine: addressUnit.trim() ? `${address.trim()}, ${addressUnit.trim()}` : address,
       city,
       zip,
       lat: geo?.lat,
@@ -613,6 +615,7 @@ function CheckoutForm({
                 <p className="shop-brand-kicker">Primary delivery</p>
                 <strong>
                   {savedStreet}
+                  {savedUnit ? `, ${savedUnit}` : ""}
                   {savedCity ? `, ${savedCity}` : ""} {savedZip}
                 </strong>
                 <p className="ed-sub">Saved on your account. Used for this order unless you change it.</p>
@@ -637,6 +640,7 @@ function CheckoutForm({
                     onClick={() => {
                       setUseSaved(true);
                       setAddress(savedStreet);
+                      setAddressUnit(savedUnit);
                       setCity(savedCity || "Egg Harbor Township");
                       setZip(savedZip || "08234");
                       setGeo(null);
@@ -669,6 +673,16 @@ function CheckoutForm({
                       setError(hit.deliverable ? "" : "Delivery unavailable at that address. Choose pickup or another street.");
                     }}
                     placeholder="Start typing a street"
+                  />
+                </label>
+                <label className="ed-field">
+                  <span>Apt / unit / trailer</span>
+                  <input
+                    className="ed-input"
+                    value={addressUnit}
+                    onChange={(e) => setAddressUnit(e.target.value)}
+                    autoComplete="address-line2"
+                    placeholder="Apt 4, Lot 12, Building B"
                   />
                 </label>
                 <label className="ed-field">

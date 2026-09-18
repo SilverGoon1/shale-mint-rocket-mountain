@@ -7,6 +7,7 @@ export type ProfileView = {
   phone: string;
   displayName: string;
   addressLine: string;
+  addressUnit: string;
   city: string;
   zip: string;
   points: number;

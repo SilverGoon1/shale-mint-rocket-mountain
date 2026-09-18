@@ -626,6 +626,7 @@ async function applySettingsSchema(sql: Sql) {
 	}
 	try {
 		await sql.query(`alter table profiles add column if not exists avatar_url text not null default ''`);
+		await sql.query(`alter table profiles add column if not exists address_unit text not null default ''`);
 	} catch {
 		/* reads catch missing column */
 	}
@@ -1521,7 +1522,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 	const sql = await getSql();
 	let p: Record<string, unknown> | undefined;
 	try {
-		p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant, avatar_url from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
+		p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, address_unit, city, zip, admin_mode, admin_mode_allowed, desk_grant, avatar_url from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
 	} catch {
 		try {
 			p = (await sql`select role, phone, display_name, points, totp_enabled, banned, created_at, referral_code, address_line, city, zip, admin_mode, admin_mode_allowed, desk_grant from profiles where user_id = ${context.userId} limit 1`)[0] as Record<string, unknown> | undefined;
@@ -1575,6 +1576,7 @@ export const getMe = createServerFn({ method: "GET" }).middleware([authMiddlewar
 		phone: String(p?.phone || phoneFromAuthEmail(email) || ""),
 		displayName: String(p?.display_name || userRow?.name || "").trim(),
 		addressLine: String(p?.address_line ?? ""),
+		addressUnit: String(p?.address_unit ?? ""),
 		city: String(p?.city ?? ""),
 		zip: String(p?.zip ?? ""),
 		points: Math.round(num(p?.points)),
@@ -1682,6 +1684,14 @@ export const updateProfile = createServerFn({ method: "POST" }).middleware([auth
 	if (data.addressLine !== void 0) {
 		const line = String(data.addressLine ?? "").replace(/\s+/g, " ").trim().slice(0, 120);
 		await sql`update profiles set address_line = ${line} where user_id = ${context.userId}`;
+	}
+	if (data.addressUnit !== void 0) {
+		const unit = String(data.addressUnit ?? "").replace(/\s+/g, " ").trim().slice(0, 60);
+		try {
+			await sql`update profiles set address_unit = ${unit} where user_id = ${context.userId}`;
+		} catch {
+			/* column missing until schema apply */
+		}
 	}
 	if (data.city !== void 0) {
 		const city = String(data.city ?? "").replace(/\s+/g, " ").trim().slice(0, 60);

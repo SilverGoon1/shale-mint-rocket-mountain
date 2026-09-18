@@ -94,6 +94,7 @@ function AccountBody({
   const [phone, setPhone] = useState(profile.phone);
   const [name, setName] = useState(profile.displayName);
   const [address, setAddress] = useState(profile.addressLine);
+  const [addressUnit, setAddressUnit] = useState(profile.addressUnit || "");
   /** After Save profile: suppress address suggestions until the user edits the street. */
   const [addressCommitted, setAddressCommitted] = useState(false);
   const [city, setCity] = useState(profile.city);
@@ -334,6 +335,16 @@ function AccountBody({
                 placeholder="Start typing a street"
               />
             </label>
+            <label className="ed-field">
+              <span>Apt / unit / trailer</span>
+              <input
+                className="ed-input"
+                value={addressUnit}
+                onChange={(e) => setAddressUnit(e.target.value)}
+                autoComplete="address-line2"
+                placeholder="Apt 4, Lot 12, Building B"
+              />
+            </label>
             <div className="account-cityzip">
               <label className="ed-field">
                 <span>City</span>
@@ -362,7 +373,7 @@ function AccountBody({
               className="ed-btn"
               onClick={() => {
                 void updateProfile({
-                  data: { phone, displayName: name, addressLine: address, city, zip },
+                  data: { phone, displayName: name, addressLine: address, addressUnit, city, zip },
                 })
                   .then(() => {
                     setAddressCommitted(true);
